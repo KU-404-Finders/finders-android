@@ -28,6 +28,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ku.lostandfound.data.BoardPost
+import com.ku.lostandfound.data.PostType
+import com.ku.lostandfound.ui.board.screen.MainBottomBar
 import com.ku.lostandfound.ui.component.CompactPostCard
 
 private val DeepGreen = Color(0xFF1B6425)
@@ -44,6 +46,10 @@ fun ProfileScreen(
     onLogoutClick: () -> Unit,
     onWithdrawClick: () -> Unit,
     onSearchClick: () -> Unit = {},
+    selectedType: PostType = PostType.FOUND,
+    onFoundTabClick: () -> Unit,
+    onLostTabClick: () -> Unit,
+    onAddClick: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -113,7 +119,12 @@ fun ProfileScreen(
                 }
             }
         }
-
+        MainBottomBar(
+            selectedType = selectedType,
+            onFoundTabClick = onFoundTabClick,
+            onLostTabClick = onLostTabClick,
+            onAddClick = onAddClick,
+        )
     }
 }
 
@@ -128,7 +139,7 @@ private fun ProfileTopBar(onSearchClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "숲길대",
+            text = "찾을건대",
             color = DeepGreen,
             fontSize = 26.sp,
             fontWeight = FontWeight.Black,

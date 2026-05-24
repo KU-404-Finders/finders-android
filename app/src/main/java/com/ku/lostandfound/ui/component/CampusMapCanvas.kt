@@ -58,6 +58,7 @@ private val LakeFill = Color(0xFFAED7EC)
 private val BoundaryStroke = Color(0xFF2E442F)
 private val RouteRed = Color(0xFFCB4050)
 private val PinPink = Color(0xFFFF5D7A)
+private val MapContentPadding = 8.dp
 
 @Composable
 fun CampusMapCanvas(
@@ -78,8 +79,13 @@ fun CampusMapCanvas(
     var panOffset by remember { mutableStateOf(Offset.Zero) }
     var canvasSize by remember { mutableStateOf(Size.Zero) }
     val density = LocalDensity.current
-    val mapPoints = remember(boundary, buildings) {
-        boundary.polygon + buildings.flatMap { it.outerRing }
+    val mapPoints = remember(boundary, buildings, referencePaths) {
+        boundary.polygon +
+            buildings.flatMap { it.outerRing } +
+            referencePaths.flatMap { it.coordinate }
+    }
+    val outerBoundary = remember(mapPoints) {
+        mapPoints.convexHull().expandFromCenter(scale = 1.04).ifEmpty { boundary.polygon }
     }
 
     fun clampPan(nextPanOffset: Offset, nextZoom: Float = zoom): Offset {
@@ -88,7 +94,7 @@ fun CampusMapCanvas(
             canvasSize = canvasSize,
             zoom = nextZoom,
             panOffset = nextPanOffset,
-            paddingPx = with(density) { 22.dp.toPx() },
+            paddingPx = with(density) { MapContentPadding.toPx() },
         )
     }
 
@@ -115,7 +121,7 @@ fun CampusMapCanvas(
                                     canvasSize = Size(size.width.toFloat(), size.height.toFloat()),
                                     zoom = zoom,
                                     panOffset = panOffset,
-                                    paddingPx = with(density) { 22.dp.toPx() },
+                                    paddingPx = with(density) { MapContentPadding.toPx() },
                                 )
                                 val tappedGeo = converter.screenToGeo(offset)
                                 val clickedBuilding = buildings.firstOrNull { building ->
@@ -138,14 +144,14 @@ fun CampusMapCanvas(
                 canvasSize = size,
                 zoom = zoom,
                 panOffset = panOffset,
-                paddingPx = 22.dp.toPx(),
+                paddingPx = MapContentPadding.toPx(),
             )
-
-            drawBoundary(boundary, converter)
 
             if (showReferencePaths) {
                 drawReferencePaths(referencePaths, converter)
             }
+
+            drawBoundary(outerBoundary, converter)
 
             buildings.forEach { building ->
                 drawBuilding(
@@ -227,9 +233,9 @@ private fun CircleButton(text: String, onClick: () -> Unit, wide: Boolean = fals
     }
 }
 
-private fun DrawScope.drawBoundary(boundary: CampusBoundary, converter: GeoScreenConverter) {
+private fun DrawScope.drawBoundary(boundary: List<GeoPoint>, converter: GeoScreenConverter) {
     drawPath(
-        path = boundary.polygon.toClosedPath(converter),
+        path = boundary.toClosedPath(converter),
         color = BoundaryStroke,
         style = Stroke(width = 2.2.dp.toPx(), cap = StrokeCap.Round),
     )
@@ -409,6 +415,47 @@ private fun List<GeoPoint>.toClosedPath(converter: GeoScreenConverter): Path = P
         lineTo(screen.x, screen.y)
     }
     close()
+}
+
+private fun List<GeoPoint>.convexHull(): List<GeoPoint> {
+    val points = distinctBy { it.longitude to it.latitude }
+        .sortedWith(compareBy<GeoPoint> { it.longitude }.thenBy { it.latitude })
+    if (points.size < 3) return points
+
+    fun cross(o: GeoPoint, a: GeoPoint, b: GeoPoint): Double {
+        return (a.longitude - o.longitude) * (b.latitude - o.latitude) -
+            (a.latitude - o.latitude) * (b.longitude - o.longitude)
+    }
+
+    val lower = mutableListOf<GeoPoint>()
+    points.forEach { point ->
+        while (lower.size >= 2 && cross(lower[lower.lastIndex - 1], lower.last(), point) <= 0.0) {
+            lower.removeAt(lower.lastIndex)
+        }
+        lower.add(point)
+    }
+
+    val upper = mutableListOf<GeoPoint>()
+    points.asReversed().forEach { point ->
+        while (upper.size >= 2 && cross(upper[upper.lastIndex - 1], upper.last(), point) <= 0.0) {
+            upper.removeAt(upper.lastIndex)
+        }
+        upper.add(point)
+    }
+
+    return (lower.dropLast(1) + upper.dropLast(1))
+}
+
+private fun List<GeoPoint>.expandFromCenter(scale: Double): List<GeoPoint> {
+    if (isEmpty()) return this
+    val centerLng = sumOf { it.longitude } / size
+    val centerLat = sumOf { it.latitude } / size
+    return map { point ->
+        GeoPoint(
+            longitude = centerLng + (point.longitude - centerLng) * scale,
+            latitude = centerLat + (point.latitude - centerLat) * scale,
+        )
+    }
 }
 
 private fun clampPanOffset(

@@ -203,6 +203,10 @@ fun MainNavGraph(
                     navController.navigate(Route.Login.route) { popUpTo(0) }
                 },
                 onWithdrawClick = { },
+                selectedType = PostType.FOUND,
+                onFoundTabClick = { goFound() },
+                onLostTabClick = { goLost() },
+                onAddClick = { navController.navigate(Route.PostWrite.route) },
             )
         }
 

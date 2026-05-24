@@ -121,6 +121,8 @@ fun LoginScreen(
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color(0xFF4A6741),
                     unfocusedBorderColor = Color(0xFFD9D9D9),
+                    focusedTextColor = Color.Black,
+                    unfocusedTextColor = Color.Black,
                     errorBorderColor = Color.Red
                 ),
                 modifier = Modifier.fillMaxWidth()
@@ -158,6 +160,8 @@ fun LoginScreen(
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color(0xFF4A6741),
                     unfocusedBorderColor = Color(0xFFD9D9D9),
+                    focusedTextColor = Color.Black,
+                    unfocusedTextColor = Color.Black,
                     errorBorderColor = Color.Red
                 ),
                 modifier = Modifier.fillMaxWidth()

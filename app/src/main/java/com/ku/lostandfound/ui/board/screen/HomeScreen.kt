@@ -33,7 +33,6 @@ import com.ku.lostandfound.data.BoardPost
 import com.ku.lostandfound.data.CampusBoundary
 import com.ku.lostandfound.data.CampusBuilding
 import com.ku.lostandfound.data.CampusPath
-import com.ku.lostandfound.data.OutdoorPin
 import com.ku.lostandfound.data.PostType
 import com.ku.lostandfound.ui.component.CampusMapCanvas
 import com.ku.lostandfound.ui.component.CompactPostCard
@@ -88,11 +87,6 @@ fun HomeScreen(
                             boundary = boundary,
                             buildings = buildings,
                             referencePaths = referencePaths,
-                            outdoorPins = posts.mapNotNull { post ->
-                                post.foundLocation?.outdoorPin
-                            }.mapIndexed { index, pin ->
-                                OutdoorPin(order = index + 1, point = pin.point)
-                            },
                             selectedBuildingIds = selectedBuilding?.let { setOf(it.id) }.orEmpty(),
                             modifier = Modifier
                                 .fillMaxWidth()
