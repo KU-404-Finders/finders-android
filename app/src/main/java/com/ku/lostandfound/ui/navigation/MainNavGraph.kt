@@ -8,6 +8,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -21,10 +22,6 @@ import com.ku.lostandfound.data.CampusBoundary
 import com.ku.lostandfound.data.CampusBuilding
 import com.ku.lostandfound.data.CampusJsonRepository
 import com.ku.lostandfound.data.CampusPath
-import com.ku.lostandfound.data.FoundLocationSelection
-import com.ku.lostandfound.data.GeoPoint
-import com.ku.lostandfound.data.LostLocationSelection
-import com.ku.lostandfound.data.OutdoorPin
 import com.ku.lostandfound.data.PostStatus
 import com.ku.lostandfound.data.PostType
 import com.ku.lostandfound.ui.found.screen.FoundBoardScreen
@@ -40,8 +37,17 @@ import com.ku.lostandfound.ui.signup.screen.SignupEmailScreen
 import com.ku.lostandfound.ui.signup.screen.SignupFinishScreen
 import com.ku.lostandfound.ui.signup.screen.SignupNameScreen
 import com.ku.lostandfound.ui.signup.screen.SignupPwScreen
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.ku.lostandfound.data.BoardComment
+import com.ku.lostandfound.ui.found.viewmodel.FoundItemMatchUiState
+import com.ku.lostandfound.ui.found.viewmodel.FoundItemViewModel
+import com.ku.lostandfound.ui.login.viewmodel.LoginViewModel
+import com.ku.lostandfound.ui.lost.viewmodel.LostItemViewModel
+import com.ku.lostandfound.ui.profile.viewmodel.UserViewModel
+import com.ku.lostandfound.ui.search.screen.SearchScreen
 import com.ku.lostandfound.ui.signup.viewmodel.SignupViewmodel
 import com.ku.lostandfound.viewmodel.PostWriteViewModel
+import kotlinx.coroutines.launch
 
 @Composable
 fun MainNavGraph(
@@ -50,8 +56,13 @@ fun MainNavGraph(
     padding: PaddingValues,
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val writeViewModel = remember { PostWriteViewModel() }
-    val signupViewModel = remember { SignupViewmodel() }
+    val loginViewModel = viewModel<LoginViewModel>()
+    val signupViewModel = viewModel<SignupViewmodel>()
+    val userViewModel = viewModel<UserViewModel>()
+    val lostItemViewModel = viewModel<LostItemViewModel>()
+    val foundItemViewModel = viewModel<FoundItemViewModel>()
 
     val currentUserName = signupViewModel.name.ifBlank { "김건겸" }
     val currentUserEmail = signupViewModel.email.ifBlank { "konkuk26@konkuk.ac.kr" }
@@ -59,13 +70,17 @@ fun MainNavGraph(
     var boundary by remember { mutableStateOf<CampusBoundary?>(null) }
     var buildings by remember { mutableStateOf<List<CampusBuilding>>(emptyList()) }
     var referencePaths by remember { mutableStateOf<List<CampusPath>>(emptyList()) }
-    var posts by remember { mutableStateOf(sampleBoardPosts(currentUserName, currentUserEmail)) }
+    var posts by remember { mutableStateOf<List<BoardPost>>(emptyList()) }
+    var commentsByPostId by remember {
+        mutableStateOf<Map<String, List<BoardComment>>>(emptyMap())
+    }
 
     LaunchedEffect(Unit) {
         val repo = CampusJsonRepository(context)
         boundary = repo.loadBoundary()
         buildings = repo.loadBuildings()
         referencePaths = repo.loadPaths()
+        lostItemViewModel.loadLostItems()
     }
 
     fun toggleResolved(post: BoardPost) {
@@ -78,25 +93,61 @@ fun MainNavGraph(
         }
     }
 
-    fun submitPost() {
-        if (!writeViewModel.canSubmit()) return
-        val newPost = BoardPost(
+    fun addComment(postId: String, content: String) {
+        if (content.isBlank()) return
+
+        val newComment = BoardComment(
             id = System.currentTimeMillis().toString(),
-            type = writeViewModel.postType,
-            status = PostStatus.OPEN,
-            title = writeViewModel.title,
-            category = writeViewModel.category,
-            content = writeViewModel.content,
-            imageUri = writeViewModel.imageUri,
+            postId = postId,
             authorName = currentUserName,
             authorEmail = currentUserEmail,
-            lostLocation = if (writeViewModel.postType == PostType.LOST) writeViewModel.lostLocation else null,
-            foundLocation = if (writeViewModel.postType == PostType.FOUND) writeViewModel.foundLocation else null,
+            content = content.trim(),
+            createdAtText = "방금 전"
         )
-        posts = listOf(newPost) + posts
-        writeViewModel.reset()
-        navController.navigate(if (newPost.type == PostType.FOUND) Route.Found.route else Route.Lost.route) {
-            popUpTo(Route.PostWrite.route) { inclusive = true }
+
+        val oldComments = commentsByPostId[postId].orEmpty()
+
+        commentsByPostId = commentsByPostId + mapOf(
+            postId to (oldComments + newComment)
+        )
+    }
+
+    fun submitPost() {
+        if (!writeViewModel.canSubmit()) return
+
+        if (writeViewModel.postType == PostType.LOST) {
+            coroutineScope.launch {
+                writeViewModel.createLostItem(context)
+                    .onSuccess { createdPost ->
+                        posts = listOf(
+                            createdPost.copy(
+                                authorName = currentUserName,
+                                authorEmail = currentUserEmail,
+                            )
+                        ) + posts
+                        writeViewModel.reset()
+                        navController.navigate(Route.Lost.route) {
+                            popUpTo(Route.PostWrite.route) { inclusive = true }
+                        }
+                    }
+            }
+            return
+        }
+
+        coroutineScope.launch {
+            writeViewModel.createFoundItem(context)
+                .onSuccess { createdPost ->
+                    posts = listOf(
+                        createdPost.copy(
+                            authorName = currentUserName,
+                            authorEmail = currentUserEmail,
+                        )
+                    ) + posts
+                    writeViewModel.reset()
+                    navController.navigate(Route.Found.route) {
+                        popUpTo(Route.PostWrite.route) { inclusive = true }
+                    }
+                }
         }
     }
 
@@ -115,6 +166,7 @@ fun MainNavGraph(
     ) {
         composable(route = Route.Login.route) {
             LoginScreen(
+                viewModel = loginViewModel,
                 onLoginSuccess = {
                     navController.navigate(Route.Found.route) {
                         popUpTo(Route.Login.route) { inclusive = true }
@@ -166,43 +218,102 @@ fun MainNavGraph(
             if (b == null) {
                 Text("지도 데이터를 불러오는 중입니다.")
             } else {
+                val serverFoundPosts = foundItemViewModel.asBoardPosts()
+                val foundPosts = if (foundItemViewModel.selectedBuildingName != null) {
+                    (serverFoundPosts + posts.filter { it.type == PostType.FOUND }).distinctBy { it.id }
+                } else {
+                    posts.filter { it.type == PostType.FOUND }
+                }
                 FoundBoardScreen(
-                    posts = posts,
+                    posts = foundPosts,
                     boundary = b,
                     buildings = buildings,
                     referencePaths = referencePaths,
-                    onPostClick = { navController.navigate(Route.PostDetail.create(it.id)) },
+                    onPostClick = { post ->
+                        if (posts.none { it.id == post.id }) {
+                            posts = listOf(post) + posts
+                        }
+                        navController.navigate(Route.PostDetail.create(post.id))
+                    },
                     onAddClick = { navController.navigate(Route.PostWrite.route) },
                     onFoundTabClick = { goFound() },
                     onLostTabClick = { goLost() },
                     onProfileClick = { navController.navigate(Route.Profile.route) },
+                    onSearchClick = { navController.navigate(Route.Search.route) },
+                    onBuildingSelected = { building ->
+                        if (building == null) {
+                            foundItemViewModel.clearBuildingFilter()
+                        } else {
+                            foundItemViewModel.loadFoundItemsByBuilding(building.name)
+                        }
+                    },
                 )
             }
         }
 
         composable(route = Route.Lost.route) {
+            LaunchedEffect(Unit) {
+                lostItemViewModel.loadLostItems()
+            }
+            val serverLostPosts = lostItemViewModel.asBoardPosts()
+            val lostPosts = (serverLostPosts + posts.filter { it.type == PostType.LOST }).distinctBy { it.id }
             LostBoardScreen(
-                posts = posts,
-                onPostClick = { navController.navigate(Route.PostDetail.create(it.id)) },
+                posts = lostPosts,
+                onPostClick = { post ->
+                    if (posts.none { it.id == post.id }) {
+                        posts = listOf(post) + posts
+                    }
+                    navController.navigate(Route.PostDetail.create(post.id))
+                },
                 onAddClick = { navController.navigate(Route.PostWrite.route) },
                 onFoundTabClick = { goFound() },
                 onLostTabClick = { goLost() },
                 onProfileClick = { navController.navigate(Route.Profile.route) },
+                onSearchClick = { navController.navigate(Route.Search.route) }
             )
         }
 
         composable(route = Route.Profile.route) {
-            val myPosts = posts.filter { it.authorEmail == currentUserEmail }
+            LaunchedEffect(Unit) {
+                userViewModel.loadMe()
+            }
+            val userMe = userViewModel.me
+            val userName = userMe?.email?.substringBefore("@") ?: currentUserName
+            val userEmail = userMe?.email ?: currentUserEmail
+            val myPosts = posts.filter { it.authorEmail == userEmail || it.authorEmail == currentUserEmail }
+            val myPostCount = myPosts.size
             ProfileScreen(
-                userName = currentUserName,
-                userEmail = currentUserEmail,
+                userName = userName,
+                userEmail = userEmail,
                 myPosts = myPosts,
+                myPostCount = myPostCount,
                 onPostClick = { navController.navigate(Route.PostDetail.create(it.id)) },
                 onShowAllClick = { navController.navigate(Route.MyPosts.route) },
                 onLogoutClick = {
-                    navController.navigate(Route.Login.route) { popUpTo(0) }
+                    loginViewModel.logout {
+                        navController.navigate(Route.Login.route) {
+                            popUpTo(navController.graph.startDestinationId) {
+                                inclusive = true
+                            }
+                            launchSingleTop = true
+                        }
+                    }
                 },
-                onWithdrawClick = { },
+                onWithdrawClick = {
+                    onSuccess ->
+                    loginViewModel.withdraw {
+                        onSuccess()
+                    }
+                },
+                onWithdrawCompleteConfirm = {
+                    navController.navigate(Route.Login.route) {
+                        popUpTo(navController.graph.startDestinationId) {
+                            inclusive = true
+                        }
+                        launchSingleTop = true
+                    }
+                },
+                onSearchClick = { navController.navigate(Route.Search.route) },
                 selectedType = PostType.FOUND,
                 onFoundTabClick = { goFound() },
                 onLostTabClick = { goLost() },
@@ -210,8 +321,28 @@ fun MainNavGraph(
             )
         }
 
+        composable(route = Route.Search.route) {
+            val searchablePosts = (
+                lostItemViewModel.asBoardPosts() +
+                    foundItemViewModel.asBoardPosts() +
+                    posts
+                ).distinctBy { it.id }
+            SearchScreen(
+                posts = searchablePosts,
+                onBackClick = { navController.popBackStack() },
+                onPostClick = { post ->
+                    if (posts.none { it.id == post.id }) {
+                        posts = listOf(post) + posts
+                    }
+                    navController.navigate(Route.PostDetail.create(post.id))
+                }
+            )
+        }
+
         composable(route = Route.MyPosts.route) {
-            val myPosts = posts.filter { it.authorEmail == currentUserEmail }
+            val userMe = userViewModel.me
+            val userEmail = userMe?.email ?: currentUserEmail
+            val myPosts = posts.filter { it.authorEmail == userEmail || it.authorEmail == currentUserEmail }
             MyPostsScreen(
                 posts = myPosts,
                 onBackClick = { navController.popBackStack() },
@@ -280,13 +411,62 @@ fun MainNavGraph(
         ) { backStackEntry ->
             val b = boundary
             val postId = backStackEntry.arguments?.getString(Route.PostDetail.ARG_POST_ID).orEmpty()
-            val post = posts.firstOrNull { it.id == postId }
+            val localPost = posts.firstOrNull { it.id == postId }
+            val numericItemId = postId.toLongOrNull()
+            LaunchedEffect(numericItemId, localPost?.type) {
+                if (numericItemId != null) {
+                    when (localPost?.type) {
+                        PostType.FOUND -> {
+                            foundItemViewModel.loadFoundItemDetail(numericItemId)
+                            foundItemViewModel.loadFoundItemMatches(numericItemId)
+                        }
+                        else -> {
+                            lostItemViewModel.loadLostItemDetail(numericItemId)
+                            lostItemViewModel.loadMatches(numericItemId)
+                        }
+                    }
+                }
+            }
+            val post = if (numericItemId != null && localPost?.type == PostType.FOUND) {
+                foundItemViewModel.detailPost
+                    ?.takeIf { it.id == postId }
+                    ?.copy(
+                        authorName = localPost.authorName,
+                        authorEmail = localPost.authorEmail,
+                    )
+                    ?: localPost
+            } else if (numericItemId != null) {
+                lostItemViewModel.detailPost
+                    ?.takeIf { it.id == postId }
+                    ?.copy(
+                        authorName = localPost?.authorName ?: "",
+                        authorEmail = localPost?.authorEmail ?: "",
+                    )
+                    ?: localPost
+            } else {
+                localPost
+            }
 
             if (b == null) {
                 Text("지도 데이터를 불러오는 중입니다.")
             } else if (post == null) {
                 Text("게시글을 찾을 수 없습니다.")
             } else {
+                val matchCandidateTexts = when (post.type) {
+                    PostType.LOST -> lostItemViewModel.matches.map { match ->
+                        "${match.foundItem.title} · 위치 유사도 ${"%.2f".format(match.locationScore)}"
+                    }
+                    PostType.FOUND -> {
+                        val state = foundItemViewModel.matchUiState
+                        if (state is FoundItemMatchUiState.Completed) {
+                            state.matches.map { match ->
+                                "${match.lostItem.title} · 위치 유사도 ${"%.2f".format(match.locationScore)}"
+                            }
+                        } else {
+                            emptyList()
+                        }
+                    }
+                }
                 PostDetailScreen(
                     post = post,
                     boundary = b,
@@ -294,74 +474,47 @@ fun MainNavGraph(
                     referencePaths = referencePaths,
                     onBackClick = { navController.popBackStack() },
                     showOwnerActions = post.authorEmail == currentUserEmail,
-                    onToggleResolvedClick = { toggleResolved(it) },
+                    onToggleResolvedClick = {
+                        val itemId = it.id.toLongOrNull()
+                        if (it.type == PostType.LOST && itemId != null && it.status == PostStatus.OPEN) {
+                            lostItemViewModel.markReturned(itemId) { updatedPost ->
+                                posts = posts.map { existing ->
+                                    if (existing.id == updatedPost.id) {
+                                        updatedPost.copy(
+                                            authorName = existing.authorName,
+                                            authorEmail = existing.authorEmail,
+                                        )
+                                    } else {
+                                        existing
+                                    }
+                                }
+                            }
+                        } else if (it.type == PostType.FOUND && itemId != null && it.status == PostStatus.OPEN) {
+                            foundItemViewModel.updateFoundItemStatus(itemId) { updatedPost ->
+                                posts = posts.map { existing ->
+                                    if (existing.id == updatedPost.id) {
+                                        updatedPost.copy(
+                                            authorName = existing.authorName,
+                                            authorEmail = existing.authorEmail,
+                                        )
+                                    } else {
+                                        existing
+                                    }
+                                }
+                            }
+                        } else {
+                            toggleResolved(it)
+                        }
+                    },
+                    comments = commentsByPostId[post.id].orEmpty(),
+                    currentUserName = currentUserName,
+                    currentUserEmail = currentUserEmail,
+                    onAddComment = { content ->
+                        addComment(post.id, content)
+                    },
+                    matchCandidateTexts = matchCandidateTexts,
                 )
             }
         }
     }
-}
-
-private fun sampleBoardPosts(userName: String, userEmail: String): List<BoardPost> {
-    val p1 = OutdoorPin(1, GeoPoint(127.0790, 37.5418))
-    val p2 = OutdoorPin(2, GeoPoint(127.0772, 37.5412))
-    val p3 = OutdoorPin(3, GeoPoint(127.0755, 37.5428))
-
-    return listOf(
-        BoardPost(
-            id = "my-1",
-            type = PostType.LOST,
-            status = PostStatus.OPEN,
-            title = "공학관 아이패드 프로",
-            category = "전자기기",
-            content = "공학관 근처에서 아이패드 프로를 잃어버렸습니다.",
-            imageUri = "sample://ipad",
-            authorName = userName,
-            authorEmail = userEmail,
-            lostLocation = LostLocationSelection(outdoorPins = listOf(p1, p2, p3)),
-        ),
-        BoardPost(
-            id = "my-2",
-            type = PostType.LOST,
-            status = PostStatus.OPEN,
-            title = "경영관 에어팟",
-            category = "전자기기",
-            content = "경영관 강의실에서 에어팟을 잃어버렸습니다.",
-            imageUri = "sample://airpods",
-            authorName = userName,
-            authorEmail = userEmail,
-        ),
-        BoardPost(
-            id = "my-3",
-            type = PostType.LOST,
-            status = PostStatus.RESOLVED,
-            title = "상허연구관 학생증",
-            category = "학생증",
-            content = "상허연구관에서 학생증을 잃어버렸습니다.",
-            imageUri = "sample://card",
-            authorName = userName,
-            authorEmail = userEmail,
-        ),
-        BoardPost(
-            id = "found-1",
-            type = PostType.FOUND,
-            status = PostStatus.OPEN,
-            title = "학생회관 에어팟 프로",
-            category = "전자기기",
-            content = "학생회관 내부에서 에어팟 프로를 습득했습니다.",
-            authorName = userName,
-            authorEmail = userEmail,
-            foundLocation = FoundLocationSelection(outdoorPin = OutdoorPin(1, GeoPoint(127.0781, 37.5416))),
-        ),
-        BoardPost(
-            id = "found-2",
-            type = PostType.FOUND,
-            status = PostStatus.OPEN,
-            title = "학생회관 충전기",
-            category = "전자기기",
-            content = "학생회관에서 충전기를 습득했습니다.",
-            authorName = "익명",
-            authorEmail = "someone@konkuk.ac.kr",
-            foundLocation = FoundLocationSelection(outdoorPin = OutdoorPin(1, GeoPoint(127.0777, 37.5419))),
-        ),
-    )
 }

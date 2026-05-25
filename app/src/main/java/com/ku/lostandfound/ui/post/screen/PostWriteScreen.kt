@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import com.ku.lostandfound.data.PostType
 import com.ku.lostandfound.ui.component.BackTitleBar
 import com.ku.lostandfound.ui.component.GreenSegmentedSwitch
+import com.ku.lostandfound.viewmodel.PostWriteUiState
 import com.ku.lostandfound.viewmodel.PostWriteViewModel
 
 private val DeepGreen = Color(0xFF1B6425)
@@ -57,6 +58,9 @@ fun PostWriteScreen(
     onAddLocationClick: (PostType) -> Unit,
     onSubmitClick: () -> Unit,
 ) {
+    val uiState = viewModel.uiState
+    val isLoading = uiState is PostWriteUiState.Loading
+    val errorMessage = (uiState as? PostWriteUiState.Error)?.message
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
@@ -95,7 +99,10 @@ fun PostWriteScreen(
             SectionLabel("제목")
             SoftTextField(
                 value = viewModel.title,
-                onValueChange = { viewModel.title = it },
+                onValueChange = {
+                    viewModel.title = it
+                    if (uiState is PostWriteUiState.Error) viewModel.resetUiState()
+                },
                 placeholder = "AI가 카테고리를 자동 추천해줘요",
                 singleLine = true,
             )
@@ -104,7 +111,10 @@ fun PostWriteScreen(
             SectionLabel("분류")
             CategoryDropdown(
                 selected = viewModel.category,
-                onSelected = { viewModel.category = it },
+                onSelected = {
+                    viewModel.category = it
+                    if (uiState is PostWriteUiState.Error) viewModel.resetUiState()
+                },
             )
 
             Spacer(Modifier.height(12.dp))
@@ -118,16 +128,28 @@ fun PostWriteScreen(
             SectionLabel("상세 내용")
             SoftTextField(
                 value = viewModel.content,
-                onValueChange = { viewModel.content = it },
+                onValueChange = {
+                    viewModel.content = it
+                    if (uiState is PostWriteUiState.Error) viewModel.resetUiState()
+                },
                 placeholder = "ex )\n검은색 지갑을 공학관에서 잃어버렸습니다.\n바깥에 물결무늬가 있고, 오리 캐릭터가 달려있습니다.",
                 minHeight = 184.dp,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
             )
 
             Spacer(Modifier.height(20.dp))
+            if (errorMessage != null) {
+                Text(
+                    text = errorMessage,
+                    color = Color(0xFFD32F2F),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(bottom = 10.dp),
+                )
+            }
             Button(
                 onClick = onSubmitClick,
-                enabled = viewModel.canSubmit(),
+                enabled = viewModel.canSubmit() && !isLoading,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = DeepGreen,
                     disabledContainerColor = Color(0xFFD8D8D8),
@@ -139,7 +161,11 @@ fun PostWriteScreen(
                     .fillMaxWidth()
                     .height(45.dp),
             ) {
-                Text("등록하기", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    text = if (isLoading) "등록 중..." else "등록하기",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                )
             }
             Spacer(Modifier.height(24.dp))
         }

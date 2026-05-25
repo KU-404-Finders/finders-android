@@ -20,6 +20,10 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +35,9 @@ import com.ku.lostandfound.data.BoardPost
 import com.ku.lostandfound.data.PostType
 import com.ku.lostandfound.ui.board.screen.MainBottomBar
 import com.ku.lostandfound.ui.component.CompactPostCard
+import com.ku.lostandfound.ui.profile.component.LogoutConfirmDialog
+import com.ku.lostandfound.ui.profile.component.WithdrawCompleteDialog
+import com.ku.lostandfound.ui.profile.component.WithdrawConfirmDialog
 
 private val DeepGreen = Color(0xFF1B6425)
 private val ScreenGray = Color(0xFFF4F4F4)
@@ -41,16 +48,22 @@ fun ProfileScreen(
     userName: String,
     userEmail: String,
     myPosts: List<BoardPost>,
+    myPostCount: Int = myPosts.size,
     onPostClick: (BoardPost) -> Unit,
     onShowAllClick: () -> Unit,
     onLogoutClick: () -> Unit,
-    onWithdrawClick: () -> Unit,
+    onWithdrawClick: (onSuccess: () -> Unit) -> Unit,
+    onWithdrawCompleteConfirm: () -> Unit,
     onSearchClick: () -> Unit = {},
     selectedType: PostType = PostType.FOUND,
     onFoundTabClick: () -> Unit,
     onLostTabClick: () -> Unit,
     onAddClick: () -> Unit,
 ) {
+    var showWithdrawConfirmDialog by remember { mutableStateOf(false) }
+    var showWithdrawCompleteDialog by remember { mutableStateOf(false) }
+    var showLogoutConfirmDialog by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -67,7 +80,9 @@ fun ProfileScreen(
                 ProfileCard(
                     userName = userName,
                     userEmail = userEmail,
-                    onLogoutClick = onLogoutClick,
+                    onLogoutClick = {
+                        showLogoutConfirmDialog = true
+                    },
                 )
             }
 
@@ -78,9 +93,9 @@ fun ProfileScreen(
                         .padding(top = 12.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("나의 등록 내역", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text("나의 등록 내역", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Black)
                     Spacer(Modifier.size(8.dp))
-                    Text(myPosts.size.toString(), color = DeepGreen, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text(myPostCount.toString(), color = DeepGreen, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.weight(1f))
                     Text(
                         text = "전체보기 〉",
@@ -114,7 +129,9 @@ fun ProfileScreen(
                         color = Color(0xFF888888),
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable(onClick = onWithdrawClick),
+                        modifier = Modifier.clickable {
+                            showWithdrawConfirmDialog = true
+                        },
                     )
                 }
             }
@@ -124,6 +141,41 @@ fun ProfileScreen(
             onFoundTabClick = onFoundTabClick,
             onLostTabClick = onLostTabClick,
             onAddClick = onAddClick,
+        )
+    }
+
+    if (showLogoutConfirmDialog) {
+        LogoutConfirmDialog(
+            onCancelClick = {
+                showLogoutConfirmDialog = false
+            },
+            onLogoutClick = {
+                showLogoutConfirmDialog = false
+                onLogoutClick()
+            }
+        )
+    }
+
+    if (showWithdrawConfirmDialog) {
+        WithdrawConfirmDialog(
+            onCancelClick = {
+                showWithdrawConfirmDialog = false
+            },
+            onWithdrawClick = {
+                showWithdrawConfirmDialog = false
+                onWithdrawClick {
+                    showWithdrawCompleteDialog = true
+                }
+            }
+        )
+    }
+
+    if (showWithdrawCompleteDialog) {
+        WithdrawCompleteDialog(
+            onConfirmClick = {
+                showWithdrawCompleteDialog = false
+                onWithdrawCompleteConfirm()
+            }
         )
     }
 }

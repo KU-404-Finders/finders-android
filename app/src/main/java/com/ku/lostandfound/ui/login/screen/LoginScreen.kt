@@ -26,6 +26,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,30 +43,29 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ku.lostandfound.R
+import com.ku.lostandfound.ui.login.viewmodel.LoginUiState
+import com.ku.lostandfound.ui.login.viewmodel.LoginViewModel
 
 @Composable
 fun LoginScreen(
+    viewModel: LoginViewModel,
     onLoginSuccess: () -> Unit = {},
-    onNavigateToSignUp: () -> Unit = {}
+    onNavigateToSignUp: () -> Unit = {},
 ) {
-    // 상태 관리
-    var id by remember { mutableStateOf("") }
+    var emailPrefix by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
 
-    // 에러 상태 관리
-    var errorMessage by remember { mutableStateOf("") }
+    val uiState = viewModel.uiState
+    val isLoading = uiState is LoginUiState.Loading
+    val errorMessage = (uiState as? LoginUiState.Error)?.message
 
-    // 둘 다 한 글자 이상 입력되어야 로그인 버튼 활성화
-    val isLoginEnabled = id.isNotBlank() && password.isNotBlank()
+    val isLoginEnabled = emailPrefix.isNotBlank() && password.isNotBlank() && !isLoading
 
-    // 값이 변경될 때마다 기존 에러 메시지 지우기
-    val onIdChange: (String) -> Unit = {
-        id = it
-        errorMessage = ""
-    }
-    val onPasswordChange: (String) -> Unit = {
-        password = it
-        errorMessage = ""
+    LaunchedEffect(uiState) {
+        if (uiState is LoginUiState.Success) {
+            viewModel.resetUiState()
+            onLoginSuccess()
+        }
     }
 
     Column(
@@ -95,8 +95,11 @@ fun LoginScreen(
                 modifier = Modifier.padding(bottom = 8.dp)
             )
             OutlinedTextField(
-                value = id,
-                onValueChange = onIdChange,
+                value = emailPrefix,
+                onValueChange = {
+                    emailPrefix = it
+                    if (uiState is LoginUiState.Error) viewModel.resetUiState()
+                },
                 placeholder = {
                     Text("아이디", color = Color.LightGray, fontSize = 14.sp)
                 },
@@ -116,7 +119,7 @@ fun LoginScreen(
                     )
                 },
                 singleLine = true,
-                isError = errorMessage.isNotEmpty(), // 에러 발생 시 붉은 테두리
+                isError = errorMessage != null,
                 shape = RoundedCornerShape(8.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color(0xFF4A6741),
@@ -141,7 +144,10 @@ fun LoginScreen(
             )
             OutlinedTextField(
                 value = password,
-                onValueChange = onPasswordChange,
+                onValueChange = {
+                    password = it
+                    if (uiState is LoginUiState.Error) viewModel.resetUiState()
+                },
                 placeholder = {
                     Text("비밀번호를 입력하세요", color = Color.LightGray, fontSize = 14.sp)
                 },
@@ -155,7 +161,7 @@ fun LoginScreen(
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                isError = errorMessage.isNotEmpty(), // 에러 발생 시 붉은 테두리
+                isError = errorMessage != null,
                 shape = RoundedCornerShape(8.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color(0xFF4A6741),
@@ -168,9 +174,8 @@ fun LoginScreen(
             )
         }
 
-        // 4. 에러 메시지 표시 영역
         Spacer(modifier = Modifier.height(8.dp))
-        if (errorMessage.isNotEmpty()) {
+        if (errorMessage != null) {
             Text(
                 text = errorMessage,
                 color = Color.Red,
@@ -179,21 +184,13 @@ fun LoginScreen(
                 textAlign = TextAlign.Start
             )
         } else {
-            // 에러가 없을 때도 레이아웃이 튀지 않도록 빈 공간 확보
             Spacer(modifier = Modifier.height(16.dp))
         }
 
         Spacer(modifier = Modifier.height(24.dp))
 
         Button(
-            onClick = {
-                // TODO: 실제 서버 통신 로직으로 교체
-                if (id == "id" && password == "password") { // 추후 수정 필요
-                    onLoginSuccess()
-                } else {
-                    errorMessage = "아이디 또는 비밀번호가 올바르지 않습니다."
-                }
-            },
+            onClick = { viewModel.login(emailPrefix, password) },
             enabled = isLoginEnabled,
             shape = RoundedCornerShape(8.dp),
             colors = ButtonDefaults.buttonColors(
@@ -207,7 +204,7 @@ fun LoginScreen(
                 .height(52.dp)
         ) {
             Text(
-                text = "로그인 →",
+                text = if (isLoading) "로그인 중..." else "로그인 →",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -241,6 +238,5 @@ fun LoginScreen(
 @Preview(showBackground = true)
 @Composable
 fun LoginScreenPreview() {
-    LoginScreen()
+    LoginScreen(viewModel = LoginViewModel())
 }
-

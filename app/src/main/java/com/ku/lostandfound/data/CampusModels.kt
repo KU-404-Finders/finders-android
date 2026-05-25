@@ -90,4 +90,14 @@ data class BoardPost(
     val createdAtText: String = "2026-03-22",
     val lostLocation: LostLocationSelection? = null,
     val foundLocation: FoundLocationSelection? = null,
+    val associatedBuildingNames: List<String> = emptyList(),
+)
+
+data class BoardComment(
+    val id: String,
+    val postId: String,
+    val authorName: String,
+    val authorEmail: String,
+    val content: String,
+    val createdAtText: String = "방금 전",
 )

@@ -14,10 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
@@ -28,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ku.lostandfound.ui.component.BottomFixedButton
 import com.ku.lostandfound.ui.component.GetBackTopAppBar
+import com.ku.lostandfound.ui.signup.viewmodel.SignupUiState
 import com.ku.lostandfound.ui.signup.viewmodel.SignupViewmodel
 
 @Composable
@@ -36,7 +34,15 @@ fun SignupCodeScreen(
     onNavigateToFinish: () -> Unit = {},
     onNavigateToBack: () -> Unit = {},
 ) {
-    var isError by remember { mutableStateOf(false) }
+    val uiState = viewModel.uiState
+    val errorMessage = (uiState as? SignupUiState.Error)?.message
+
+    LaunchedEffect(uiState) {
+        if (uiState is SignupUiState.Success) {
+            viewModel.resetUiState()
+            onNavigateToFinish()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -73,7 +79,7 @@ fun SignupCodeScreen(
                 onValueChange = { input ->
                     if (input.length <= 6 && input.all { it.isDigit() }) {
                         viewModel.verificationCode = input
-                        isError = false
+                        if (uiState is SignupUiState.Error) viewModel.resetUiState()
                     }
                 },
                 placeholder = {
@@ -95,8 +101,8 @@ fun SignupCodeScreen(
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,
                     unfocusedContainerColor = Color.Transparent,
-                    focusedIndicatorColor = if (isError) Color(0xFFD32F2F) else Color(0xFF4A6741),
-                    unfocusedIndicatorColor = if (isError) Color(0xFFD32F2F) else Color(0xFFD9D9D9),
+                    focusedIndicatorColor = if (errorMessage != null) Color(0xFFD32F2F) else Color(0xFF4A6741),
+                    unfocusedIndicatorColor = if (errorMessage != null) Color(0xFFD32F2F) else Color(0xFFD9D9D9),
                     cursorColor = Color(0xFF4A6741)
                 ),
                 modifier = Modifier
@@ -104,9 +110,9 @@ fun SignupCodeScreen(
                     .padding(top = 50.dp)
             )
 
-            if (isError) {
+            if (errorMessage != null) {
                 Text(
-                    text = "인증번호가 올바르지 않습니다.",
+                    text = errorMessage,
                     color = Color(0xFFD32F2F),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -117,17 +123,9 @@ fun SignupCodeScreen(
             Spacer(modifier = Modifier.height(220.dp))
 
             BottomFixedButton(
-                text = "인증하기",
-                onClick = {
-                    // 현재는 UI 테스트용 코드. 서버 연결 시 이 부분에서 viewModel.name/password/email을 한 번에 넘기면 된다.
-                    if (viewModel.verificationCode == "202613") {
-                        isError = false
-                        onNavigateToFinish()
-                    } else {
-                        isError = true
-                    }
-                },
-                enabled = viewModel.isVerificationCodeValid,
+                text = if (uiState is SignupUiState.Loading) "처리 중..." else "인증하기",
+                onClick = { viewModel.register() },
+                enabled = viewModel.isVerificationCodeValid && uiState !is SignupUiState.Loading,
                 modifier = Modifier.padding(bottom = 20.dp)
             )
         }
