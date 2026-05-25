@@ -25,16 +25,18 @@ fun FoundBoardScreen(
     onLostTabClick: () -> Unit,
     onProfileClick: () -> Unit,
     onSearchClick: () -> Unit = {},
+    onBuildingSelected: (CampusBuilding?) -> Unit = {},
 ) {
     var selectedBuilding by remember { mutableStateOf<CampusBuilding?>(null) }
     val foundPosts = posts.filter { it.type == PostType.FOUND }
     val filteredPosts = selectedBuilding?.let { building ->
         foundPosts.filter { post ->
-            val indoorMatch = post.foundLocation?.indoorPlace?.buildingId == building.id
+            val associatedMatch = building.name in post.associatedBuildingNames
+            val indoorMatch = post.foundLocation?.indoorPlace?.buildingName == building.name
             val outdoorMatch = post.foundLocation?.outdoorPin?.let { pin ->
                 GeoUtils.pointInPolygon(pin.point, building.outerRing)
             } ?: false
-            indoorMatch || outdoorMatch
+            associatedMatch || indoorMatch || outdoorMatch
         }
     } ?: foundPosts
 
@@ -47,8 +49,14 @@ fun FoundBoardScreen(
         referencePaths = referencePaths,
         showCampusMap = true,
         selectedBuilding = selectedBuilding,
-        onBuildingClick = { selectedBuilding = it },
-        onClearBuildingFilter = { selectedBuilding = null },
+        onBuildingClick = {
+            selectedBuilding = it
+            onBuildingSelected(it)
+        },
+        onClearBuildingFilter = {
+            selectedBuilding = null
+            onBuildingSelected(null)
+        },
         onPostClick = onPostClick,
         onAddClick = onAddClick,
         onFoundTabClick = onFoundTabClick,

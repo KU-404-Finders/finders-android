@@ -15,6 +15,9 @@ sealed class Route(val route: String) {
     object Profile : Route(route = "profile")
     object MyPosts : Route(route = "myPosts")
 
+    /* 검색 */
+    object Search : Route(route = "search")
+
     /* 게시글 */
     object PostWrite : Route(route = "postWrite")
     object PostDetail : Route(route = "postDetail/{postId}") {

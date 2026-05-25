@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ku.lostandfound.ui.component.BottomFixedButton
 import com.ku.lostandfound.ui.component.GetBackTopAppBar
+import com.ku.lostandfound.ui.signup.viewmodel.SignupUiState
 import com.ku.lostandfound.ui.signup.viewmodel.SignupViewmodel
 
 @Composable
@@ -34,6 +35,10 @@ fun SignupEmailScreen(
     onNavigateToCode: () -> Unit = {},
     onNavigateToBack: () -> Unit = {},
 ) {
+    val uiState = viewModel.uiState
+    val isLoading = uiState is SignupUiState.Loading
+    val errorMessage = (uiState as? SignupUiState.Error)?.message
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -71,7 +76,10 @@ fun SignupEmailScreen(
             ) {
                 TextField(
                     value = viewModel.emailPrefix,
-                    onValueChange = { viewModel.emailPrefix = it.trim() },
+                    onValueChange = {
+                        viewModel.emailPrefix = it.trim()
+                        if (uiState is SignupUiState.Error) viewModel.resetUiState()
+                    },
                     placeholder = {
                         Text(
                             text = "아이디",
@@ -106,12 +114,22 @@ fun SignupEmailScreen(
                 )
             }
 
+            if (errorMessage != null) {
+                Text(
+                    text = errorMessage,
+                    color = Color(0xFFD32F2F),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+
             Spacer(modifier = Modifier.height(220.dp))
 
             BottomFixedButton(
-                text = "인증 메일 받기",
-                onClick = onNavigateToCode,
-                enabled = viewModel.isEmailValid,
+                text = if (isLoading) "발송 중..." else "인증 메일 받기",
+                onClick = { viewModel.sendVerificationCode(onNavigateToCode) },
+                enabled = viewModel.isEmailValid && !isLoading,
                 modifier = Modifier.padding(bottom = 20.dp)
             )
         }
