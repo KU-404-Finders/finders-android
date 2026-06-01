@@ -232,8 +232,8 @@ class PostWriteViewModel {
     private fun createImagePart(context: Context, uriString: String): MultipartBody.Part {
         val uri = Uri.parse(uriString)
         val contentResolver = context.contentResolver
-        val mimeType = contentResolver.getType(uri) ?: "image/jpeg"
-        require(mimeType in setOf("image/jpeg", "image/png", "image/webp")) {
+        val mimeType = normalizeImageMimeType(contentResolver.getType(uri))
+        require(mimeType in ALLOWED_IMAGE_MIME_TYPES) {
             "JPEG, PNG, WEBP 이미지만 등록할 수 있습니다."
         }
 
@@ -249,11 +249,22 @@ class PostWriteViewModel {
             else -> "jpg"
         }
         val requestBody = bytes.toRequestBody(mimeType.toMediaType())
+        val fileLabel = if (postType == PostType.FOUND) "found-item" else "lost-item"
         return MultipartBody.Part.createFormData(
             name = "image",
-            filename = "lost-item.$extension",
+            filename = "$fileLabel.$extension",
             body = requestBody,
         )
+    }
+
+    /** ContentResolver MIME이 비어 있거나 image/jpg 등 비표준일 때 서버 허용 타입으로 맞춘다. */
+    private fun normalizeImageMimeType(rawMimeType: String?): String {
+        return when (rawMimeType?.lowercase()) {
+            null, "", "application/octet-stream" -> "image/jpeg"
+            "image/jpg", "image/pjpeg" -> "image/jpeg"
+            "image/x-png" -> "image/png"
+            else -> rawMimeType.lowercase()
+        }
     }
 
     private fun LostItemData.toBoardPost(): BoardPost {
@@ -338,5 +349,6 @@ class PostWriteViewModel {
 
     private companion object {
         const val MAX_IMAGE_BYTES = 10 * 1024 * 1024
+        val ALLOWED_IMAGE_MIME_TYPES = setOf("image/jpeg", "image/png", "image/webp")
     }
 }
