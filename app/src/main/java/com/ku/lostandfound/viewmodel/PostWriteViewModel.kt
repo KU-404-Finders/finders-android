@@ -1,7 +1,11 @@
 package com.ku.lostandfound.viewmodel
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
+import android.media.ExifInterface
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -31,6 +35,8 @@ import com.ku.lostandfound.network.httpErrorMessage
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 
 sealed class PostWriteUiState {
     object Idle : PostWriteUiState()
@@ -232,39 +238,63 @@ class PostWriteViewModel {
     private fun createImagePart(context: Context, uriString: String): MultipartBody.Part {
         val uri = Uri.parse(uriString)
         val contentResolver = context.contentResolver
-        val mimeType = normalizeImageMimeType(contentResolver.getType(uri))
-        require(mimeType in ALLOWED_IMAGE_MIME_TYPES) {
-            "JPEG, PNG, WEBP 이미지만 등록할 수 있습니다."
-        }
-
-        val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+        val sourceBytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
             ?: throw IllegalStateException("이미지를 읽을 수 없습니다.")
-        require(bytes.size <= MAX_IMAGE_BYTES) {
+
+        val uploadBytes = sourceBytes.toUploadJpegBytes()
+        require(uploadBytes.size <= MAX_IMAGE_BYTES) {
             "이미지는 최대 10MB까지 등록할 수 있습니다."
         }
 
-        val extension = when (mimeType) {
-            "image/png" -> "png"
-            "image/webp" -> "webp"
-            else -> "jpg"
-        }
-        val requestBody = bytes.toRequestBody(mimeType.toMediaType())
+        val requestBody = uploadBytes.toRequestBody(UPLOAD_IMAGE_MIME_TYPE.toMediaType())
         val fileLabel = if (postType == PostType.FOUND) "found-item" else "lost-item"
         return MultipartBody.Part.createFormData(
             name = "image",
-            filename = "$fileLabel.$extension",
+            filename = "$fileLabel.jpg",
             body = requestBody,
         )
     }
 
-    /** ContentResolver MIME이 비어 있거나 image/jpg 등 비표준일 때 서버 허용 타입으로 맞춘다. */
-    private fun normalizeImageMimeType(rawMimeType: String?): String {
-        return when (rawMimeType?.lowercase()) {
-            null, "", "application/octet-stream" -> "image/jpeg"
-            "image/jpg", "image/pjpeg" -> "image/jpeg"
-            "image/x-png" -> "image/png"
-            else -> rawMimeType.lowercase()
+    private fun ByteArray.toUploadJpegBytes(): ByteArray {
+        val decoded = BitmapFactory.decodeByteArray(this, 0, size)
+            ?: throw IllegalStateException("JPEG, PNG, WEBP 이미지만 등록할 수 있습니다.")
+        val oriented = decoded.applyExifOrientation(this)
+
+        val qualities = listOf(90, 80, 70, 60)
+        var compressed = ByteArray(0)
+        for (quality in qualities) {
+            compressed = oriented.compressJpeg(quality)
+            if (compressed.size <= MAX_IMAGE_BYTES) break
         }
+
+        if (oriented !== decoded) oriented.recycle()
+        decoded.recycle()
+        return compressed
+    }
+
+    private fun Bitmap.compressJpeg(quality: Int): ByteArray {
+        return ByteArrayOutputStream().use { output ->
+            compress(Bitmap.CompressFormat.JPEG, quality, output)
+            output.toByteArray()
+        }
+    }
+
+    private fun Bitmap.applyExifOrientation(sourceBytes: ByteArray): Bitmap {
+        val orientation = runCatching {
+            ExifInterface(ByteArrayInputStream(sourceBytes)).getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL,
+            )
+        }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+            else -> return this
+        }
+        return Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
     }
 
     private fun LostItemData.toBoardPost(): BoardPost {
@@ -349,6 +379,6 @@ class PostWriteViewModel {
 
     private companion object {
         const val MAX_IMAGE_BYTES = 10 * 1024 * 1024
-        val ALLOWED_IMAGE_MIME_TYPES = setOf("image/jpeg", "image/png", "image/webp")
+        const val UPLOAD_IMAGE_MIME_TYPE = "image/jpeg"
     }
 }

@@ -6,6 +6,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,6 +27,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,9 +36,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -46,6 +51,9 @@ import com.ku.lostandfound.ui.component.BackTitleBar
 import com.ku.lostandfound.ui.component.GreenSegmentedSwitch
 import com.ku.lostandfound.viewmodel.PostWriteUiState
 import com.ku.lostandfound.viewmodel.PostWriteViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.net.URL
 
 private val DeepGreen = Color(0xFF1B6425)
 private val FieldGray = Color(0xFFF4F4F4)
@@ -61,6 +69,7 @@ fun PostWriteScreen(
     val uiState = viewModel.uiState
     val isLoading = uiState is PostWriteUiState.Loading
     val errorMessage = (uiState as? PostWriteUiState.Error)?.message
+    val focusManager = LocalFocusManager.current
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
@@ -71,6 +80,9 @@ fun PostWriteScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.White)
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { focusManager.clearFocus() })
+            }
     ) {
         BackTitleBar(title = "새 글 쓰기", onBackClick = onBackClick)
 
@@ -103,7 +115,7 @@ fun PostWriteScreen(
                     viewModel.title = it
                     if (uiState is PostWriteUiState.Error) viewModel.resetUiState()
                 },
-                placeholder = "AI가 카테고리를 자동 추천해줘요",
+                placeholder = "예 ) 검은색 지갑을 찾습니다",
                 singleLine = true,
             )
 
@@ -180,16 +192,7 @@ private fun SectionLabel(text: String) {
 
 @Composable
 private fun PhotoBox(imageUri: String?, onClick: () -> Unit) {
-    val context = LocalContext.current
-    val bitmap = remember(imageUri) {
-        imageUri?.let { uriString ->
-            runCatching {
-                context.contentResolver.openInputStream(android.net.Uri.parse(uriString)).use { stream ->
-                    BitmapFactory.decodeStream(stream)
-                }
-            }.getOrNull()
-        }
-    }
+    val imageBitmap = rememberPostImageBitmap(imageUri)
 
     Box(
         modifier = Modifier
@@ -200,11 +203,11 @@ private fun PhotoBox(imageUri: String?, onClick: () -> Unit) {
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        if (bitmap != null) {
+        if (imageBitmap != null) {
             Image(
-                bitmap = bitmap.asImageBitmap(),
+                bitmap = imageBitmap,
                 contentDescription = "선택한 사진",
-                contentScale = ContentScale.Crop,
+                contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
@@ -215,6 +218,31 @@ private fun PhotoBox(imageUri: String?, onClick: () -> Unit) {
             }
         }
     }
+}
+
+@Composable
+private fun rememberPostImageBitmap(imageUri: String?): ImageBitmap? {
+    val context = LocalContext.current
+    var bitmap by remember(imageUri) { mutableStateOf<ImageBitmap?>(null) }
+
+    LaunchedEffect(imageUri) {
+        bitmap = null
+        if (imageUri.isNullOrBlank()) return@LaunchedEffect
+        bitmap = withContext(Dispatchers.IO) {
+            runCatching {
+                val decoded = if (imageUri.startsWith("http://") || imageUri.startsWith("https://")) {
+                    URL(imageUri).openStream().use { stream -> BitmapFactory.decodeStream(stream) }
+                } else {
+                    context.contentResolver.openInputStream(android.net.Uri.parse(imageUri)).use { stream ->
+                        BitmapFactory.decodeStream(stream)
+                    }
+                }
+                decoded?.asImageBitmap()
+            }.getOrNull()
+        }
+    }
+
+    return bitmap
 }
 
 @Composable
@@ -239,6 +267,9 @@ private fun SoftTextField(
             unfocusedContainerColor = FieldGray,
             focusedBorderColor = Color.Transparent,
             unfocusedBorderColor = Color.Transparent,
+            focusedTextColor = Color.Black,
+            unfocusedTextColor = Color.Black,
+            disabledTextColor = Color.Black,
         ),
         modifier = modifier
             .fillMaxWidth()

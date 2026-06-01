@@ -68,11 +68,22 @@ enum class ItemStatus {
     RETURNED,
 }
 
+enum class MatchStatus {
+    CALCULATING,
+    COMPLETED,
+    FAILED,
+}
+
 data class FoundItemMatchesResponse(
     val success: Boolean,
     val message: String,
-    val data: List<FoundItemMatchData>?,
+    val data: FoundItemMatchesResult?,
     val errors: Map<String, String>? = null,
+)
+
+data class FoundItemMatchesResult(
+    val status: MatchStatus,
+    val matches: List<FoundItemMatchData> = emptyList(),
 )
 
 data class FoundItemMatchData(
