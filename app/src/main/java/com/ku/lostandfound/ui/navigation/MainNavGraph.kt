@@ -33,6 +33,7 @@ import com.ku.lostandfound.ui.post.screen.PostDetailScreen
 import com.ku.lostandfound.ui.post.screen.PostWriteScreen
 import com.ku.lostandfound.network.MyFoundItemData
 import com.ku.lostandfound.network.MyLostItemData
+import com.ku.lostandfound.network.TokenManager
 import com.ku.lostandfound.ui.post.viewmodel.PostCommentViewModel
 import com.ku.lostandfound.ui.profile.screen.MyPostsType
 import com.ku.lostandfound.ui.profile.screen.MyPostsScreen
@@ -82,11 +83,18 @@ fun MainNavGraph(
         mutableStateOf<Map<String, List<BoardComment>>>(emptyMap())
     }
 
+    val startDestination = remember {
+        if (TokenManager.isLoggedIn()) Route.Found.route else Route.Login.route
+    }
+
     LaunchedEffect(Unit) {
         val repo = CampusJsonRepository(context)
         boundary = repo.loadBoundary()
         buildings = repo.loadBuildings()
         referencePaths = repo.loadPaths()
+        if (TokenManager.isLoggedIn()) {
+            userViewModel.loadMe()
+        }
         lostItemViewModel.loadLostItems()
         foundItemViewModel.loadFoundItems()
     }
@@ -207,7 +215,7 @@ fun MainNavGraph(
 
     NavHost(
         navController = navController,
-        startDestination = Route.Login.route,
+        startDestination = startDestination,
         modifier = modifier.padding(padding),
     ) {
         composable(route = Route.Login.route) {
