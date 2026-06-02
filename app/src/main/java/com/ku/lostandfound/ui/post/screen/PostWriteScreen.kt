@@ -380,10 +380,18 @@ private fun locationSummary(viewModel: PostWriteViewModel): String {
             val found = viewModel.foundLocation
             when {
                 found.outdoorPin != null -> "습득 위치: 외부 핀 1개"
-                found.indoorPlace != null -> "습득 위치: ${found.indoorPlace.buildingName} ${floorText(found.indoorPlace.floor)}"
+                found.indoorPlace != null -> "습득 위치: ${found.indoorPlace.locationText()}"
                 else -> "습득 위치 추가"
             }
         }
+    }
+}
+
+private fun com.ku.lostandfound.data.IndoorPlace.locationText(): String {
+    return if (buildingName == "일감호") {
+        buildingName
+    } else {
+        "$buildingName ${floorText(floor)}"
     }
 }
 

@@ -51,6 +51,9 @@ class FoundItemViewModel : ViewModel() {
     var foundItems by mutableStateOf<List<FoundItemSummaryData>>(emptyList())
         private set
 
+    var listVersion by mutableStateOf(0)
+        private set
+
     var detailPost by mutableStateOf<BoardPost?>(null)
         private set
 
@@ -67,6 +70,7 @@ class FoundItemViewModel : ViewModel() {
                     val body = response.body()
                     if (body?.success == true) {
                         foundItems = body.data.orEmpty().filter { it.itemStatus == ItemStatus.SEARCHING }
+                        listVersion++
                         uiState = FoundItemUiState.Idle
                     } else {
                         uiState = FoundItemUiState.Error(body?.message ?: "습득물 목록을 불러오지 못했습니다.")
@@ -93,6 +97,7 @@ class FoundItemViewModel : ViewModel() {
                     val body = response.body()
                     if (body?.success == true) {
                         foundItems = body.data.orEmpty().filter { it.itemStatus == ItemStatus.SEARCHING }
+                        listVersion++
                         uiState = FoundItemUiState.Idle
                     } else {
                         uiState = FoundItemUiState.Error(body?.message ?: "습득물 목록을 불러오지 못했습니다.")
@@ -157,6 +162,8 @@ class FoundItemViewModel : ViewModel() {
                     if (body?.success == true && body.data != null) {
                         val updatedPost = body.data.toBoardPost()
                         detailPost = updatedPost
+                        foundItems = foundItems.filterNot { it.id == id }
+                        listVersion++
                         uiState = FoundItemUiState.Idle
                         onSuccess(updatedPost)
                     } else {
@@ -252,6 +259,7 @@ class FoundItemViewModel : ViewModel() {
             BoardPost(
                 id = item.id.toString(),
                 type = PostType.FOUND,
+                status = if (item.itemStatus == ItemStatus.RETURNED) PostStatus.RESOLVED else PostStatus.OPEN,
                 title = item.title,
                 category = item.kind,
                 content = item.associatedBuildingNames.joinToString(", ").ifBlank { "습득물 상세 조회가 필요합니다." },

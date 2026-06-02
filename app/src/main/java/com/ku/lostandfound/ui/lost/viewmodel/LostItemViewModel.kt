@@ -38,6 +38,9 @@ class LostItemViewModel : ViewModel() {
     var lostItems by mutableStateOf<List<LostItemSummaryData>>(emptyList())
         private set
 
+    var listVersion by mutableStateOf(0)
+        private set
+
     var detailPost by mutableStateOf<BoardPost?>(null)
         private set
 
@@ -56,6 +59,7 @@ class LostItemViewModel : ViewModel() {
                     val body = response.body()
                     if (body?.success == true) {
                         lostItems = body.data.orEmpty().filter { it.itemStatus == "SEARCHING" }
+                        listVersion++
                         uiState = LostItemListUiState.Idle
                     } else {
                         uiState = LostItemListUiState.Error(body?.message ?: "분실물 목록을 불러오지 못했습니다.")
@@ -77,6 +81,7 @@ class LostItemViewModel : ViewModel() {
             BoardPost(
                 id = item.id.toString(),
                 type = PostType.LOST,
+                status = if (item.itemStatus == "RETURNED") PostStatus.RESOLVED else PostStatus.OPEN,
                 title = item.title,
                 category = item.kind,
                 content = "분실물 상세 정보를 불러오려면 상세 조회 API가 필요합니다.",
@@ -127,6 +132,8 @@ class LostItemViewModel : ViewModel() {
                     if (body?.success == true && body.data != null) {
                         val updatedPost = body.data.toBoardPost()
                         detailPost = updatedPost
+                        lostItems = lostItems.filterNot { it.id == id }
+                        listVersion++
                         uiState = LostItemListUiState.Idle
                         onSuccess(updatedPost)
                     } else {

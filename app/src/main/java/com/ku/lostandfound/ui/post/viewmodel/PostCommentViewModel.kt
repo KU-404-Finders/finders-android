@@ -10,6 +10,7 @@ import com.ku.lostandfound.data.BoardComment
 import com.ku.lostandfound.data.PostType
 import com.ku.lostandfound.network.AuthErrorResponse
 import com.ku.lostandfound.network.CommentCreateRequest
+import com.ku.lostandfound.network.CommentUpdateRequest
 import com.ku.lostandfound.network.ItemCommentResponse
 import com.ku.lostandfound.network.NetworkLog
 import com.ku.lostandfound.network.RetrofitClient
@@ -138,6 +139,57 @@ class PostCommentViewModel : ViewModel() {
                 }
             } catch (e: Exception) {
                 NetworkLog.exception("deleteComment", e)
+                uiState = PostCommentUiState.Error(e.message ?: "서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
+            }
+        }
+    }
+
+    fun updateComment(postId: Long, postType: PostType, commentId: Long, content: String) {
+        val trimmedContent = content.trim()
+        if (trimmedContent.isBlank()) return
+
+        viewModelScope.launch {
+            try {
+                val authorization = bearerTokenOrThrow()
+                val request = CommentUpdateRequest(content = trimmedContent)
+                val response = when (postType) {
+                    PostType.FOUND -> RetrofitClient.foundItemApi.updateFoundItemComment(
+                        authorization = authorization,
+                        foundItemId = postId,
+                        commentId = commentId,
+                        request = request,
+                    )
+                    PostType.LOST -> RetrofitClient.lostItemApi.updateLostItemComment(
+                        authorization = authorization,
+                        lostItemId = postId,
+                        commentId = commentId,
+                        request = request,
+                    )
+                }
+                if (response.isSuccessful) {
+                    val body = response.body()
+                    if (body?.success == true && body.data != null) {
+                        val postKey = postId.toString()
+                        commentsByPostId = commentsByPostId + (
+                            postKey to commentsByPostId[postKey].orEmpty().map { comment ->
+                                if (comment.id == commentId.toString()) {
+                                    body.data.toBoardComment(postKey)
+                                } else {
+                                    comment
+                                }
+                            }
+                            )
+                        uiState = PostCommentUiState.Idle
+                    } else {
+                        uiState = PostCommentUiState.Error(body?.message ?: "댓글 수정에 실패했습니다.")
+                    }
+                } else {
+                    val errorBody = response.errorBody()?.string()
+                    NetworkLog.httpError("updateComment", response.code(), errorBody)
+                    uiState = PostCommentUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
+                }
+            } catch (e: Exception) {
+                NetworkLog.exception("updateComment", e)
                 uiState = PostCommentUiState.Error(e.message ?: "서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
             }
         }

@@ -53,6 +53,8 @@ import com.ku.lostandfound.util.GeoUtils
 private val DeepGreen = Color(0xFF1B6425)
 private val FieldGray = Color(0xFFF4F4F4)
 private val DangerRed = Color(0xFFFF3B3B)
+private const val FLOORLESS_BUILDING_NAME = "일감호"
+private const val DEFAULT_FLOORLESS_PLACE_FLOOR = 1
 
 @Composable
 fun LocationPickerScreen(
@@ -76,6 +78,34 @@ fun LocationPickerScreen(
         outdoorPins.addAll(initialOutdoorPins)
         indoorPlaces.clear()
         indoorPlaces.addAll(initialIndoorPlaces)
+    }
+
+    fun addIndoorPlace(place: IndoorPlace) {
+        if (postType == PostType.LOST) {
+            if (indoorPlaces.size < 3 && indoorPlaces.none { it.buildingId == place.buildingId && it.floor == place.floor }) {
+                indoorPlaces.add(place)
+            }
+        } else {
+            indoorPlaces.clear()
+            indoorPlaces.add(place)
+            outdoorPins.clear()
+        }
+    }
+
+    fun selectIndoorBuilding(building: CampusBuilding) {
+        if (building.requiresFloorSelection()) {
+            pendingBuilding = building
+            return
+        }
+
+        addIndoorPlace(
+            IndoorPlace(
+                buildingId = building.id,
+                buildingName = building.name,
+                floor = DEFAULT_FLOORLESS_PLACE_FLOOR,
+            )
+        )
+        pendingBuilding = null
     }
 
     Column(
@@ -120,7 +150,7 @@ fun LocationPickerScreen(
                         referencePaths = referencePaths,
                         indoorPlaces = indoorPlaces,
                         pendingBuilding = pendingBuilding,
-                        onBuildingSelected = { pendingBuilding = it },
+                        onBuildingSelected = { selectIndoorBuilding(it) },
                     )
                 }
             }
@@ -154,15 +184,7 @@ fun LocationPickerScreen(
                     buildingName = building.name,
                     floor = floor,
                 )
-                if (postType == PostType.LOST) {
-                    if (indoorPlaces.size < 3 && indoorPlaces.none { it.buildingId == place.buildingId && it.floor == place.floor }) {
-                        indoorPlaces.add(place)
-                    }
-                } else {
-                    indoorPlaces.clear()
-                    indoorPlaces.add(place)
-                    outdoorPins.clear()
-                }
+                addIndoorPlace(place)
                 pendingBuilding = null
             }
         )
@@ -285,7 +307,7 @@ private fun IndoorPlaceRow(place: IndoorPlace, onRemoveClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "${place.buildingName} ${place.floor.toFloorText()}",
+            text = place.toLocationText(),
             color = Color(0xFF444444),
             fontSize = 14.sp,
             modifier = Modifier.weight(1f),
@@ -406,3 +428,13 @@ private fun FloorSelectDialog(
 }
 
 private fun Int.toFloorText(): String = if (this < 0) "B${-this}층" else "${this}층"
+
+private fun CampusBuilding.requiresFloorSelection(): Boolean = name != FLOORLESS_BUILDING_NAME
+
+private fun IndoorPlace.toLocationText(): String {
+    return if (buildingName == FLOORLESS_BUILDING_NAME) {
+        buildingName
+    } else {
+        "$buildingName ${floor.toFloorText()}"
+    }
+}

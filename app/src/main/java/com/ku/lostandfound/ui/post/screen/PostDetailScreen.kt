@@ -60,6 +60,7 @@ import com.ku.lostandfound.data.CampusBoundary
 import com.ku.lostandfound.data.CampusBuilding
 import com.ku.lostandfound.data.CampusPath
 import com.ku.lostandfound.data.FoundLocationSelection
+import com.ku.lostandfound.data.IndoorPlace
 import com.ku.lostandfound.data.LostLocationSelection
 import com.ku.lostandfound.data.PostStatus
 import com.ku.lostandfound.data.PostType
@@ -109,6 +110,7 @@ fun PostDetailScreen(
     isMatchLoading: Boolean = false,
     isCommentsLoading: Boolean = false,
     onDeleteComment: (BoardComment) -> Unit = {},
+    onUpdateComment: (BoardComment, String) -> Unit = { _, _ -> },
 ) {
     val focusManager = LocalFocusManager.current
     var showResolveConfirmDialog by remember { mutableStateOf(false) }
@@ -283,8 +285,11 @@ fun PostDetailScreen(
                 comments = comments,
                 postAuthorUserId = post.authorUserId,
                 currentUserId = currentUserId,
+                currentUserName = currentUserName,
+                currentUserEmail = currentUserEmail,
                 isLoading = isCommentsLoading,
                 onDeleteComment = onDeleteComment,
+                onUpdateComment = onUpdateComment,
             )
 
             Spacer(Modifier.height(20.dp))
@@ -559,14 +564,17 @@ private fun LostLocationView(
     referencePaths: List<CampusPath>,
 ) {
     val pins = location?.outdoorPins.orEmpty()
+    val places = location?.indoorPlaces.orEmpty()
+    val selectedBuildingIds = places.toSelectedBuildingIds(buildings)
 
-    if (pins.isNotEmpty()) {
+    if (pins.isNotEmpty() || selectedBuildingIds.isNotEmpty()) {
         CampusMapCanvas(
             boundary = boundary,
             buildings = buildings,
             referencePaths = referencePaths,
             outdoorPins = pins,
-            showRoute = true,
+            selectedBuildingIds = selectedBuildingIds,
+            showRoute = pins.isNotEmpty(),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(250.dp)
@@ -576,12 +584,10 @@ private fun LostLocationView(
         Spacer(Modifier.height(10.dp))
     }
 
-    val places = location?.indoorPlaces.orEmpty()
-
     if (places.isNotEmpty()) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             places.forEach { place ->
-                LocationChip("${place.buildingName} ${place.floor}층")
+                LocationChip(place.toLocationText())
             }
         }
     }
@@ -604,13 +610,15 @@ private fun FoundLocationView(
 ) {
     val pin = location?.outdoorPin
     val place = location?.indoorPlace
+    val selectedBuildingIds = listOfNotNull(place).toSelectedBuildingIds(buildings)
 
-    if (pin != null) {
+    if (pin != null || selectedBuildingIds.isNotEmpty()) {
         CampusMapCanvas(
             boundary = boundary,
             buildings = buildings,
             referencePaths = referencePaths,
-            outdoorPins = listOf(pin),
+            outdoorPins = listOfNotNull(pin),
+            selectedBuildingIds = selectedBuildingIds,
             showRoute = false,
             modifier = Modifier
                 .fillMaxWidth()
@@ -620,8 +628,8 @@ private fun FoundLocationView(
     }
 
     if (place != null) {
-        if (pin != null) Spacer(Modifier.height(10.dp))
-        LocationChip("${place.buildingName} ${place.floor}층")
+        Spacer(Modifier.height(10.dp))
+        LocationChip(place.toLocationText())
     }
 
     if (pin == null && place == null) {
@@ -645,13 +653,34 @@ private fun LocationChip(text: String) {
     )
 }
 
+private fun List<IndoorPlace>.toSelectedBuildingIds(buildings: List<CampusBuilding>): Set<String> {
+    return mapNotNull { place ->
+        buildings.firstOrNull { building ->
+            building.id == place.buildingId || building.name == place.buildingName || building.name == place.buildingId
+        }?.id ?: place.buildingId.takeIf { it.isNotBlank() }
+    }.toSet()
+}
+
+private fun IndoorPlace.toLocationText(): String {
+    return if (buildingName == "일감호") {
+        buildingName
+    } else {
+        "$buildingName ${floor.toFloorText()}"
+    }
+}
+
+private fun Int.toFloorText(): String = if (this < 0) "B${-this}층" else "${this}층"
+
 @Composable
 private fun CommentSection(
     comments: List<BoardComment>,
     postAuthorUserId: Long?,
     currentUserId: Long?,
+    currentUserName: String,
+    currentUserEmail: String,
     isLoading: Boolean,
     onDeleteComment: (BoardComment) -> Unit,
+    onUpdateComment: (BoardComment, String) -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth()
@@ -679,11 +708,17 @@ private fun CommentSection(
                 verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
                 comments.forEach { comment ->
+                    val canManage = comment.isWrittenByCurrentUser(
+                        currentUserId = currentUserId,
+                        currentUserName = currentUserName,
+                        currentUserEmail = currentUserEmail,
+                    )
                     CommentItem(
                         comment = comment,
                         isPostAuthor = postAuthorUserId != null && comment.authorUserId == postAuthorUserId,
-                        canDelete = currentUserId != null && comment.authorUserId == currentUserId,
+                        canManage = canManage,
                         onDeleteClick = { onDeleteComment(comment) },
+                        onUpdateClick = { content -> onUpdateComment(comment, content) },
                     )
                 }
             }
@@ -695,9 +730,13 @@ private fun CommentSection(
 private fun CommentItem(
     comment: BoardComment,
     isPostAuthor: Boolean,
-    canDelete: Boolean,
+    canManage: Boolean,
     onDeleteClick: () -> Unit,
+    onUpdateClick: (String) -> Unit,
 ) {
+    var isEditing by remember(comment.id) { mutableStateOf(false) }
+    var editText by remember(comment.id, comment.content) { mutableStateOf(comment.content) }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top
@@ -757,25 +796,87 @@ private fun CommentItem(
 
             Spacer(Modifier.height(7.dp))
 
-            Text(
-                text = comment.content,
-                color = Color(0xFF444444),
-                fontSize = 13.sp,
-                lineHeight = 19.sp
-            )
-
-            if (canDelete) {
-                Spacer(Modifier.height(6.dp))
-
-                Text(
-                    text = "삭제",
-                    color = TextGray,
-                    fontSize = 12.sp,
-                    modifier = Modifier.clickable(onClick = onDeleteClick)
+            if (isEditing) {
+                TextField(
+                    value = editText,
+                    onValueChange = { editText = it },
+                    shape = RoundedCornerShape(10.dp),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = FieldGray,
+                        unfocusedContainerColor = FieldGray,
+                        disabledContainerColor = FieldGray,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        cursorColor = DeepGreen,
+                        unfocusedTextColor = Color.Black,
+                        focusedTextColor = Color.Black,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
                 )
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "저장",
+                        color = DeepGreen,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable {
+                            val trimmed = editText.trim()
+                            if (trimmed.isNotBlank()) {
+                                onUpdateClick(trimmed)
+                                isEditing = false
+                            }
+                        }
+                    )
+                    Text(
+                        text = "취소",
+                        color = TextGray,
+                        fontSize = 12.sp,
+                        modifier = Modifier.clickable {
+                            editText = comment.content
+                            isEditing = false
+                        }
+                    )
+                }
+            } else {
+                Text(
+                    text = comment.content,
+                    color = Color(0xFF444444),
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp
+                )
+
+                if (canManage) {
+                    Spacer(Modifier.height(6.dp))
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            text = "수정",
+                            color = TextGray,
+                            fontSize = 12.sp,
+                            modifier = Modifier.clickable { isEditing = true }
+                        )
+                        Text(
+                            text = "삭제",
+                            color = TextGray,
+                            fontSize = 12.sp,
+                            modifier = Modifier.clickable(onClick = onDeleteClick)
+                        )
+                    }
+                }
             }
         }
     }
+}
+
+private fun BoardComment.isWrittenByCurrentUser(
+    currentUserId: Long?,
+    currentUserName: String,
+    currentUserEmail: String,
+): Boolean {
+    return (currentUserId != null && authorUserId == currentUserId) ||
+        (currentUserEmail.isNotBlank() && authorEmail.isNotBlank() && authorEmail == currentUserEmail) ||
+        (currentUserName.isNotBlank() && authorName == currentUserName)
 }
 
 @Composable

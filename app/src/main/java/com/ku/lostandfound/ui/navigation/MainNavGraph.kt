@@ -83,6 +83,8 @@ fun MainNavGraph(
     var commentsByPostId by remember {
         mutableStateOf<Map<String, List<BoardComment>>>(emptyMap())
     }
+    var lastAppliedFoundListVersion by remember { mutableStateOf(0) }
+    var lastAppliedLostListVersion by remember { mutableStateOf(0) }
 
     val startDestination = remember {
         if (TokenManager.isLoggedIn()) Route.Found.route else Route.Login.route
@@ -105,12 +107,25 @@ fun MainNavGraph(
         posts = posts.map { if (it.id == post.id) it.copy(status = PostStatus.RESOLVED) else it }
     }
 
+    fun syncLocalPostsWithServer(type: PostType, serverPosts: List<BoardPost>) {
+        val serverIds = serverPosts.map { it.id }.toSet()
+        posts = posts.filter { cachedPost ->
+            cachedPost.type != type ||
+                (cachedPost.status == PostStatus.OPEN && cachedPost.id in serverIds)
+        }
+    }
+
+    fun publicLocalPosts(type: PostType): List<BoardPost> {
+        return posts.filter { it.type == type && it.status == PostStatus.OPEN }
+    }
+
     fun addComment(postId: String, content: String) {
         if (content.isBlank()) return
 
         val newComment = BoardComment(
             id = System.currentTimeMillis().toString(),
             postId = postId,
+            authorUserId = currentUserId,
             authorName = currentUserName,
             authorEmail = currentUserEmail,
             content = content.trim(),
@@ -122,6 +137,27 @@ fun MainNavGraph(
         commentsByPostId = commentsByPostId + mapOf(
             postId to (oldComments + newComment)
         )
+    }
+
+    fun deleteLocalComment(postId: String, commentId: String) {
+        commentsByPostId = commentsByPostId + (
+            postId to commentsByPostId[postId].orEmpty().filterNot { it.id == commentId }
+            )
+    }
+
+    fun updateLocalComment(postId: String, commentId: String, content: String) {
+        val trimmedContent = content.trim()
+        if (trimmedContent.isBlank()) return
+
+        commentsByPostId = commentsByPostId + (
+            postId to commentsByPostId[postId].orEmpty().map { comment ->
+                if (comment.id == commentId) {
+                    comment.copy(content = trimmedContent)
+                } else {
+                    comment
+                }
+            }
+            )
     }
 
     suspend fun currentUserOrLoad(): UserMeData? {
@@ -192,6 +228,10 @@ fun MainNavGraph(
 
     fun navigateMainTab(route: String) {
         if (navController.currentBackStackEntry?.destination?.route == route) return
+        when (route) {
+            Route.Found.route -> foundItemViewModel.loadFoundItems()
+            Route.Lost.route -> lostItemViewModel.loadLostItems()
+        }
         navController.navigate(route) {
             launchSingleTop = true
             restoreState = true
@@ -299,10 +339,16 @@ fun MainNavGraph(
                 Text("지도 데이터를 불러오는 중입니다.")
             } else {
                 val serverFoundPosts = foundItemViewModel.asBoardPosts()
+                LaunchedEffect(foundItemViewModel.listVersion) {
+                    if (foundItemViewModel.listVersion > lastAppliedFoundListVersion) {
+                        syncLocalPostsWithServer(PostType.FOUND, serverFoundPosts)
+                        lastAppliedFoundListVersion = foundItemViewModel.listVersion
+                    }
+                }
                 val foundPosts = if (foundItemViewModel.selectedBuildingName != null) {
-                    (serverFoundPosts + posts.filter { it.type == PostType.FOUND }).distinctBy { it.id }
+                    (serverFoundPosts + publicLocalPosts(PostType.FOUND)).distinctBy { it.id }
                 } else {
-                    (serverFoundPosts + posts.filter { it.type == PostType.FOUND }).distinctBy { it.id }
+                    (serverFoundPosts + publicLocalPosts(PostType.FOUND)).distinctBy { it.id }
                 }
                 FoundBoardScreen(
                     posts = foundPosts,
@@ -322,7 +368,7 @@ fun MainNavGraph(
                     onSearchClick = { navigateSingleTop(Route.Search.route) },
                     onBuildingSelected = { building ->
                         if (building == null) {
-                            foundItemViewModel.clearBuildingFilter()
+                            foundItemViewModel.loadFoundItems()
                         } else {
                             foundItemViewModel.loadFoundItemsByBuilding(building.name)
                         }
@@ -336,7 +382,13 @@ fun MainNavGraph(
                 lostItemViewModel.loadLostItems()
             }
             val serverLostPosts = lostItemViewModel.asBoardPosts()
-            val lostPosts = (serverLostPosts + posts.filter { it.type == PostType.LOST }).distinctBy { it.id }
+            LaunchedEffect(lostItemViewModel.listVersion) {
+                if (lostItemViewModel.listVersion > lastAppliedLostListVersion) {
+                    syncLocalPostsWithServer(PostType.LOST, serverLostPosts)
+                    lastAppliedLostListVersion = lostItemViewModel.listVersion
+                }
+            }
+            val lostPosts = (serverLostPosts + publicLocalPosts(PostType.LOST)).distinctBy { it.id }
             LostBoardScreen(
                 posts = lostPosts,
                 onPostClick = { post ->
@@ -411,8 +463,9 @@ fun MainNavGraph(
             val searchablePosts = (
                 lostItemViewModel.asBoardPosts() +
                     foundItemViewModel.asBoardPosts() +
-                    posts
-                ).distinctBy { it.id }
+                    posts.filter { it.status == PostStatus.OPEN }
+                ).filter { it.status == PostStatus.OPEN }
+                .distinctBy { it.id }
             SearchScreen(
                 posts = searchablePosts,
                 onBackClick = { navController.popBackStack() },
@@ -643,29 +696,11 @@ fun MainNavGraph(
                         val itemId = it.id.toLongOrNull()
                         if (it.type == PostType.LOST && itemId != null && it.status == PostStatus.OPEN) {
                             lostItemViewModel.markReturned(itemId) { updatedPost ->
-                                posts = posts.map { existing ->
-                                    if (existing.id == updatedPost.id) {
-                                        updatedPost.copy(
-                                            authorName = existing.authorName,
-                                            authorEmail = existing.authorEmail,
-                                        )
-                                    } else {
-                                        existing
-                                    }
-                                }
+                                posts = posts.filterNot { existing -> existing.id == updatedPost.id }
                             }
                         } else if (it.type == PostType.FOUND && itemId != null && it.status == PostStatus.OPEN) {
                             foundItemViewModel.updateFoundItemStatus(itemId) { updatedPost ->
-                                posts = posts.map { existing ->
-                                    if (existing.id == updatedPost.id) {
-                                        updatedPost.copy(
-                                            authorName = existing.authorName,
-                                            authorEmail = existing.authorEmail,
-                                        )
-                                    } else {
-                                        existing
-                                    }
-                                }
+                                posts = posts.filterNot { existing -> existing.id == updatedPost.id }
                             }
                         } else {
                             toggleResolved(it)
@@ -709,6 +744,17 @@ fun MainNavGraph(
                         val commentId = comment.id.toLongOrNull()
                         if (itemId != null && commentId != null) {
                             postCommentViewModel.deleteComment(itemId, post.type, commentId)
+                        } else {
+                            deleteLocalComment(post.id, comment.id)
+                        }
+                    },
+                    onUpdateComment = { comment, content ->
+                        val itemId = post.id.toLongOrNull()
+                        val commentId = comment.id.toLongOrNull()
+                        if (itemId != null && commentId != null) {
+                            postCommentViewModel.updateComment(itemId, post.type, commentId, content)
+                        } else {
+                            updateLocalComment(post.id, comment.id, content)
                         }
                     },
                 )
