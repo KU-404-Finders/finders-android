@@ -34,6 +34,7 @@ import com.ku.lostandfound.ui.post.screen.PostWriteScreen
 import com.ku.lostandfound.network.MyFoundItemData
 import com.ku.lostandfound.network.MyLostItemData
 import com.ku.lostandfound.network.TokenManager
+import com.ku.lostandfound.network.UserMeData
 import com.ku.lostandfound.ui.post.viewmodel.PostCommentViewModel
 import com.ku.lostandfound.ui.profile.screen.MyPostsType
 import com.ku.lostandfound.ui.profile.screen.MyPostsScreen
@@ -123,17 +124,26 @@ fun MainNavGraph(
         )
     }
 
+    suspend fun currentUserOrLoad(): UserMeData? {
+        return userViewModel.me ?: userViewModel.loadMeNow()
+    }
+
     fun submitPost() {
         if (!writeViewModel.canSubmit()) return
 
         if (writeViewModel.postType == PostType.LOST) {
             coroutineScope.launch {
+                val author = currentUserOrLoad()
+                val authorName = author?.name?.takeIf { it.isNotBlank() }
+                    ?: currentUserName.ifBlank { "익명" }
+                val authorEmail = author?.email?.takeIf { it.isNotBlank() }
+                    ?: currentUserEmail
                 writeViewModel.createLostItem(context)
                     .onSuccess { createdPost ->
                         posts = listOf(
                             createdPost.copy(
-                                authorName = currentUserName,
-                                authorEmail = currentUserEmail,
+                                authorName = authorName,
+                                authorEmail = authorEmail,
                             )
                         ) + posts
                         writeViewModel.reset()
@@ -146,12 +156,17 @@ fun MainNavGraph(
         }
 
         coroutineScope.launch {
+            val author = currentUserOrLoad()
+            val authorName = author?.name?.takeIf { it.isNotBlank() }
+                ?: currentUserName.ifBlank { "익명" }
+            val authorEmail = author?.email?.takeIf { it.isNotBlank() }
+                ?: currentUserEmail
             writeViewModel.createFoundItem(context)
                 .onSuccess { createdPost ->
                     posts = listOf(
                         createdPost.copy(
-                            authorName = currentUserName,
-                            authorEmail = currentUserEmail,
+                            authorName = authorName,
+                            authorEmail = authorEmail,
                         )
                     ) + posts
                     writeViewModel.reset()

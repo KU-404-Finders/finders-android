@@ -362,10 +362,11 @@ private fun FloorSelectDialog(
                     DropdownMenu(
                         expanded = expanded,
                         onDismissRequest = { expanded = false },
+                        containerColor = Color.White,
                     ) {
                         floors.forEach { floor ->
                             DropdownMenuItem(
-                                text = { Text(floor.toFloorText()) },
+                                text = { Text(floor.toFloorText(), color = Color.Black) },
                                 onClick = {
                                     selectedFloor = floor
                                     expanded = false

@@ -260,7 +260,6 @@ fun PostDetailScreen(
 
                 Button(
                     onClick = { onDeleteClick(post) },
-                    enabled = post.status == PostStatus.OPEN,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color(0xFFD32F2F),
                         disabledContainerColor = Color(0xFFD8D8D8),

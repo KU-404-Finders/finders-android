@@ -240,6 +240,7 @@ class LostItemViewModel : ViewModel() {
             type = PostType.LOST,
             status = if (itemStatus == "RETURNED") PostStatus.RESOLVED else PostStatus.OPEN,
             authorUserId = userId,
+            authorName = authorName?.takeIf { it.isNotBlank() } ?: "익명",
             title = title,
             category = kind,
             content = content,

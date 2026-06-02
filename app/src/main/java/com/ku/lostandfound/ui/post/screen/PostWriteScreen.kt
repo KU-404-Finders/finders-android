@@ -330,10 +330,14 @@ private fun CategoryDropdown(selected: String, onSelected: (String) -> Unit) {
             )
             Text("▼", color = Color(0xFF8E8E8E), fontSize = 20.sp)
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            containerColor = Color.White,
+        ) {
             categories.forEach { category ->
                 DropdownMenuItem(
-                    text = { Text(category) },
+                    text = { Text(category, color = Color.Black) },
                     onClick = {
                         onSelected(category)
                         expanded = false

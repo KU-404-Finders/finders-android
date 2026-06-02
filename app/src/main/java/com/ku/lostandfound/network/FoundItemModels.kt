@@ -28,6 +28,7 @@ data class FoundItemDetailResponse(
 data class FoundItemDetailData(
     val id: Long,
     val userId: Long,
+    val authorName: String? = null,
     val title: String,
     val kind: String,
     val content: String,

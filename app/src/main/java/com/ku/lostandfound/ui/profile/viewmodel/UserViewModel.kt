@@ -57,26 +57,34 @@ class UserViewModel : ViewModel() {
 
     fun loadMe() {
         viewModelScope.launch {
-            uiState = UserUiState.Loading
-            try {
-                val response = RetrofitClient.userApi.getMe()
-                if (response.isSuccessful) {
-                    val body = response.body()
-                    if (body?.success == true && body.data != null) {
-                        me = body.data
-                        uiState = UserUiState.Idle
-                    } else {
-                        uiState = UserUiState.Error(body?.message ?: "사용자 정보를 불러오지 못했습니다.")
-                    }
+            loadMeNow()
+        }
+    }
+
+    suspend fun loadMeNow(): UserMeData? {
+        uiState = UserUiState.Loading
+        return try {
+            val response = RetrofitClient.userApi.getMe()
+            if (response.isSuccessful) {
+                val body = response.body()
+                if (body?.success == true && body.data != null) {
+                    me = body.data
+                    uiState = UserUiState.Idle
+                    body.data
                 } else {
-                    val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("loadMe", response.code(), errorBody)
-                    uiState = UserUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
+                    uiState = UserUiState.Error(body?.message ?: "사용자 정보를 불러오지 못했습니다.")
+                    null
                 }
-            } catch (e: Exception) {
-                NetworkLog.exception("loadMe", e)
-                uiState = UserUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
+            } else {
+                val errorBody = response.errorBody()?.string()
+                NetworkLog.httpError("loadMe", response.code(), errorBody)
+                uiState = UserUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
+                null
             }
+        } catch (e: Exception) {
+            NetworkLog.exception("loadMe", e)
+            uiState = UserUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
+            null
         }
     }
 

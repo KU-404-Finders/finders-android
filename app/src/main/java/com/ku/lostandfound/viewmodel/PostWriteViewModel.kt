@@ -373,6 +373,7 @@ class PostWriteViewModel {
             id = id.toString(),
             type = PostType.LOST,
             authorUserId = userId,
+            authorName = authorName?.takeIf { it.isNotBlank() } ?: "익명",
             title = title,
             category = kind,
             content = content,
@@ -392,6 +393,7 @@ class PostWriteViewModel {
                 com.ku.lostandfound.data.PostStatus.OPEN
             },
             authorUserId = userId,
+            authorName = authorName?.takeIf { it.isNotBlank() } ?: "익명",
             title = title,
             category = kind,
             content = content,
