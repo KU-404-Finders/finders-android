@@ -7,7 +7,6 @@ import android.media.ExifInterface
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,6 +53,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.ku.lostandfound.data.BoardComment
 import com.ku.lostandfound.data.BoardPost
 import com.ku.lostandfound.data.CampusBoundary
@@ -66,6 +66,7 @@ import com.ku.lostandfound.data.PostStatus
 import com.ku.lostandfound.data.PostType
 import com.ku.lostandfound.ui.component.BackTitleBar
 import com.ku.lostandfound.ui.component.CampusMapCanvas
+import com.ku.lostandfound.ui.component.noRippleClickable
 import com.ku.lostandfound.ui.component.PostStatusBadge
 import com.ku.lostandfound.ui.component.PostTypeBadge
 import kotlinx.coroutines.Dispatchers
@@ -114,6 +115,7 @@ fun PostDetailScreen(
 ) {
     val focusManager = LocalFocusManager.current
     var showResolveConfirmDialog by remember { mutableStateOf(false) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
     if (showResolveConfirmDialog) {
         AlertDialog(
@@ -152,6 +154,16 @@ fun PostDetailScreen(
                 }
             },
             containerColor = Color.White,
+        )
+    }
+
+    if (showDeleteConfirmDialog) {
+        DeletePostConfirmDialog(
+            onCancelClick = { showDeleteConfirmDialog = false },
+            onDeleteClick = {
+                showDeleteConfirmDialog = false
+                onDeleteClick(post)
+            },
         )
     }
 
@@ -261,7 +273,7 @@ fun PostDetailScreen(
                 Spacer(Modifier.height(10.dp))
 
                 Button(
-                    onClick = { onDeleteClick(post) },
+                    onClick = { showDeleteConfirmDialog = true },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color(0xFFD32F2F),
                         disabledContainerColor = Color(0xFFD8D8D8),
@@ -820,7 +832,7 @@ private fun CommentItem(
                         color = DeepGreen,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable {
+                        modifier = Modifier.noRippleClickable {
                             val trimmed = editText.trim()
                             if (trimmed.isNotBlank()) {
                                 onUpdateClick(trimmed)
@@ -832,7 +844,7 @@ private fun CommentItem(
                         text = "취소",
                         color = TextGray,
                         fontSize = 12.sp,
-                        modifier = Modifier.clickable {
+                        modifier = Modifier.noRippleClickable {
                             editText = comment.content
                             isEditing = false
                         }
@@ -854,15 +866,91 @@ private fun CommentItem(
                             text = "수정",
                             color = TextGray,
                             fontSize = 12.sp,
-                            modifier = Modifier.clickable { isEditing = true }
+                            modifier = Modifier.noRippleClickable { isEditing = true }
                         )
                         Text(
                             text = "삭제",
                             color = TextGray,
                             fontSize = 12.sp,
-                            modifier = Modifier.clickable(onClick = onDeleteClick)
+                            modifier = Modifier.noRippleClickable(onDeleteClick)
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeletePostConfirmDialog(
+    onCancelClick: () -> Unit,
+    onDeleteClick: () -> Unit,
+) {
+    Dialog(onDismissRequest = onCancelClick) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(22.dp))
+                .background(Color.White)
+                .padding(horizontal = 24.dp, vertical = 26.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = "글을 삭제하시겠습니까?",
+                color = Color(0xFF222222),
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+            )
+
+            Text(
+                text = "삭제한 게시글은 다시 되돌릴 수 없습니다.",
+                color = Color(0xFF9A9A9A),
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                lineHeight = 24.sp,
+                modifier = Modifier.padding(top = 14.dp),
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 26.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Button(
+                    onClick = onCancelClick,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFF1F1F1),
+                        contentColor = Color(0xFF555555),
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp),
+                ) {
+                    Text(
+                        text = "취소",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+
+                Button(
+                    onClick = onDeleteClick,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFD32F2F),
+                        contentColor = Color.White,
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp),
+                ) {
+                    Text(
+                        text = "삭제",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
             }
         }
@@ -945,7 +1033,7 @@ private fun CommentInputBar(
                 .background(
                     if (commentText.isBlank()) Color(0xFFB7CBB9) else DeepGreen
                 )
-                .clickable {
+                .noRippleClickable {
                     val text = commentText.trim()
                     if (text.isNotBlank()) {
                         onSubmit(text)

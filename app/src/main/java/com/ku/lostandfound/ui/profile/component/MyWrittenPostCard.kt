@@ -1,7 +1,6 @@
 package com.ku.lostandfound.ui.profile.component
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,6 +25,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ku.lostandfound.ui.component.noRippleClickable
 
 @Composable
 fun MyWrittenPostCard(
@@ -51,7 +51,7 @@ fun MyWrittenPostCard(
         modifier = modifier
             .heightIn(min = 136.dp)
             .wrapContentHeight()
-            .clickable { onClick() }
+            .noRippleClickable(onClick)
         ,
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(

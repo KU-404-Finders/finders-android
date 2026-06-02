@@ -1,7 +1,6 @@
 package com.ku.lostandfound.ui.profile.screen
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +36,7 @@ import com.ku.lostandfound.data.BoardPost
 import com.ku.lostandfound.data.PostType
 import com.ku.lostandfound.ui.board.screen.MainBottomBar
 import com.ku.lostandfound.ui.component.CompactPostCard
+import com.ku.lostandfound.ui.component.noRippleClickable
 import com.ku.lostandfound.ui.profile.component.LogoutConfirmDialog
 import com.ku.lostandfound.ui.profile.component.MyWrittenPostSection
 import com.ku.lostandfound.ui.profile.component.WithdrawCompleteDialog
@@ -159,7 +159,7 @@ fun ProfileScreen(
                         color = Color(0xFF888888),
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable {
+                        modifier = Modifier.noRippleClickable {
                             showWithdrawConfirmDialog = true
                         },
                     )
@@ -227,12 +227,18 @@ private fun ProfileTopBar(onSearchClick: () -> Unit) {
             fontWeight = FontWeight.Black,
         )
         Spacer(Modifier.weight(1f))
-        Text(
-            text = "⌕",
-            color = Color(0xFF777777),
-            fontSize = 34.sp,
-            modifier = Modifier.clickable(onClick = onSearchClick),
-        )
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .noRippleClickable(onSearchClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "⌕",
+                color = Color(0xFF777777),
+                fontSize = 38.sp,
+            )
+        }
     }
 }
 
@@ -275,7 +281,7 @@ private fun ProfileCard(
                     .height(48.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(DeepGreen)
-                    .clickable(onClick = onLogoutClick),
+                    .noRippleClickable(onLogoutClick),
                 contentAlignment = Alignment.Center,
             ) {
                 Text("로그아웃", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)

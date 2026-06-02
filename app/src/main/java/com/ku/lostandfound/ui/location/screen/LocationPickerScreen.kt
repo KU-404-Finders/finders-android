@@ -33,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -302,7 +303,8 @@ private fun IndoorPlaceRow(place: IndoorPlace, onRemoveClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .height(52.dp)
-            .background(FieldGray, RoundedCornerShape(9.dp))
+            .clip(RoundedCornerShape(9.dp))
+            .background(FieldGray)
             .padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -325,7 +327,8 @@ private fun IndoorPlaceRow(place: IndoorPlace, onRemoveClick: () -> Unit) {
 private fun CancelChip(text: String, onClick: () -> Unit) {
     Row(
         modifier = Modifier
-            .background(Color(0xFFFFF0F0), RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFFFFF0F0))
             .clickable(onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -368,7 +371,8 @@ private fun FloorSelectDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(52.dp)
-                            .background(FieldGray, RoundedCornerShape(9.dp))
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(FieldGray)
                             .clickable { expanded = true }
                             .padding(horizontal = 16.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -415,9 +419,10 @@ private fun FloorSelectDialog(
             TextButton(
                 onClick = onDismiss,
                 modifier = Modifier
-                    .background(FieldGray, RoundedCornerShape(10.dp))
                     .width(120.dp)
-                    .height(50.dp),
+                    .height(50.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(FieldGray),
             ) {
                 Text("취소", color = Color(0xFF555555), fontWeight = FontWeight.Bold)
             }

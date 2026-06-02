@@ -1,7 +1,6 @@
 package com.ku.lostandfound.ui.component
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -78,7 +77,7 @@ fun CompactPostCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .noRippleClickable(onClick),
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -110,7 +109,7 @@ fun CompactPostCard(
                         .clip(RoundedCornerShape(999.dp))
                         .background(if (canResolve) LightGreen else Color(0xFFEDEDED))
                         .let { modifier ->
-                            if (canResolve) modifier.clickable { onToggleResolved() } else modifier
+                            if (canResolve) modifier.noRippleClickable { onToggleResolved() } else modifier
                         }
                         .padding(horizontal = 12.dp, vertical = 7.dp)
 

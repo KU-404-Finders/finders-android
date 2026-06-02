@@ -2,7 +2,6 @@ package com.ku.lostandfound.ui.component
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -41,7 +40,9 @@ fun BackTitleBar(
        Image(
            painter = painterResource(id = R.drawable.img_left_arrow),
            contentDescription = "뒤로가기",
-           modifier = Modifier.size(20.dp).clickable(onClick = onBackClick)
+           modifier = Modifier
+               .size(24.dp)
+               .noRippleClickable(onBackClick)
        )
         Spacer(modifier = Modifier.size(8.dp))
         Text(text = title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E1E1E))
@@ -62,20 +63,32 @@ fun HomeTopBar(
             .padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = "♙",
-            color = Color.White.copy(alpha = 0.85f),
-            fontSize = 24.sp,
-            modifier = Modifier.clickable(onClick = onProfileClick),
-        )
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .noRippleClickable(onProfileClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "♙",
+                color = Color.White.copy(alpha = 0.85f),
+                fontSize = 32.sp,
+            )
+        }
         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
             Text(text = title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
-        Text(
-            text = "⌕",
-            color = Color.White.copy(alpha = 0.85f),
-            fontSize = 30.sp,
-            modifier = Modifier.clickable(onClick = onSearchClick),
-        )
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .noRippleClickable(onSearchClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "⌕",
+                color = Color.White.copy(alpha = 0.85f),
+                fontSize = 36.sp,
+            )
+        }
     }
 }

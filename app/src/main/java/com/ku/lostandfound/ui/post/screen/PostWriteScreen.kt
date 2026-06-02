@@ -317,7 +317,8 @@ private fun CategoryDropdown(selected: String, onSelected: (String) -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp)
-                .background(FieldGray, RoundedCornerShape(9.dp))
+                .clip(RoundedCornerShape(9.dp))
+                .background(FieldGray)
                 .clickable { expanded = true }
                 .padding(horizontal = 18.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -354,7 +355,8 @@ private fun LocationAddRow(text: String, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .height(52.dp)
-            .background(FieldGray, RoundedCornerShape(9.dp))
+            .clip(RoundedCornerShape(9.dp))
+            .background(FieldGray)
             .clickable(onClick = onClick)
             .padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,

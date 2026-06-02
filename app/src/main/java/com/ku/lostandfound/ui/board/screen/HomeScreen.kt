@@ -1,7 +1,6 @@
 package com.ku.lostandfound.ui.board.screen
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,11 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -37,6 +33,7 @@ import com.ku.lostandfound.data.PostType
 import com.ku.lostandfound.ui.component.CampusMapCanvas
 import com.ku.lostandfound.ui.component.CompactPostCard
 import com.ku.lostandfound.ui.component.HomeTopBar
+import com.ku.lostandfound.ui.component.noRippleClickable
 
 private val DeepGreen = Color(0xFF1B6425)
 private val ScreenGray = Color(0xFFF4F4F4)
@@ -73,35 +70,29 @@ fun HomeScreen(
 
         LazyColumn(
             modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(20.dp),
+            contentPadding = PaddingValues(vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (showCampusMap && boundary != null) {
                 item {
-                    Card(
-                        shape = RoundedCornerShape(18.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color.White),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        CampusMapCanvas(
-                            boundary = boundary,
-                            buildings = buildings,
-                            referencePaths = referencePaths,
-                            selectedBuildingIds = selectedBuilding?.let { setOf(it.id) }.orEmpty(),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(300.dp)
-                                .padding(14.dp)
-                                .clip(RoundedCornerShape(4.dp)),
-                            showLabels = true,
-                            showRoute = false,
-                            onBuildingClick = onBuildingClick,
-                        )
-                    }
+                    CampusMapCanvas(
+                        boundary = boundary,
+                        buildings = buildings,
+                        referencePaths = referencePaths,
+                        selectedBuildingIds = selectedBuilding?.let { setOf(it.id) }.orEmpty(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(330.dp),
+                        showLabels = true,
+                        showRoute = false,
+                        onBuildingClick = onBuildingClick,
+                    )
                     Spacer(Modifier.height(8.dp))
                     if (selectedBuilding != null) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
@@ -116,7 +107,12 @@ fun HomeScreen(
                             }
                         }
                     } else {
-                        Text("📍 전체 구역 게시물", color = Color.Gray, fontSize = 13.sp)
+                        Text(
+                            text = "📍 전체 구역 게시물",
+                            color = Color.Gray,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(horizontal = 20.dp),
+                        )
                     }
                 }
             } else {
@@ -125,7 +121,7 @@ fun HomeScreen(
                         text = "전체 분실물 게시물",
                         color = Color.Gray,
                         fontSize = 13.sp,
-                        modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
                     )
                 }
             }
@@ -133,6 +129,7 @@ fun HomeScreen(
             items(posts) { post ->
                 CompactPostCard(
                     post = post,
+                    modifier = Modifier.padding(horizontal = 20.dp),
                     showStatus = true,
                     showThumbnail = true,
                     onClick = { onPostClick(post) },
@@ -180,11 +177,11 @@ fun MainBottomBar(
                 modifier = Modifier
                     .clip(CircleShape)
                     .background(DeepGreen)
-                    .clickable(onClick = onAddClick)
-                    .padding(horizontal = 17.dp, vertical = 10.dp),
+                    .noRippleClickable(onAddClick)
+                    .padding(horizontal = 19.dp, vertical = 12.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("+", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                Text("+", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
             }
             BottomTab(
                 text = "⚑\n분실물",
@@ -204,9 +201,10 @@ private fun BottomTab(
     Text(
         text = text,
         color = if (selected) DeepGreen else Color.Gray,
-        fontSize = 12.sp,
+        fontSize = 14.sp,
         fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
         textAlign = TextAlign.Center,
-        modifier = Modifier.clickable(onClick = onClick),
+        lineHeight = 20.sp,
+        modifier = Modifier.noRippleClickable(onClick),
     )
 }

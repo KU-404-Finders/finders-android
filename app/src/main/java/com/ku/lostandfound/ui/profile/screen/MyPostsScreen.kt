@@ -6,7 +6,6 @@ import android.graphics.Matrix
 import android.media.ExifInterface
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ku.lostandfound.network.MyFoundItemData
 import com.ku.lostandfound.network.MyLostItemData
+import com.ku.lostandfound.ui.component.noRippleClickable
 import com.ku.lostandfound.ui.component.GetBackTopAppBar
 import com.ku.lostandfound.ui.profile.viewmodel.MyPostsUiState
 import kotlinx.coroutines.Dispatchers
@@ -189,7 +189,7 @@ private fun MyPostListCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .noRippleClickable(onClick),
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
