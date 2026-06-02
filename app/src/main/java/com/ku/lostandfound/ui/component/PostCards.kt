@@ -105,18 +105,23 @@ fun CompactPostCard(
                 )
 
                 if (showResolveButton && onToggleResolved != null) {
+                    val canResolve = post.status == PostStatus.OPEN
+                    val buttonModifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(if (canResolve) LightGreen else Color(0xFFEDEDED))
+                        .let { modifier ->
+                            if (canResolve) modifier.clickable { onToggleResolved() } else modifier
+                        }
+                        .padding(horizontal = 12.dp, vertical = 7.dp)
+
                     Spacer(Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            text = if (post.status == PostStatus.OPEN) "해결 처리" else "미해결로 변경",
-                            color = DeepGreen,
+                            text = if (canResolve) "해결 처리" else "해결 완료",
+                            color = if (canResolve) DeepGreen else TextGray,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(LightGreen)
-                                .clickable { onToggleResolved() }
-                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                            modifier = buttonModifier,
                         )
                     }
                 }

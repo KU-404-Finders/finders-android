@@ -16,7 +16,8 @@ object RetrofitClient {
     private val loggingInterceptor = HttpLoggingInterceptor { message ->
         Log.d("KUFindersOkHttp", message)
     }.apply {
-        level = HttpLoggingInterceptor.Level.BODY
+        level = HttpLoggingInterceptor.Level.HEADERS
+        redactHeader("Authorization")
     }
 
     private val authInterceptor = okhttp3.Interceptor { chain ->

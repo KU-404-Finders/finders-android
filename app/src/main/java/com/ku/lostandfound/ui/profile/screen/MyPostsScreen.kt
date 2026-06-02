@@ -1,6 +1,9 @@
 package com.ku.lostandfound.ui.profile.screen
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -32,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -43,6 +47,7 @@ import com.ku.lostandfound.ui.component.GetBackTopAppBar
 import com.ku.lostandfound.ui.profile.viewmodel.MyPostsUiState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayInputStream
 import java.net.URL
 
 private val ScreenGray = Color(0xFFF4F4F4)
@@ -227,7 +232,7 @@ private fun MyPostListCard(
 
 @Composable
 private fun NetworkImage(imageUrl: String?) {
-    var imageBitmap by remember(imageUrl) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    var imageBitmap by remember(imageUrl) { mutableStateOf<ImageBitmap?>(null) }
 
     LaunchedEffect(imageUrl) {
         imageBitmap = null
@@ -235,7 +240,7 @@ private fun NetworkImage(imageUrl: String?) {
         imageBitmap = withContext(Dispatchers.IO) {
             runCatching {
                 URL(imageUrl).openStream().use { stream ->
-                    BitmapFactory.decodeStream(stream)?.asImageBitmap()
+                    stream.readBytes().toOrientedImageBitmap()
                 }
             }.getOrNull()
         }
@@ -259,6 +264,32 @@ private fun NetworkImage(imageUrl: String?) {
             Text("IMG", color = TextGray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
     }
+}
+
+private fun ByteArray.toOrientedImageBitmap(): ImageBitmap? {
+    val decoded = BitmapFactory.decodeByteArray(this, 0, size) ?: return null
+    val oriented = decoded.applyExifOrientation(this)
+    val imageBitmap = oriented.asImageBitmap()
+    if (oriented !== decoded) decoded.recycle()
+    return imageBitmap
+}
+
+private fun Bitmap.applyExifOrientation(sourceBytes: ByteArray): Bitmap {
+    val orientation = runCatching {
+        ExifInterface(ByteArrayInputStream(sourceBytes)).getAttributeInt(
+            ExifInterface.TAG_ORIENTATION,
+            ExifInterface.ORIENTATION_NORMAL,
+        )
+    }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+
+    val matrix = Matrix()
+    when (orientation) {
+        ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+        ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+        ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+        else -> return this
+    }
+    return Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
 }
 
 private fun statusLabel(status: String): String {
