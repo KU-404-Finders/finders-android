@@ -70,8 +70,9 @@ fun MainNavGraph(
     val foundItemViewModel = viewModel<FoundItemViewModel>()
     val postCommentViewModel = viewModel<PostCommentViewModel>()
 
-    val currentUserName = userViewModel.me?.name ?: signupViewModel.name.ifBlank { "김건국" }
-    val currentUserEmail = userViewModel.me?.email ?: signupViewModel.email.ifBlank { "konkuk26@konkuk.ac.kr" }
+    val currentUserId = userViewModel.me?.id
+    val currentUserName = userViewModel.me?.name ?: signupViewModel.name
+    val currentUserEmail = userViewModel.me?.email ?: signupViewModel.email
 
     var boundary by remember { mutableStateOf<CampusBoundary?>(null) }
     var buildings by remember { mutableStateOf<List<CampusBuilding>>(emptyList()) }
@@ -213,7 +214,10 @@ fun MainNavGraph(
                         popUpTo(Route.Login.route) { inclusive = true }
                     }
                 },
-                onNavigateToSignUp = { navController.navigate(Route.SignupName.route) }
+                onNavigateToSignUp = {
+                    loginViewModel.resetUiState()
+                    navController.navigate(Route.SignupName.route)
+                }
             )
         }
         composable(route = Route.SignupName.route) {
@@ -346,7 +350,7 @@ fun MainNavGraph(
                 onLogoutClick = {
                     loginViewModel.logout {
                         navController.navigate(Route.Login.route) {
-                            popUpTo(navController.graph.startDestinationId) {
+                            popUpTo(Route.Found.route) {
                                 inclusive = true
                             }
                             launchSingleTop = true
@@ -361,7 +365,7 @@ fun MainNavGraph(
                 },
                 onWithdrawCompleteConfirm = {
                     navController.navigate(Route.Login.route) {
-                        popUpTo(navController.graph.startDestinationId) {
+                        popUpTo(Route.Found.route) {
                             inclusive = true
                         }
                         launchSingleTop = true
@@ -591,13 +595,19 @@ fun MainNavGraph(
                         }
                     }
                 }
+                val displayPost = if (currentUserId != null && post.authorUserId == currentUserId) {
+                    post.copy(authorName = currentUserName, authorEmail = currentUserEmail)
+                } else {
+                    post
+                }
                 PostDetailScreen(
-                    post = post,
+                    post = displayPost,
                     boundary = b,
                     buildings = buildings,
                     referencePaths = referencePaths,
                     onBackClick = { navController.popBackStack() },
-                    showOwnerActions = post.authorEmail == currentUserEmail,
+                    showOwnerActions = (currentUserId != null && post.authorUserId == currentUserId) ||
+                        (post.authorEmail.isNotBlank() && post.authorEmail == currentUserEmail),
                     onToggleResolvedClick = {
                         val itemId = it.id.toLongOrNull()
                         if (it.type == PostType.LOST && itemId != null && it.status == PostStatus.OPEN) {
@@ -651,6 +661,7 @@ fun MainNavGraph(
                     },
                     currentUserName = currentUserName,
                     currentUserEmail = currentUserEmail,
+                    currentUserId = currentUserId,
                     onAddComment = { content ->
                         if (numericItemId != null) {
                             postCommentViewModel.addComment(numericItemId, post.type, content)

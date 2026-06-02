@@ -151,7 +151,7 @@ class LostItemViewModel : ViewModel() {
                 val response = RetrofitClient.lostItemApi.deleteLostItem(bearerTokenOrThrow(), id)
                 if (response.isSuccessful) {
                     val body = response.body()
-                    if (body?.success == true) {
+                    if (body == null || body.success) {
                         lostItems = lostItems.filterNot { it.id == id }
                         if (detailPost?.id == id.toString()) {
                             detailPost = null

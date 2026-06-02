@@ -181,7 +181,7 @@ class FoundItemViewModel : ViewModel() {
                 val response = RetrofitClient.foundItemApi.deleteFoundItem(bearerTokenOrThrow(), id)
                 if (response.isSuccessful) {
                     val body = response.body()
-                    if (body?.success == true) {
+                    if (body == null || body.success) {
                         foundItems = foundItems.filterNot { it.id == id }
                         if (detailPost?.id == id.toString()) {
                             detailPost = null

@@ -1,6 +1,9 @@
 package com.ku.lostandfound.ui.post.screen
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -27,9 +30,11 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -64,6 +69,7 @@ import com.ku.lostandfound.ui.component.PostStatusBadge
 import com.ku.lostandfound.ui.component.PostTypeBadge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayInputStream
 import java.net.URL
 
 private val DeepGreen = Color(0xFF1B6425)
@@ -96,6 +102,7 @@ fun PostDetailScreen(
     comments: List<BoardComment> = emptyList(),
     currentUserName: String = "김건국",
     currentUserEmail: String = "konkuk26@konkuk.ac.kr",
+    currentUserId: Long? = null,
     onAddComment: (String) -> Unit = {},
     matchCandidates: List<MatchCandidateUiModel> = emptyList(),
     isDetailLoading: Boolean = false,
@@ -104,6 +111,47 @@ fun PostDetailScreen(
     onDeleteComment: (BoardComment) -> Unit = {},
 ) {
     val focusManager = LocalFocusManager.current
+    var showResolveConfirmDialog by remember { mutableStateOf(false) }
+
+    if (showResolveConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showResolveConfirmDialog = false },
+            title = {
+                Text(
+                    text = "해결 완료로 변경할까요?",
+                    fontWeight = FontWeight.Bold,
+                    color = Color.Black,
+                )
+            },
+            text = {
+                Text(
+                    text = "해결 완료로 변경하면 미해결 상태로 되돌릴 수 없습니다.",
+                    color = Color(0xFF555555),
+                    fontSize = 14.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showResolveConfirmDialog = false
+                        onToggleResolvedClick(post)
+                    }
+                ) {
+                    Text(
+                        text = "해결 완료",
+                        color = DeepGreen,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResolveConfirmDialog = false }) {
+                    Text(text = "취소", color = TextGray)
+                }
+            },
+            containerColor = Color.White,
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -186,7 +234,7 @@ fun PostDetailScreen(
                 Spacer(Modifier.height(20.dp))
 
                 Button(
-                    onClick = { onToggleResolvedClick(post) },
+                    onClick = { showResolveConfirmDialog = true },
                     enabled = post.status == PostStatus.OPEN,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (post.status == PostStatus.OPEN) DeepGreen else Color(0xFF777777),
@@ -201,7 +249,7 @@ fun PostDetailScreen(
                         text = if (post.status == PostStatus.OPEN) {
                             "해결 완료로 변경"
                         } else {
-                            "이미 해결 완료됨"
+                            "해결 완료됨"
                         },
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
@@ -235,7 +283,7 @@ fun PostDetailScreen(
             CommentSection(
                 comments = comments,
                 postAuthorUserId = post.authorUserId,
-                currentUserName = currentUserName,
+                currentUserId = currentUserId,
                 isLoading = isCommentsLoading,
                 onDeleteComment = onDeleteComment,
             )
@@ -422,19 +470,45 @@ private fun rememberPostImageBitmap(imageUri: String?): ImageBitmap? {
         if (imageUri.isNullOrBlank()) return@LaunchedEffect
         bitmap = withContext(Dispatchers.IO) {
             runCatching {
-                val decoded = if (imageUri.startsWith("http://") || imageUri.startsWith("https://")) {
-                    URL(imageUri).openStream().use { stream -> BitmapFactory.decodeStream(stream) }
+                val sourceBytes = if (imageUri.startsWith("http://") || imageUri.startsWith("https://")) {
+                    URL(imageUri).openStream().use { stream -> stream.readBytes() }
                 } else {
                     context.contentResolver.openInputStream(android.net.Uri.parse(imageUri)).use { stream ->
-                        BitmapFactory.decodeStream(stream)
+                        stream?.readBytes()
                     }
                 }
-                decoded?.asImageBitmap()
+                sourceBytes?.toOrientedImageBitmap()
             }.getOrNull()
         }
     }
 
     return bitmap
+}
+
+private fun ByteArray.toOrientedImageBitmap(): ImageBitmap? {
+    val decoded = BitmapFactory.decodeByteArray(this, 0, size) ?: return null
+    val oriented = decoded.applyExifOrientation(this)
+    val imageBitmap = oriented.asImageBitmap()
+    if (oriented !== decoded) decoded.recycle()
+    return imageBitmap
+}
+
+private fun Bitmap.applyExifOrientation(sourceBytes: ByteArray): Bitmap {
+    val orientation = runCatching {
+        ExifInterface(ByteArrayInputStream(sourceBytes)).getAttributeInt(
+            ExifInterface.TAG_ORIENTATION,
+            ExifInterface.ORIENTATION_NORMAL,
+        )
+    }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+
+    val matrix = Matrix()
+    when (orientation) {
+        ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+        ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+        ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+        else -> return this
+    }
+    return Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
 }
 
 @Composable
@@ -576,7 +650,7 @@ private fun LocationChip(text: String) {
 private fun CommentSection(
     comments: List<BoardComment>,
     postAuthorUserId: Long?,
-    currentUserName: String,
+    currentUserId: Long?,
     isLoading: Boolean,
     onDeleteComment: (BoardComment) -> Unit,
 ) {
@@ -609,7 +683,7 @@ private fun CommentSection(
                     CommentItem(
                         comment = comment,
                         isPostAuthor = postAuthorUserId != null && comment.authorUserId == postAuthorUserId,
-                        canDelete = comment.authorName == currentUserName,
+                        canDelete = currentUserId != null && comment.authorUserId == currentUserId,
                         onDeleteClick = { onDeleteComment(comment) },
                     )
                 }

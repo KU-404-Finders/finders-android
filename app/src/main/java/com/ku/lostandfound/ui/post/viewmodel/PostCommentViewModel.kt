@@ -122,7 +122,7 @@ class PostCommentViewModel : ViewModel() {
                 }
                 if (response.isSuccessful) {
                     val body = response.body()
-                    if (body?.success == true) {
+                    if (body == null || body.success) {
                         val postKey = postId.toString()
                         commentsByPostId = commentsByPostId + (
                             postKey to commentsByPostId[postKey].orEmpty().filterNot { it.id == commentId.toString() }

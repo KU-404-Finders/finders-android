@@ -8,6 +8,7 @@ data class UserMeResponse(
 )
 
 data class UserMeData(
+    val id: Long? = null,
     val email: String,
     val name: String,
     val foundItemCount: Int = 0,

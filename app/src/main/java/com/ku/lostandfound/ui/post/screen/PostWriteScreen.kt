@@ -1,6 +1,9 @@
 package com.ku.lostandfound.ui.post.screen
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -53,6 +56,7 @@ import com.ku.lostandfound.viewmodel.PostWriteUiState
 import com.ku.lostandfound.viewmodel.PostWriteViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayInputStream
 import java.net.URL
 
 private val DeepGreen = Color(0xFF1B6425)
@@ -230,19 +234,45 @@ private fun rememberPostImageBitmap(imageUri: String?): ImageBitmap? {
         if (imageUri.isNullOrBlank()) return@LaunchedEffect
         bitmap = withContext(Dispatchers.IO) {
             runCatching {
-                val decoded = if (imageUri.startsWith("http://") || imageUri.startsWith("https://")) {
-                    URL(imageUri).openStream().use { stream -> BitmapFactory.decodeStream(stream) }
+                val sourceBytes = if (imageUri.startsWith("http://") || imageUri.startsWith("https://")) {
+                    URL(imageUri).openStream().use { stream -> stream.readBytes() }
                 } else {
                     context.contentResolver.openInputStream(android.net.Uri.parse(imageUri)).use { stream ->
-                        BitmapFactory.decodeStream(stream)
+                        stream?.readBytes()
                     }
                 }
-                decoded?.asImageBitmap()
+                sourceBytes?.toOrientedImageBitmap()
             }.getOrNull()
         }
     }
 
     return bitmap
+}
+
+private fun ByteArray.toOrientedImageBitmap(): ImageBitmap? {
+    val decoded = BitmapFactory.decodeByteArray(this, 0, size) ?: return null
+    val oriented = decoded.applyExifOrientation(this)
+    val imageBitmap = oriented.asImageBitmap()
+    if (oriented !== decoded) decoded.recycle()
+    return imageBitmap
+}
+
+private fun Bitmap.applyExifOrientation(sourceBytes: ByteArray): Bitmap {
+    val orientation = runCatching {
+        ExifInterface(ByteArrayInputStream(sourceBytes)).getAttributeInt(
+            ExifInterface.TAG_ORIENTATION,
+            ExifInterface.ORIENTATION_NORMAL,
+        )
+    }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+
+    val matrix = Matrix()
+    when (orientation) {
+        ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+        ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+        ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+        else -> return this
+    }
+    return Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
 }
 
 @Composable
