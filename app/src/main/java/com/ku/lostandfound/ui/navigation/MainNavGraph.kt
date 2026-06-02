@@ -162,6 +162,11 @@ fun MainNavGraph(
         }
     }
 
+    fun openPostWrite() {
+        writeViewModel.reset()
+        navigateSingleTop(Route.PostWrite.route)
+    }
+
     fun navigateMainTab(route: String) {
         if (navController.currentBackStackEntry?.destination?.route == route) return
         navController.navigate(route) {
@@ -287,7 +292,7 @@ fun MainNavGraph(
                         }
                         navController.navigate(Route.PostDetail.create(post.id))
                     },
-                    onAddClick = { navigateSingleTop(Route.PostWrite.route) },
+                    onAddClick = { openPostWrite() },
                     onFoundTabClick = { navigateMainTab(Route.Found.route) },
                     onLostTabClick = { navigateMainTab(Route.Lost.route) },
                     onProfileClick = { navigateMainTab(Route.Profile.route) },
@@ -317,7 +322,7 @@ fun MainNavGraph(
                     }
                     navController.navigate(Route.PostDetail.create(post.id))
                 },
-                onAddClick = { navigateSingleTop(Route.PostWrite.route) },
+                onAddClick = { openPostWrite() },
                 onFoundTabClick = { navigateMainTab(Route.Found.route) },
                 onLostTabClick = { navigateMainTab(Route.Lost.route) },
                 onProfileClick = { navigateMainTab(Route.Profile.route) },
@@ -375,7 +380,7 @@ fun MainNavGraph(
                 selectedType = PostType.FOUND,
                 onFoundTabClick = { navigateMainTab(Route.Found.route) },
                 onLostTabClick = { navigateMainTab(Route.Lost.route) },
-                onAddClick = { navigateSingleTop(Route.PostWrite.route) },
+                onAddClick = { openPostWrite() },
             )
         }
 
@@ -438,7 +443,10 @@ fun MainNavGraph(
         composable(route = Route.PostWrite.route) {
             PostWriteScreen(
                 viewModel = writeViewModel,
-                onBackClick = { navController.popBackStack() },
+                onBackClick = {
+                    writeViewModel.reset()
+                    navController.popBackStack()
+                },
                 onAddLocationClick = { postType -> navController.navigate(Route.LocationPicker.create(postType.name)) },
                 onSubmitClick = { submitPost() },
             )
