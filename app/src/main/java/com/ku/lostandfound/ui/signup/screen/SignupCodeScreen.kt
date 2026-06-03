@@ -28,6 +28,7 @@ import com.ku.lostandfound.ui.component.BottomFixedButton
 import com.ku.lostandfound.ui.component.GetBackTopAppBar
 import com.ku.lostandfound.ui.signup.viewmodel.SignupUiState
 import com.ku.lostandfound.ui.signup.viewmodel.SignupViewmodel
+import com.ku.lostandfound.ui.theme.PretendardFontFamily
 
 @Composable
 fun SignupCodeScreen(
@@ -96,6 +97,7 @@ fun SignupCodeScreen(
                     )
                 },
                 textStyle = TextStyle(
+                    fontFamily = PretendardFontFamily,
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.Black,

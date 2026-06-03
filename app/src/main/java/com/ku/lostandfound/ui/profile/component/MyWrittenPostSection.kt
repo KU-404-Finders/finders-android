@@ -71,11 +71,7 @@ private fun MyWrittenPostSectionPreview() {
     MyWrittenPostSection(
         lostCount = 2,
         foundCount = 2,
-        onLostClick = {
-            // 내가 작성한 분실물 목록 화면으로 이동
-        },
-        onFoundClick = {
-            // 내가 작성한 습득물 목록 화면으로 이동
-        }
+        onLostClick = {},
+        onFoundClick = {},
     )
 }

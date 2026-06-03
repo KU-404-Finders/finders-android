@@ -100,6 +100,7 @@ fun PostDetailScreen(
     onBackClick: () -> Unit,
     showOwnerActions: Boolean = false,
     onToggleResolvedClick: (BoardPost) -> Unit = {},
+    onEditClick: (BoardPost) -> Unit = {},
     onDeleteClick: (BoardPost) -> Unit = {},
     comments: List<BoardComment> = emptyList(),
     currentUserName: String = "김건국",
@@ -112,6 +113,7 @@ fun PostDetailScreen(
     isCommentsLoading: Boolean = false,
     onDeleteComment: (BoardComment) -> Unit = {},
     onUpdateComment: (BoardComment, String) -> Unit = { _, _ -> },
+    onMatchCandidateClick: (MatchCandidateUiModel) -> Unit = {},
 ) {
     val focusManager = LocalFocusManager.current
     var showResolveConfirmDialog by remember { mutableStateOf(false) }
@@ -191,10 +193,23 @@ fun PostDetailScreen(
                 Spacer(Modifier.height(14.dp))
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 PostTypeBadge(post.type)
                 Spacer(Modifier.size(8.dp))
                 PostStatusBadge(post.status)
+                Spacer(Modifier.weight(1f))
+                if (showOwnerActions && post.status == PostStatus.OPEN) {
+                    Text(
+                        text = "수정하기",
+                        color = DeepGreen,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.noRippleClickable { onEditClick(post) },
+                    )
+                }
             }
 
             Spacer(Modifier.height(10.dp))
@@ -241,7 +256,10 @@ fun PostDetailScreen(
                 LoadingRow("관련 게시물을 찾는 중입니다.")
             } else if (matchCandidates.isNotEmpty()) {
                 Spacer(Modifier.height(18.dp))
-                MatchCandidateSection(matchCandidates.take(10))
+                MatchCandidateSection(
+                    candidates = matchCandidates.take(10),
+                    onCandidateClick = onMatchCandidateClick,
+                )
             }
 
             if (showOwnerActions) {
@@ -315,7 +333,10 @@ fun PostDetailScreen(
 }
 
 @Composable
-private fun MatchCandidateSection(candidates: List<MatchCandidateUiModel>) {
+private fun MatchCandidateSection(
+    candidates: List<MatchCandidateUiModel>,
+    onCandidateClick: (MatchCandidateUiModel) -> Unit,
+) {
     Column(
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -340,19 +361,24 @@ private fun MatchCandidateSection(candidates: List<MatchCandidateUiModel>) {
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(candidates, key = { it.id }) { candidate ->
-                MatchCandidateCard(candidate)
+                MatchCandidateCard(
+                    candidate = candidate,
+                    onClick = { onCandidateClick(candidate) },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun MatchCandidateCard(candidate: MatchCandidateUiModel) {
+private fun MatchCandidateCard(candidate: MatchCandidateUiModel, onClick: () -> Unit) {
     Card(
         shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        modifier = Modifier.width(220.dp),
+        modifier = Modifier
+            .width(220.dp)
+            .noRippleClickable(onClick),
     ) {
         Column(
             modifier = Modifier.padding(12.dp),
@@ -366,7 +392,7 @@ private fun MatchCandidateCard(candidate: MatchCandidateUiModel) {
             Spacer(Modifier.height(10.dp))
 
             Row(verticalAlignment = Alignment.Top) {
-                CandidateThumbnail(hasImage = candidate.imageUrl != null)
+                CandidateThumbnail(imageUrl = candidate.imageUrl)
 
                 Spacer(Modifier.size(10.dp))
 
@@ -429,15 +455,23 @@ private fun MatchCandidateCard(candidate: MatchCandidateUiModel) {
 }
 
 @Composable
-private fun CandidateThumbnail(hasImage: Boolean) {
+private fun CandidateThumbnail(imageUrl: String?) {
+    val imageBitmap = rememberPostImageBitmap(imageUrl)
     Box(
         modifier = Modifier
             .size(54.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(if (hasImage) Color(0xFFE7E7E7) else FieldGray),
+            .background(if (imageUrl != null) Color(0xFFE7E7E7) else FieldGray),
         contentAlignment = Alignment.Center,
     ) {
-        if (hasImage) {
+        if (imageBitmap != null) {
+            Image(
+                bitmap = imageBitmap,
+                contentDescription = "추천 게시글 사진",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else if (imageUrl != null) {
             Text(
                 text = "IMG",
                 color = TextGray,

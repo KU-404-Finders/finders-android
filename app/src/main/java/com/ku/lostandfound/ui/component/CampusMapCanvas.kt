@@ -127,7 +127,9 @@ fun CampusMapCanvas(
                                 val clickedBuilding = buildings.firstOrNull { building ->
                                     GeoUtils.pointInPolygon(tappedGeo, building.outerRing)
                                 }
-                                if (clickedBuilding != null && onBuildingClick != null) {
+                                if (onMapTap != null && onBuildingClick == null) {
+                                    onMapTap(tappedGeo)
+                                } else if (clickedBuilding != null && onBuildingClick != null) {
                                     onBuildingClick(clickedBuilding)
                                 } else {
                                     onMapTap?.invoke(tappedGeo)

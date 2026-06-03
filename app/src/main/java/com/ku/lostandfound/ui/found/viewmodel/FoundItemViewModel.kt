@@ -289,7 +289,7 @@ class FoundItemViewModel : ViewModel() {
             type = PostType.FOUND,
             status = if (itemStatus == ItemStatus.RETURNED) PostStatus.RESOLVED else PostStatus.OPEN,
             authorUserId = userId,
-            authorName = authorName?.takeIf { it.isNotBlank() } ?: "익명",
+            authorName = userName?.takeIf { it.isNotBlank() } ?: authorName?.takeIf { it.isNotBlank() } ?: "익명",
             title = title,
             category = kind,
             content = content,

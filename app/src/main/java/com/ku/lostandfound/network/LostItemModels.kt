@@ -44,6 +44,7 @@ data class LostItemCreateResponse(
 data class LostItemData(
     val id: Long,
     val userId: Long,
+    val userName: String? = null,
     val authorName: String? = null,
     val title: String,
     val kind: String,

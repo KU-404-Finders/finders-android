@@ -13,11 +13,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,8 +36,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ku.lostandfound.data.BoardPost
 import com.ku.lostandfound.data.PostType
-import com.ku.lostandfound.ui.board.screen.MainBottomBar
-import com.ku.lostandfound.ui.component.CompactPostCard
 import com.ku.lostandfound.ui.component.noRippleClickable
 import com.ku.lostandfound.ui.profile.component.LogoutConfirmDialog
 import com.ku.lostandfound.ui.profile.component.MyWrittenPostSection
@@ -64,6 +64,7 @@ fun ProfileScreen(
     onLogoutClick: () -> Unit,
     onWithdrawClick: (onSuccess: () -> Unit) -> Unit,
     onWithdrawCompleteConfirm: () -> Unit,
+    onHomeClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
     selectedType: PostType = PostType.FOUND,
     onFoundTabClick: () -> Unit,
@@ -79,7 +80,10 @@ fun ProfileScreen(
             .fillMaxSize()
             .background(ScreenGray),
     ) {
-        ProfileTopBar(onSearchClick = onSearchClick)
+        ProfileTopBar(
+            onHomeClick = onHomeClick,
+            onSearchClick = onSearchClick,
+        )
 
         LazyColumn(
             modifier = Modifier.weight(1f),
@@ -96,30 +100,6 @@ fun ProfileScreen(
                 )
             }
 
-//            item {
-//                Row(
-//                    modifier = Modifier
-//                        .fillMaxWidth()
-//                        .padding(top = 12.dp, bottom = 4.dp),
-//                    verticalAlignment = Alignment.CenterVertically,
-//                ) {
-//                    //Text("나의 등록 내역", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Black)
-////                    Spacer(Modifier.size(8.dp))
-////                    Text(myPostCount.toString(), color = DeepGreen, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-////                    Spacer(Modifier.weight(1f))
-////                    Text(
-////                        text = "전체보기 〉",
-////                        color = Color.Black,
-////                        fontSize = 12.sp,
-////                        fontWeight = FontWeight.Bold,
-////                        modifier = Modifier
-////                            .clip(RoundedCornerShape(999.dp))
-////                            .background(Color.White)
-////                            .clickable(onClick = onShowAllClick)
-////                            .padding(horizontal = 12.dp, vertical = 8.dp),
-////                    )
-//                }
-//            }
             item {
                 MyWrittenPostSection(
                     lostCount = myLostPostCount,
@@ -141,16 +121,6 @@ fun ProfileScreen(
                 }
             }
 
-//            val previewPosts = myPosts.take(3)
-//            items(previewPosts) { post ->
-//                CompactPostCard(
-//                    post = post,
-//                    showThumbnail = true,
-//                    showStatus = true,
-//                    onClick = { onPostClick(post) },
-//                )
-//            }
-
             item {
                 Spacer(Modifier.height(58.dp))
                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -166,12 +136,6 @@ fun ProfileScreen(
                 }
             }
         }
-        MainBottomBar(
-            selectedType = selectedType,
-            onFoundTabClick = onFoundTabClick,
-            onLostTabClick = onLostTabClick,
-            onAddClick = onAddClick,
-        )
     }
 
     if (showLogoutConfirmDialog) {
@@ -211,22 +175,39 @@ fun ProfileScreen(
 }
 
 @Composable
-private fun ProfileTopBar(onSearchClick: () -> Unit) {
+private fun ProfileTopBar(
+    onHomeClick: () -> Unit,
+    onSearchClick: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(56.dp)
-            .background(Color.White)
-            .padding(horizontal = 20.dp),
+            .background(DeepGreen)
+            .padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = "찾을건대",
-            color = DeepGreen,
-            fontSize = 26.sp,
-            fontWeight = FontWeight.Black,
-        )
-        Spacer(Modifier.weight(1f))
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .noRippleClickable(onHomeClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Home,
+                contentDescription = "홈으로 이동",
+                tint = Color.White.copy(alpha = 0.9f),
+                modifier = Modifier.size(27.dp),
+            )
+        }
+        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            Text(
+                text = "마이페이지",
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
         Box(
             modifier = Modifier
                 .size(44.dp)
@@ -235,8 +216,8 @@ private fun ProfileTopBar(onSearchClick: () -> Unit) {
         ) {
             Text(
                 text = "⌕",
-                color = Color(0xFF777777),
-                fontSize = 38.sp,
+                color = Color.White.copy(alpha = 0.85f),
+                fontSize = 36.sp,
             )
         }
     }

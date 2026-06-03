@@ -172,6 +172,18 @@ class UserViewModel : ViewModel() {
         }
     }
 
+    fun clearSession() {
+        me = null
+        myLostCount = null
+        myFoundCount = null
+        myLostItems = emptyList()
+        myFoundItems = emptyList()
+        uiState = UserUiState.Idle
+        myPostCountState = MyPostsUiState.Idle
+        myLostItemsState = MyPostsUiState.Idle
+        myFoundItemsState = MyPostsUiState.Idle
+    }
+
     private fun parseErrorMessage(errorBody: String?): String {
         if (errorBody == null) return "오류가 발생했습니다."
         return try {
