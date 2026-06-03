@@ -193,10 +193,23 @@ fun PostDetailScreen(
                 Spacer(Modifier.height(14.dp))
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 PostTypeBadge(post.type)
                 Spacer(Modifier.size(8.dp))
                 PostStatusBadge(post.status)
+                Spacer(Modifier.weight(1f))
+                if (showOwnerActions && post.status == PostStatus.OPEN) {
+                    Text(
+                        text = "수정하기",
+                        color = DeepGreen,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.noRippleClickable { onEditClick(post) },
+                    )
+                }
             }
 
             Spacer(Modifier.height(10.dp))
@@ -251,25 +264,6 @@ fun PostDetailScreen(
 
             if (showOwnerActions) {
                 Spacer(Modifier.height(20.dp))
-
-                if (post.status == PostStatus.OPEN) {
-                    Button(
-                        onClick = { onEditClick(post) },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A6741)),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp),
-                    ) {
-                        Text(
-                            text = "게시글 수정",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-
-                    Spacer(Modifier.height(10.dp))
-                }
 
                 Button(
                     onClick = { showResolveConfirmDialog = true },
