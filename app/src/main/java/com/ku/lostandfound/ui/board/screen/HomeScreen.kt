@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -157,37 +160,53 @@ fun MainBottomBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(74.dp)
-            .background(Color.White),
-        contentAlignment = Alignment.Center,
+            .height(103.dp),
     ) {
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 44.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+                .height(74.dp)
+                .align(Alignment.BottomCenter)
+                .background(Color.White),
         ) {
-            BottomTab(
-                text = "✓\n습득물",
-                selected = selectedType == PostType.FOUND,
-                onClick = onFoundTabClick,
-            )
-            Box(
+            Row(
                 modifier = Modifier
-                    .clip(CircleShape)
-                    .background(DeepGreen)
-                    .noRippleClickable(onAddClick)
-                    .padding(horizontal = 19.dp, vertical = 12.dp),
-                contentAlignment = Alignment.Center,
+                    .fillMaxWidth()
+                    .align(Alignment.Center)
+                    .padding(horizontal = 44.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("+", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
+                BottomTab(
+                    text = "✓\n습득물",
+                    selected = selectedType == PostType.FOUND,
+                    onClick = onFoundTabClick,
+                )
+                Spacer(Modifier.width(86.dp))
+                BottomTab(
+                    text = "⚑\n분실물",
+                    selected = selectedType == PostType.LOST,
+                    onClick = onLostTabClick,
+                )
             }
-            BottomTab(
-                text = "⚑\n분실물",
-                selected = selectedType == PostType.LOST,
-                onClick = onLostTabClick,
-            )
+        }
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .layout { measurable, constraints ->
+                    val placeable = measurable.measure(constraints)
+                    layout(placeable.width, placeable.height) {
+                        placeable.place(0, 17.dp.roundToPx())
+                    }
+                }
+                .size(58.dp)
+                .clip(CircleShape)
+                .background(DeepGreen)
+                .noRippleClickable(onAddClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("+", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
         }
     }
 }

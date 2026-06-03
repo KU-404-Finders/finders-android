@@ -8,7 +8,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.ku.lostandfound.R
 
-// Pretendard FontFamily
 val PretendardFontFamily = FontFamily(
     Font(R.font.pretendard_light, FontWeight.Light),
     Font(R.font.pretendard_regular, FontWeight.Normal),
@@ -17,18 +16,27 @@ val PretendardFontFamily = FontFamily(
     Font(R.font.pretendard_bold, FontWeight.Bold)
 )
 
-// Typography with Pretendard (10sp ~ 20sp)
+private val DefaultTypography = Typography()
+
 val Typography = Typography(
-    bodyLarge = TextStyle(
-        fontFamily = PretendardFontFamily,
-        fontWeight = FontWeight.Normal,
-        fontSize = 16.sp
-    )
+    displayLarge = DefaultTypography.displayLarge.copy(fontFamily = PretendardFontFamily),
+    displayMedium = DefaultTypography.displayMedium.copy(fontFamily = PretendardFontFamily),
+    displaySmall = DefaultTypography.displaySmall.copy(fontFamily = PretendardFontFamily),
+    headlineLarge = DefaultTypography.headlineLarge.copy(fontFamily = PretendardFontFamily),
+    headlineMedium = DefaultTypography.headlineMedium.copy(fontFamily = PretendardFontFamily),
+    headlineSmall = DefaultTypography.headlineSmall.copy(fontFamily = PretendardFontFamily),
+    titleLarge = DefaultTypography.titleLarge.copy(fontFamily = PretendardFontFamily),
+    titleMedium = DefaultTypography.titleMedium.copy(fontFamily = PretendardFontFamily),
+    titleSmall = DefaultTypography.titleSmall.copy(fontFamily = PretendardFontFamily),
+    bodyLarge = DefaultTypography.bodyLarge.copy(fontFamily = PretendardFontFamily),
+    bodyMedium = DefaultTypography.bodyMedium.copy(fontFamily = PretendardFontFamily),
+    bodySmall = DefaultTypography.bodySmall.copy(fontFamily = PretendardFontFamily),
+    labelLarge = DefaultTypography.labelLarge.copy(fontFamily = PretendardFontFamily),
+    labelMedium = DefaultTypography.labelMedium.copy(fontFamily = PretendardFontFamily),
+    labelSmall = DefaultTypography.labelSmall.copy(fontFamily = PretendardFontFamily),
 )
 
-// Pretendard TextStyles (크기와 굵기를 직관적으로 표현)
 object PretendardTextStyles {
-    // 20sp
     val PRETENDARD_20_BOLD = TextStyle(
         fontFamily = PretendardFontFamily,
         fontWeight = FontWeight.Bold,
@@ -60,7 +68,6 @@ object PretendardTextStyles {
         lineHeight = 28.sp
     )
 
-    // 18sp
     val PRETENDARD_18_BOLD = TextStyle(
         fontFamily = PretendardFontFamily,
         fontWeight = FontWeight.Bold,
@@ -92,7 +99,6 @@ object PretendardTextStyles {
         lineHeight = 26.sp
     )
 
-    // 16sp
     val PRETENDARD_16_BOLD = TextStyle(
         fontFamily = PretendardFontFamily,
         fontWeight = FontWeight.Bold,
@@ -124,7 +130,6 @@ object PretendardTextStyles {
         lineHeight = 24.sp
     )
 
-    // 14sp
     val PRETENDARD_14_BOLD = TextStyle(
         fontFamily = PretendardFontFamily,
         fontWeight = FontWeight.Bold,
@@ -156,7 +161,6 @@ object PretendardTextStyles {
         lineHeight = 22.sp
     )
 
-    // 12sp
     val PRETENDARD_12_BOLD = TextStyle(
         fontFamily = PretendardFontFamily,
         fontWeight = FontWeight.Bold,
@@ -188,7 +192,6 @@ object PretendardTextStyles {
         lineHeight = 18.sp
     )
 
-    // 10sp
     val PRETENDARD_10_BOLD = TextStyle(
         fontFamily = PretendardFontFamily,
         fontWeight = FontWeight.Bold,

@@ -17,6 +17,7 @@ import com.ku.lostandfound.data.GeoPoint
 import com.ku.lostandfound.data.IndoorPlace
 import com.ku.lostandfound.data.LostLocationSelection
 import com.ku.lostandfound.data.OutdoorPin
+import com.ku.lostandfound.data.PostStatus
 import com.ku.lostandfound.data.PostType
 import com.ku.lostandfound.network.FoundItemCreateRequest
 import com.ku.lostandfound.network.FoundItemDetailData
@@ -101,8 +102,10 @@ class PostWriteViewModel {
         PostType.FOUND -> foundLocation.outdoorPin != null || foundLocation.indoorPlace != null
     }
 
-    fun canSubmit(): Boolean =
-        title.isNotBlank() && category.isNotBlank() && content.isNotBlank() && hasLocation()
+    fun canSubmit(): Boolean {
+        val hasRequiredImage = postType != PostType.FOUND || imageUri != null
+        return title.isNotBlank() && category.isNotBlank() && content.isNotBlank() && hasLocation() && hasRequiredImage
+    }
 
     suspend fun createLostItem(context: Context): Result<BoardPost> {
         uiState = PostWriteUiState.Loading
@@ -187,6 +190,30 @@ class PostWriteViewModel {
 
     fun resetUiState() {
         uiState = PostWriteUiState.Idle
+    }
+
+    fun loadForEdit(post: BoardPost) {
+        postType = post.type
+        title = post.title
+        category = post.category
+        content = post.content
+        imageUri = post.imageUri
+        lostLocation = post.lostLocation ?: LostLocationSelection()
+        foundLocation = post.foundLocation ?: FoundLocationSelection()
+        uiState = PostWriteUiState.Idle
+    }
+
+    suspend fun updatePost(context: Context, id: Long): Result<BoardPost> {
+        uiState = PostWriteUiState.Loading
+        return if (postType == PostType.LOST) {
+            updateLostItem(context, id)
+        } else {
+            updateFoundItem(context, id)
+        }.also { result ->
+            result.exceptionOrNull()?.let { error ->
+                uiState = PostWriteUiState.Error(error.message ?: "서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
+            }
+        }
     }
 
     fun reset() {
@@ -298,6 +325,60 @@ class PostWriteViewModel {
         )
     }
 
+    private suspend fun updateLostItem(context: Context, id: Long): Result<BoardPost> {
+        return try {
+            val response = RetrofitClient.lostItemApi.updateLostItem(
+                authorization = bearerTokenOrThrow(),
+                id = id,
+                request = createJsonPart(toLostItemCreateRequest()),
+                image = imageUri?.takeIf { it.isLocalImageUri() }?.let { createImagePart(context, it).part },
+            )
+            if (response.isSuccessful) {
+                val body = response.body()
+                if (body?.success == true && body.data != null) {
+                    uiState = PostWriteUiState.Idle
+                    Result.success(body.data.toBoardPost())
+                } else {
+                    Result.failure(IllegalStateException(body?.message ?: "분실물 수정에 실패했습니다."))
+                }
+            } else {
+                val errorBody = response.errorBody()?.string()
+                NetworkLog.httpError("updateLostItem", response.code(), errorBody)
+                Result.failure(IllegalStateException(httpErrorMessage(response.code(), parseLostItemError(errorBody))))
+            }
+        } catch (e: Exception) {
+            NetworkLog.exception("updateLostItem", e)
+            Result.failure(e)
+        }
+    }
+
+    private suspend fun updateFoundItem(context: Context, id: Long): Result<BoardPost> {
+        return try {
+            val response = RetrofitClient.foundItemApi.updateFoundItem(
+                authorization = bearerTokenOrThrow(),
+                id = id,
+                request = createJsonPart(toFoundItemCreateRequest()),
+                image = imageUri?.takeIf { it.isLocalImageUri() }?.let { createImagePart(context, it).part },
+            )
+            if (response.isSuccessful) {
+                val body = response.body()
+                if (body?.success == true && body.data != null) {
+                    uiState = PostWriteUiState.Idle
+                    Result.success(body.data.toBoardPost())
+                } else {
+                    Result.failure(IllegalStateException(body?.message ?: "습득물 수정에 실패했습니다."))
+                }
+            } else {
+                val errorBody = response.errorBody()?.string()
+                NetworkLog.httpError("updateFoundItem", response.code(), errorBody)
+                Result.failure(IllegalStateException(httpErrorMessage(response.code(), parseFoundItemError(errorBody))))
+            }
+        } catch (e: Exception) {
+            NetworkLog.exception("updateFoundItem", e)
+            Result.failure(e)
+        }
+    }
+
     private fun createJsonPart(request: Any): RequestBody {
         return createJsonPart(Gson().toJson(request))
     }
@@ -305,6 +386,9 @@ class PostWriteViewModel {
     private fun createJsonPart(jsonString: String): RequestBody {
         return jsonString.toRequestBody("application/json; charset=utf-8".toMediaType())
     }
+
+    private fun String.isLocalImageUri(): Boolean =
+        !startsWith("http://") && !startsWith("https://")
 
     private fun String.fileExtension(): String {
         return when (this) {
@@ -372,8 +456,9 @@ class PostWriteViewModel {
         return BoardPost(
             id = id.toString(),
             type = PostType.LOST,
+            status = if (itemStatus == "RETURNED") PostStatus.RESOLVED else PostStatus.OPEN,
             authorUserId = userId,
-            authorName = authorName?.takeIf { it.isNotBlank() } ?: "익명",
+            authorName = displayUserName(),
             title = title,
             category = kind,
             content = content,
@@ -393,7 +478,7 @@ class PostWriteViewModel {
                 com.ku.lostandfound.data.PostStatus.OPEN
             },
             authorUserId = userId,
-            authorName = authorName?.takeIf { it.isNotBlank() } ?: "익명",
+            authorName = displayUserName(),
             title = title,
             category = kind,
             content = content,
@@ -451,6 +536,12 @@ class PostWriteViewModel {
         val token = TokenManager.accessToken ?: throw IllegalStateException("로그인이 필요합니다.")
         return "Bearer $token"
     }
+
+    private fun LostItemData.displayUserName(): String =
+        userName?.takeIf { it.isNotBlank() } ?: authorName?.takeIf { it.isNotBlank() } ?: "익명"
+
+    private fun FoundItemDetailData.displayUserName(): String =
+        userName?.takeIf { it.isNotBlank() } ?: authorName?.takeIf { it.isNotBlank() } ?: "익명"
 
     private data class UploadImage(
         val uri: Uri,

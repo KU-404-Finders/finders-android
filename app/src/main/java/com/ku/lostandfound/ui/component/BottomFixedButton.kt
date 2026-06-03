@@ -25,8 +25,8 @@ fun BottomFixedButton(
         enabled = enabled,
         shape = RoundedCornerShape(8.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = Color(0xFF4A6741), // 활성화 시 짙은 녹색
-            disabledContainerColor = Color(0xFFD9D9D9), // 비활성화 시 회색
+            containerColor = Color(0xFF4A6741),
+            disabledContainerColor = Color(0xFFD9D9D9),
             contentColor = Color.White,
             disabledContentColor = Color.White
         ),

@@ -211,9 +211,7 @@ private fun OutdoorLocationBody(
                 .fillMaxWidth()
                 .height(430.dp),
             onMapTap = { point ->
-                // 캠퍼스 바깥만 막고, 참고 경로 위에 찍었는지는 검사하지 않는다.
-                // 사용자가 길을 살짝 벗어나 찍어도 허용한다.
-                if (!GeoUtils.pointInPolygon(point, boundary.polygon)) return@CampusMapCanvas
+                if (!GeoUtils.pointInPolygonOrNearBoundary(point, boundary.polygon)) return@CampusMapCanvas
 
                 if (postType == PostType.LOST) {
                     if (pins.size < 10) {
@@ -274,7 +272,6 @@ private fun IndoorLocationBody(
                 .fillMaxWidth()
                 .height(430.dp),
             onMapTap = { point ->
-                // 내부 선택에서는 건물만 클릭 대상이다. 경로선은 참고용이라 선택되지 않는다.
                 GeoUtils.findBuildingAt(point, buildings)?.let(onBuildingSelected)
             }
         )

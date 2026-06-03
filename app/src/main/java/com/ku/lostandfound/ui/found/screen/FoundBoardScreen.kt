@@ -34,7 +34,7 @@ fun FoundBoardScreen(
             val associatedMatch = building.name in post.associatedBuildingNames
             val indoorMatch = post.foundLocation?.indoorPlace?.buildingName == building.name
             val outdoorMatch = post.foundLocation?.outdoorPin?.let { pin ->
-                GeoUtils.pointInPolygon(pin.point, building.outerRing)
+                GeoUtils.pointInPolygonOrNearBoundary(pin.point, building.outerRing, toleranceMeters = 4.0)
             } ?: false
             associatedMatch || indoorMatch || outdoorMatch
         }

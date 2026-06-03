@@ -5,6 +5,7 @@ import com.ku.lostandfound.data.GeoPoint
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sqrt
 
 object GeoUtils {
 
@@ -42,6 +43,7 @@ object GeoUtils {
 
     fun pointInPolygon(point: GeoPoint, polygon: List<GeoPoint>): Boolean {
         if (polygon.size < 3) return false
+        if (pointOnPolygonBoundary(point, polygon)) return true
         var inside = false
         var j = polygon.lastIndex
         for (i in polygon.indices) {
@@ -56,6 +58,14 @@ object GeoUtils {
         return inside
     }
 
+    fun pointInPolygonOrNearBoundary(
+        point: GeoPoint,
+        polygon: List<GeoPoint>,
+        toleranceMeters: Double = 8.0,
+    ): Boolean {
+        return pointInPolygon(point, polygon) || distanceToPolygonMeters(point, polygon) <= toleranceMeters
+    }
+
     fun centroid(points: List<GeoPoint>): GeoPoint {
         if (points.isEmpty()) return GeoPoint(0.0, 0.0)
         return GeoPoint(
@@ -67,6 +77,42 @@ object GeoUtils {
     fun findBuildingAt(point: GeoPoint, buildings: List<CampusBuilding>): CampusBuilding? =
         buildings.firstOrNull { building ->
             val outer = building.outerRing
-            pointInPolygon(point, outer)
+            pointInPolygonOrNearBoundary(point, outer, toleranceMeters = 4.0)
         }
+
+    private fun pointOnPolygonBoundary(point: GeoPoint, polygon: List<GeoPoint>): Boolean =
+        distanceToPolygonMeters(point, polygon) <= 0.8
+
+    private fun distanceToPolygonMeters(point: GeoPoint, polygon: List<GeoPoint>): Double {
+        if (polygon.size < 2) return Double.POSITIVE_INFINITY
+        var minDistance = Double.POSITIVE_INFINITY
+        var previous = polygon.last()
+        polygon.forEach { current ->
+            minDistance = min(minDistance, distanceToSegmentMeters(point, previous, current))
+            previous = current
+        }
+        return minDistance
+    }
+
+    private fun distanceToSegmentMeters(point: GeoPoint, start: GeoPoint, end: GeoPoint): Double {
+        val metersPerLat = 111_320.0
+        val metersPerLng = metersPerLat * kotlin.math.cos(Math.toRadians(point.latitude))
+        val px = point.longitude * metersPerLng
+        val py = point.latitude * metersPerLat
+        val ax = start.longitude * metersPerLng
+        val ay = start.latitude * metersPerLat
+        val bx = end.longitude * metersPerLng
+        val by = end.latitude * metersPerLat
+        val dx = bx - ax
+        val dy = by - ay
+        val segmentLengthSquared = dx * dx + dy * dy
+        val t = if (segmentLengthSquared <= 1e-9) {
+            0.0
+        } else {
+            (((px - ax) * dx + (py - ay) * dy) / segmentLengthSquared).coerceIn(0.0, 1.0)
+        }
+        val closestX = ax + t * dx
+        val closestY = ay + t * dy
+        return sqrt((px - closestX) * (px - closestX) + (py - closestY) * (py - closestY))
+    }
 }

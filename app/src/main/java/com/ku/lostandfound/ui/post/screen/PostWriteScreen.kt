@@ -69,6 +69,10 @@ fun PostWriteScreen(
     onBackClick: () -> Unit,
     onAddLocationClick: (PostType) -> Unit,
     onSubmitClick: () -> Unit,
+    title: String = "새 글 쓰기",
+    submitText: String = "등록하기",
+    loadingText: String = "등록 중...",
+    allowTypeChange: Boolean = true,
 ) {
     val uiState = viewModel.uiState
     val isLoading = uiState is PostWriteUiState.Loading
@@ -88,7 +92,7 @@ fun PostWriteScreen(
                 detectTapGestures(onTap = { focusManager.clearFocus() })
             }
     ) {
-        BackTitleBar(title = "새 글 쓰기", onBackClick = onBackClick)
+        BackTitleBar(title = title, onBackClick = onBackClick)
 
         Column(
             modifier = Modifier
@@ -100,8 +104,8 @@ fun PostWriteScreen(
                 leftText = "분실물 등록",
                 rightText = "습득물 등록",
                 selectedLeft = viewModel.postType == PostType.LOST,
-                onLeftClick = { viewModel.changePostType(PostType.LOST) },
-                onRightClick = { viewModel.changePostType(PostType.FOUND) },
+                onLeftClick = { if (allowTypeChange) viewModel.changePostType(PostType.LOST) },
+                onRightClick = { if (allowTypeChange) viewModel.changePostType(PostType.FOUND) },
             )
 
             Spacer(Modifier.height(34.dp))
@@ -119,7 +123,7 @@ fun PostWriteScreen(
                     viewModel.title = it
                     if (uiState is PostWriteUiState.Error) viewModel.resetUiState()
                 },
-                placeholder = "예 ) 검은색 지갑을 찾습니다",
+                placeholder = "",
                 singleLine = true,
             )
 
@@ -178,7 +182,7 @@ fun PostWriteScreen(
                     .height(45.dp),
             ) {
                 Text(
-                    text = if (isLoading) "등록 중..." else "등록하기",
+                    text = if (isLoading) loadingText else submitText,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                 )

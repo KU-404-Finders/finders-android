@@ -47,8 +47,9 @@ class PostCommentViewModel : ViewModel() {
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true) {
+                        val postKey = postKey(postId, postType)
                         commentsByPostId = commentsByPostId + (
-                            postId.toString() to body.data.orEmpty().map { it.toBoardComment(postId.toString()) }
+                            postKey to body.data.orEmpty().map { it.toBoardComment(postKey) }
                             )
                         uiState = PostCommentUiState.Idle
                     } else {
@@ -86,7 +87,7 @@ class PostCommentViewModel : ViewModel() {
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true && body.data != null) {
-                        val postKey = postId.toString()
+                        val postKey = postKey(postId, postType)
                         val current = commentsByPostId[postKey].orEmpty()
                         commentsByPostId = commentsByPostId + (postKey to (current + body.data.toBoardComment(postKey)))
                         uiState = PostCommentUiState.Idle
@@ -124,7 +125,7 @@ class PostCommentViewModel : ViewModel() {
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body == null || body.success) {
-                        val postKey = postId.toString()
+                        val postKey = postKey(postId, postType)
                         commentsByPostId = commentsByPostId + (
                             postKey to commentsByPostId[postKey].orEmpty().filterNot { it.id == commentId.toString() }
                             )
@@ -169,7 +170,7 @@ class PostCommentViewModel : ViewModel() {
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true && body.data != null) {
-                        val postKey = postId.toString()
+                        val postKey = postKey(postId, postType)
                         commentsByPostId = commentsByPostId + (
                             postKey to commentsByPostId[postKey].orEmpty().map { comment ->
                                 if (comment.id == commentId.toString()) {
@@ -211,6 +212,17 @@ class PostCommentViewModel : ViewModel() {
         val token = TokenManager.accessToken ?: throw IllegalStateException("로그인이 필요합니다.")
         return "Bearer $token"
     }
+
+    fun commentsFor(postId: Long, postType: PostType): List<BoardComment> {
+        return commentsByPostId[postKey(postId, postType)].orEmpty()
+    }
+
+    fun clear() {
+        commentsByPostId = emptyMap()
+        uiState = PostCommentUiState.Idle
+    }
+
+    private fun postKey(postId: Long, postType: PostType): String = "${postType.name}:$postId"
 
     private fun parseErrorMessage(errorBody: String?): String {
         if (errorBody == null) return "오류가 발생했습니다."
