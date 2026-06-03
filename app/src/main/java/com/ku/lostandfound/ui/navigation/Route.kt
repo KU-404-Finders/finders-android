@@ -13,7 +13,8 @@ sealed class Route(val route: String) {
     object Found : Route(route = "found")
     object Lost : Route(route = "lost")
     object Profile : Route(route = "profile")
-    object MyPosts : Route(route = "myPosts")
+    object MyLostPosts : Route(route = "myPosts/lost")
+    object MyFoundPosts : Route(route = "myPosts/found")
 
     /* 검색 */
     object Search : Route(route = "search")

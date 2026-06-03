@@ -189,7 +189,7 @@ fun CampusMapCanvas(
             },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(10.dp),
+                .padding(14.dp),
         )
     }
 }
@@ -205,8 +205,8 @@ private fun MapZoomButtons(
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(Color.White.copy(alpha = 0.75f))
-            .padding(3.dp),
+            .background(Color.White.copy(alpha = 0.92f))
+            .padding(5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CircleButton(text = "−", onClick = onMinusClick)
@@ -221,15 +221,15 @@ private fun MapZoomButtons(
 private fun CircleButton(text: String, onClick: () -> Unit, wide: Boolean = false) {
     Box(
         modifier = Modifier
-            .size(width = if (wide) 30.dp else 25.dp, height = 25.dp)
+            .size(width = if (wide) 42.dp else 34.dp, height = 34.dp)
             .clip(CircleShape)
-            .background(Color(0xFFE9ECFF))
+            .background(Color(0xFFF1F5F1))
             .border(0.5.dp, Color.White, CircleShape)
             .padding(2.dp)
             .noRippleClickable(onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text = text, color = Color(0xFF6A6F8F), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Text(text = text, color = Color(0xFF1B6425), fontSize = 13.sp, fontWeight = FontWeight.Bold)
     }
 }
 

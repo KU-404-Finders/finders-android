@@ -19,10 +19,12 @@ import com.ku.lostandfound.network.FoundItemMatchData
 import com.ku.lostandfound.network.FoundItemLocationType
 import com.ku.lostandfound.network.FoundItemSummaryData
 import com.ku.lostandfound.network.ItemStatus
+import com.ku.lostandfound.network.MatchStatus
 import com.ku.lostandfound.network.NetworkLog
 import com.ku.lostandfound.network.RetrofitClient
 import com.ku.lostandfound.network.TokenManager
 import com.ku.lostandfound.network.httpErrorMessage
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 sealed class FoundItemUiState {
@@ -49,6 +51,9 @@ class FoundItemViewModel : ViewModel() {
     var foundItems by mutableStateOf<List<FoundItemSummaryData>>(emptyList())
         private set
 
+    var listVersion by mutableStateOf(0)
+        private set
+
     var detailPost by mutableStateOf<BoardPost?>(null)
         private set
 
@@ -60,11 +65,12 @@ class FoundItemViewModel : ViewModel() {
         viewModelScope.launch {
             uiState = FoundItemUiState.Loading
             try {
-                val response = RetrofitClient.foundItemApi.getFoundItemsByBuilding(buildingName)
+                val response = RetrofitClient.foundItemApi.getFoundItems(buildingName)
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true) {
                         foundItems = body.data.orEmpty().filter { it.itemStatus == ItemStatus.SEARCHING }
+                        listVersion++
                         uiState = FoundItemUiState.Idle
                     } else {
                         uiState = FoundItemUiState.Error(body?.message ?: "습득물 목록을 불러오지 못했습니다.")
@@ -81,6 +87,33 @@ class FoundItemViewModel : ViewModel() {
         }
     }
 
+    fun loadFoundItems() {
+        selectedBuildingName = null
+        viewModelScope.launch {
+            uiState = FoundItemUiState.Loading
+            try {
+                val response = RetrofitClient.foundItemApi.getFoundItems()
+                if (response.isSuccessful) {
+                    val body = response.body()
+                    if (body?.success == true) {
+                        foundItems = body.data.orEmpty().filter { it.itemStatus == ItemStatus.SEARCHING }
+                        listVersion++
+                        uiState = FoundItemUiState.Idle
+                    } else {
+                        uiState = FoundItemUiState.Error(body?.message ?: "습득물 목록을 불러오지 못했습니다.")
+                    }
+                } else {
+                    val errorBody = response.errorBody()?.string()
+                    NetworkLog.httpError("loadFoundItems", response.code(), errorBody)
+                    uiState = FoundItemUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
+                }
+            } catch (e: Exception) {
+                NetworkLog.exception("loadFoundItems", e)
+                uiState = FoundItemUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
+            }
+        }
+    }
+
     fun clearBuildingFilter() {
         selectedBuildingName = null
         foundItems = emptyList()
@@ -89,6 +122,11 @@ class FoundItemViewModel : ViewModel() {
 
     fun loadFoundItemDetail(id: Long) {
         viewModelScope.launch {
+            loadFoundItemDetailNow(id)
+        }
+    }
+
+    suspend fun loadFoundItemDetailNow(id: Long): BoardPost? {
             uiState = FoundItemUiState.Loading
             try {
                 val response = RetrofitClient.foundItemApi.getFoundItemDetail(id)
@@ -97,6 +135,7 @@ class FoundItemViewModel : ViewModel() {
                     if (body?.success == true && body.data != null) {
                         detailPost = body.data.toBoardPost()
                         uiState = FoundItemUiState.Idle
+                        return detailPost
                     } else {
                         uiState = FoundItemUiState.Error(body?.message ?: "습득물 상세 정보를 불러오지 못했습니다.")
                     }
@@ -109,7 +148,7 @@ class FoundItemViewModel : ViewModel() {
                 NetworkLog.exception("loadFoundItemDetail", e)
                 uiState = FoundItemUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
             }
-        }
+            return null
     }
 
     fun updateFoundItemStatus(id: Long, onSuccess: (BoardPost) -> Unit) {
@@ -123,6 +162,8 @@ class FoundItemViewModel : ViewModel() {
                     if (body?.success == true && body.data != null) {
                         val updatedPost = body.data.toBoardPost()
                         detailPost = updatedPost
+                        foundItems = foundItems.filterNot { it.id == id }
+                        listVersion++
                         uiState = FoundItemUiState.Idle
                         onSuccess(updatedPost)
                     } else {
@@ -140,25 +181,77 @@ class FoundItemViewModel : ViewModel() {
         }
     }
 
-    fun loadFoundItemMatches(id: Long) {
+    fun deleteFoundItem(id: Long, onSuccess: () -> Unit) {
         viewModelScope.launch {
+            uiState = FoundItemUiState.Loading
             try {
-                val response = RetrofitClient.foundItemApi.getFoundItemMatches(id)
-                val body = response.body()
-                if (body?.success == true) {
-                    matchUiState = FoundItemMatchUiState.Completed(body.data.orEmpty())
+                val response = RetrofitClient.foundItemApi.deleteFoundItem(bearerTokenOrThrow(), id)
+                if (response.isSuccessful) {
+                    val body = response.body()
+                    if (body == null || body.success) {
+                        foundItems = foundItems.filterNot { it.id == id }
+                        if (detailPost?.id == id.toString()) {
+                            detailPost = null
+                        }
+                        uiState = FoundItemUiState.Idle
+                        onSuccess()
+                    } else {
+                        uiState = FoundItemUiState.Error(body?.message ?: "습득물 삭제에 실패했습니다.")
+                    }
                 } else {
                     val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("loadFoundItemMatches", response.code(), errorBody)
-                    matchUiState = FoundItemMatchUiState.Error(
-                        httpErrorMessage(response.code(), body?.message ?: parseErrorMessage(errorBody))
-                    )
+                    NetworkLog.httpError("deleteFoundItem", response.code(), errorBody)
+                    uiState = FoundItemUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
                 }
+            } catch (e: Exception) {
+                NetworkLog.exception("deleteFoundItem", e)
+                uiState = FoundItemUiState.Error(e.message ?: "서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
+            }
+        }
+    }
+
+    fun loadFoundItemMatches(id: Long) {
+        viewModelScope.launch {
+            loadFoundItemMatchesNow(id)
+        }
+    }
+
+    suspend fun loadFoundItemMatchesNow(id: Long) {
+            matchUiState = FoundItemMatchUiState.Calculating
+            try {
+                repeat(MAX_MATCH_POLL_COUNT) { attempt ->
+                    val response = RetrofitClient.foundItemApi.getFoundItemMatches(id)
+                    val body = response.body()
+                    val result = body?.data
+                    when {
+                        body?.success == true && result?.status == MatchStatus.COMPLETED -> {
+                            matchUiState = FoundItemMatchUiState.Completed(result.matches)
+                            return
+                        }
+                        body?.success == true && result?.status == MatchStatus.CALCULATING -> {
+                            if (attempt < MAX_MATCH_POLL_COUNT - 1) {
+                                delay(MATCH_POLL_DELAY_MS)
+                            }
+                        }
+                        body?.success == true && result?.status == MatchStatus.FAILED -> {
+                            matchUiState = FoundItemMatchUiState.Failed(body.message)
+                            return
+                        }
+                        else -> {
+                            val errorBody = response.errorBody()?.string()
+                            NetworkLog.httpError("loadFoundItemMatches", response.code(), errorBody)
+                            matchUiState = FoundItemMatchUiState.Error(
+                                httpErrorMessage(response.code(), body?.message ?: parseErrorMessage(errorBody))
+                            )
+                            return
+                        }
+                    }
+                }
+                matchUiState = FoundItemMatchUiState.Failed("매칭 계산이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.")
             } catch (e: Exception) {
                 NetworkLog.exception("loadFoundItemMatches", e)
                 matchUiState = FoundItemMatchUiState.Failed("매칭 계산에 실패했습니다. 잠시 후 다시 시도해 주세요.")
             }
-        }
     }
 
     fun asBoardPosts(): List<BoardPost> {
@@ -166,6 +259,7 @@ class FoundItemViewModel : ViewModel() {
             BoardPost(
                 id = item.id.toString(),
                 type = PostType.FOUND,
+                status = if (item.itemStatus == ItemStatus.RETURNED) PostStatus.RESOLVED else PostStatus.OPEN,
                 title = item.title,
                 category = item.kind,
                 content = item.associatedBuildingNames.joinToString(", ").ifBlank { "습득물 상세 조회가 필요합니다." },
@@ -194,6 +288,8 @@ class FoundItemViewModel : ViewModel() {
             id = id.toString(),
             type = PostType.FOUND,
             status = if (itemStatus == ItemStatus.RETURNED) PostStatus.RESOLVED else PostStatus.OPEN,
+            authorUserId = userId,
+            authorName = authorName?.takeIf { it.isNotBlank() } ?: "익명",
             title = title,
             category = kind,
             content = content,
@@ -241,5 +337,10 @@ class FoundItemViewModel : ViewModel() {
         } catch (e: Exception) {
             "오류가 발생했습니다."
         }
+    }
+
+    private companion object {
+        const val MAX_MATCH_POLL_COUNT = 30
+        const val MATCH_POLL_DELAY_MS = 2_000L
     }
 }

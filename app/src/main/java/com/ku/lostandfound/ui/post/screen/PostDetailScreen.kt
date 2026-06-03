@@ -1,9 +1,12 @@
 package com.ku.lostandfound.ui.post.screen
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +17,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,10 +28,14 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,30 +44,52 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.ku.lostandfound.data.BoardComment
 import com.ku.lostandfound.data.BoardPost
 import com.ku.lostandfound.data.CampusBoundary
 import com.ku.lostandfound.data.CampusBuilding
 import com.ku.lostandfound.data.CampusPath
 import com.ku.lostandfound.data.FoundLocationSelection
+import com.ku.lostandfound.data.IndoorPlace
 import com.ku.lostandfound.data.LostLocationSelection
 import com.ku.lostandfound.data.PostStatus
 import com.ku.lostandfound.data.PostType
 import com.ku.lostandfound.ui.component.BackTitleBar
 import com.ku.lostandfound.ui.component.CampusMapCanvas
+import com.ku.lostandfound.ui.component.noRippleClickable
 import com.ku.lostandfound.ui.component.PostStatusBadge
 import com.ku.lostandfound.ui.component.PostTypeBadge
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayInputStream
+import java.net.URL
 
 private val DeepGreen = Color(0xFF1B6425)
 private val FieldGray = Color(0xFFF4F4F4)
 private val TextGray = Color(0xFF8A8A8A)
 private val LightGreen = Color(0xFFE4F6E5)
+
+data class MatchCandidateUiModel(
+    val id: String,
+    val type: PostType,
+    val title: String,
+    val category: String,
+    val status: PostStatus,
+    val createdAtText: String,
+    val imageUrl: String?,
+    val locationScore: Double,
+    val associatedBuildingNames: List<String> = emptyList(),
+)
 
 @Composable
 fun PostDetailScreen(
@@ -68,16 +100,80 @@ fun PostDetailScreen(
     onBackClick: () -> Unit,
     showOwnerActions: Boolean = false,
     onToggleResolvedClick: (BoardPost) -> Unit = {},
+    onDeleteClick: (BoardPost) -> Unit = {},
     comments: List<BoardComment> = emptyList(),
     currentUserName: String = "김건국",
     currentUserEmail: String = "konkuk26@konkuk.ac.kr",
+    currentUserId: Long? = null,
     onAddComment: (String) -> Unit = {},
-    matchCandidateTexts: List<String> = emptyList(),
+    matchCandidates: List<MatchCandidateUiModel> = emptyList(),
+    isDetailLoading: Boolean = false,
+    isMatchLoading: Boolean = false,
+    isCommentsLoading: Boolean = false,
+    onDeleteComment: (BoardComment) -> Unit = {},
+    onUpdateComment: (BoardComment, String) -> Unit = { _, _ -> },
 ) {
+    val focusManager = LocalFocusManager.current
+    var showResolveConfirmDialog by remember { mutableStateOf(false) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+
+    if (showResolveConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showResolveConfirmDialog = false },
+            title = {
+                Text(
+                    text = "해결 완료로 변경할까요?",
+                    fontWeight = FontWeight.Bold,
+                    color = Color.Black,
+                )
+            },
+            text = {
+                Text(
+                    text = "해결 완료로 변경하면 미해결 상태로 되돌릴 수 없습니다.",
+                    color = Color(0xFF555555),
+                    fontSize = 14.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showResolveConfirmDialog = false
+                        onToggleResolvedClick(post)
+                    }
+                ) {
+                    Text(
+                        text = "해결 완료",
+                        color = DeepGreen,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResolveConfirmDialog = false }) {
+                    Text(text = "취소", color = TextGray)
+                }
+            },
+            containerColor = Color.White,
+        )
+    }
+
+    if (showDeleteConfirmDialog) {
+        DeletePostConfirmDialog(
+            onCancelClick = { showDeleteConfirmDialog = false },
+            onDeleteClick = {
+                showDeleteConfirmDialog = false
+                onDeleteClick(post)
+            },
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.White)
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { focusManager.clearFocus() })
+            }
     ) {
         BackTitleBar(
             title = if (post.type == PostType.LOST) "분실물 상세" else "습득물 상세",
@@ -90,6 +186,11 @@ fun PostDetailScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 16.dp)
         ) {
+            if (isDetailLoading) {
+                LoadingRow("게시글을 불러오는 중입니다.")
+                Spacer(Modifier.height(14.dp))
+            }
+
             Row(verticalAlignment = Alignment.CenterVertically) {
                 PostTypeBadge(post.type)
                 Spacer(Modifier.size(8.dp))
@@ -135,18 +236,23 @@ fun PostDetailScreen(
                 referencePaths = referencePaths,
             )
 
-            if (matchCandidateTexts.isNotEmpty()) {
+            if (isMatchLoading) {
                 Spacer(Modifier.height(18.dp))
-                MatchCandidateSection(matchCandidateTexts)
+                LoadingRow("관련 게시물을 찾는 중입니다.")
+            } else if (matchCandidates.isNotEmpty()) {
+                Spacer(Modifier.height(18.dp))
+                MatchCandidateSection(matchCandidates.take(10))
             }
 
             if (showOwnerActions) {
                 Spacer(Modifier.height(20.dp))
 
                 Button(
-                    onClick = { onToggleResolvedClick(post) },
+                    onClick = { showResolveConfirmDialog = true },
+                    enabled = post.status == PostStatus.OPEN,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (post.status == PostStatus.OPEN) DeepGreen else Color(0xFF777777),
+                        disabledContainerColor = Color(0xFFD8D8D8),
                     ),
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier
@@ -157,8 +263,28 @@ fun PostDetailScreen(
                         text = if (post.status == PostStatus.OPEN) {
                             "해결 완료로 변경"
                         } else {
-                            "미해결로 다시 변경"
+                            "해결 완료됨"
                         },
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+
+                Spacer(Modifier.height(10.dp))
+
+                Button(
+                    onClick = { showDeleteConfirmDialog = true },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFD32F2F),
+                        disabledContainerColor = Color(0xFFD8D8D8),
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                ) {
+                    Text(
+                        text = "게시글 삭제",
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                     )
@@ -169,7 +295,13 @@ fun PostDetailScreen(
 
             CommentSection(
                 comments = comments,
-                postAuthorEmail = post.authorEmail
+                postAuthorUserId = post.authorUserId,
+                currentUserId = currentUserId,
+                currentUserName = currentUserName,
+                currentUserEmail = currentUserEmail,
+                isLoading = isCommentsLoading,
+                onDeleteComment = onDeleteComment,
+                onUpdateComment = onUpdateComment,
             )
 
             Spacer(Modifier.height(20.dp))
@@ -183,46 +315,142 @@ fun PostDetailScreen(
 }
 
 @Composable
-private fun MatchCandidateSection(candidates: List<String>) {
+private fun MatchCandidateSection(candidates: List<MatchCandidateUiModel>) {
     Column(
         modifier = Modifier.fillMaxWidth()
     ) {
         Text(
-            text = "위치 매칭 후보",
+            text = "이 게시물인가요?",
             fontWeight = FontWeight.Bold,
-            fontSize = 14.sp
+            fontSize = 18.sp,
+            color = Color.Black,
         )
 
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(4.dp))
 
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            candidates.forEach { candidate ->
-                Text(
-                    text = candidate,
-                    color = Color(0xFF444444),
-                    fontSize = 13.sp,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(FieldGray, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                )
+        Text(
+            text = "위치가 비슷한 게시물을 확인해보세요.",
+            color = TextGray,
+            fontSize = 12.sp,
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            items(candidates, key = { it.id }) { candidate ->
+                MatchCandidateCard(candidate)
             }
         }
     }
 }
 
 @Composable
-private fun PostImageBox(imageUri: String?) {
-    val context = LocalContext.current
-    val bitmap = remember(imageUri) {
-        imageUri?.let { uriString ->
-            runCatching {
-                context.contentResolver.openInputStream(android.net.Uri.parse(uriString)).use { stream ->
-                    BitmapFactory.decodeStream(stream)
+private fun MatchCandidateCard(candidate: MatchCandidateUiModel) {
+    Card(
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = Modifier.width(220.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                PostTypeBadge(candidate.type)
+                Spacer(Modifier.size(6.dp))
+                PostStatusBadge(candidate.status)
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            Row(verticalAlignment = Alignment.Top) {
+                CandidateThumbnail(hasImage = candidate.imageUrl != null)
+
+                Spacer(Modifier.size(10.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = candidate.title,
+                        color = Color.Black,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = 18.sp,
+                        maxLines = 2,
+                    )
+
+                    Spacer(Modifier.height(5.dp))
+
+                    Text(
+                        text = candidate.category,
+                        color = TextGray,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                    )
                 }
-            }.getOrNull()
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            Text(
+                text = "위치 유사도 ${"%.2f".format(candidate.locationScore)}",
+                color = DeepGreen,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .background(LightGreen, RoundedCornerShape(999.dp))
+                    .padding(horizontal = 9.dp, vertical = 5.dp),
+            )
+
+            val locationText = candidate.associatedBuildingNames
+                .take(2)
+                .joinToString(", ")
+                .ifBlank { "위치 정보 확인 필요" }
+
+            Spacer(Modifier.height(8.dp))
+
+            Text(
+                text = locationText,
+                color = Color(0xFF555555),
+                fontSize = 12.sp,
+                maxLines = 1,
+            )
+
+            Spacer(Modifier.height(4.dp))
+
+            Text(
+                text = candidate.createdAtText,
+                color = TextGray,
+                fontSize = 11.sp,
+            )
         }
     }
+}
+
+@Composable
+private fun CandidateThumbnail(hasImage: Boolean) {
+    Box(
+        modifier = Modifier
+            .size(54.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (hasImage) Color(0xFFE7E7E7) else FieldGray),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (hasImage) {
+            Text(
+                text = "IMG",
+                color = TextGray,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PostImageBox(imageUri: String?) {
+    val imageBitmap = rememberPostImageBitmap(imageUri)
 
     Box(
         modifier = Modifier
@@ -232,20 +460,71 @@ private fun PostImageBox(imageUri: String?) {
             .background(FieldGray),
         contentAlignment = Alignment.Center,
     ) {
-        if (bitmap != null) {
+        if (imageBitmap != null) {
             Image(
-                bitmap = bitmap.asImageBitmap(),
+                bitmap = imageBitmap,
                 contentDescription = "게시글 사진",
-                contentScale = ContentScale.Crop,
+                contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
             Text(
-                text = if (imageUri == null) "사진 영역" else "등록된 사진",
+                text = if (imageUri == null) "사진 영역" else "사진을 불러오는 중입니다.",
                 color = Color.Gray
             )
         }
     }
+}
+
+@Composable
+private fun rememberPostImageBitmap(imageUri: String?): ImageBitmap? {
+    val context = LocalContext.current
+    var bitmap by remember(imageUri) { mutableStateOf<ImageBitmap?>(null) }
+
+    LaunchedEffect(imageUri) {
+        bitmap = null
+        if (imageUri.isNullOrBlank()) return@LaunchedEffect
+        bitmap = withContext(Dispatchers.IO) {
+            runCatching {
+                val sourceBytes = if (imageUri.startsWith("http://") || imageUri.startsWith("https://")) {
+                    URL(imageUri).openStream().use { stream -> stream.readBytes() }
+                } else {
+                    context.contentResolver.openInputStream(android.net.Uri.parse(imageUri)).use { stream ->
+                        stream?.readBytes()
+                    }
+                }
+                sourceBytes?.toOrientedImageBitmap()
+            }.getOrNull()
+        }
+    }
+
+    return bitmap
+}
+
+private fun ByteArray.toOrientedImageBitmap(): ImageBitmap? {
+    val decoded = BitmapFactory.decodeByteArray(this, 0, size) ?: return null
+    val oriented = decoded.applyExifOrientation(this)
+    val imageBitmap = oriented.asImageBitmap()
+    if (oriented !== decoded) decoded.recycle()
+    return imageBitmap
+}
+
+private fun Bitmap.applyExifOrientation(sourceBytes: ByteArray): Bitmap {
+    val orientation = runCatching {
+        ExifInterface(ByteArrayInputStream(sourceBytes)).getAttributeInt(
+            ExifInterface.TAG_ORIENTATION,
+            ExifInterface.ORIENTATION_NORMAL,
+        )
+    }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+
+    val matrix = Matrix()
+    when (orientation) {
+        ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+        ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+        ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+        else -> return this
+    }
+    return Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
 }
 
 @Composable
@@ -297,14 +576,17 @@ private fun LostLocationView(
     referencePaths: List<CampusPath>,
 ) {
     val pins = location?.outdoorPins.orEmpty()
+    val places = location?.indoorPlaces.orEmpty()
+    val selectedBuildingIds = places.toSelectedBuildingIds(buildings)
 
-    if (pins.isNotEmpty()) {
+    if (pins.isNotEmpty() || selectedBuildingIds.isNotEmpty()) {
         CampusMapCanvas(
             boundary = boundary,
             buildings = buildings,
             referencePaths = referencePaths,
             outdoorPins = pins,
-            showRoute = true,
+            selectedBuildingIds = selectedBuildingIds,
+            showRoute = pins.isNotEmpty(),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(250.dp)
@@ -314,12 +596,10 @@ private fun LostLocationView(
         Spacer(Modifier.height(10.dp))
     }
 
-    val places = location?.indoorPlaces.orEmpty()
-
     if (places.isNotEmpty()) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             places.forEach { place ->
-                LocationChip("${place.buildingName} ${place.floor}층")
+                LocationChip(place.toLocationText())
             }
         }
     }
@@ -342,13 +622,15 @@ private fun FoundLocationView(
 ) {
     val pin = location?.outdoorPin
     val place = location?.indoorPlace
+    val selectedBuildingIds = listOfNotNull(place).toSelectedBuildingIds(buildings)
 
-    if (pin != null) {
+    if (pin != null || selectedBuildingIds.isNotEmpty()) {
         CampusMapCanvas(
             boundary = boundary,
             buildings = buildings,
             referencePaths = referencePaths,
-            outdoorPins = listOf(pin),
+            outdoorPins = listOfNotNull(pin),
+            selectedBuildingIds = selectedBuildingIds,
             showRoute = false,
             modifier = Modifier
                 .fillMaxWidth()
@@ -358,8 +640,8 @@ private fun FoundLocationView(
     }
 
     if (place != null) {
-        if (pin != null) Spacer(Modifier.height(10.dp))
-        LocationChip("${place.buildingName} ${place.floor}층")
+        Spacer(Modifier.height(10.dp))
+        LocationChip(place.toLocationText())
     }
 
     if (pin == null && place == null) {
@@ -383,10 +665,34 @@ private fun LocationChip(text: String) {
     )
 }
 
+private fun List<IndoorPlace>.toSelectedBuildingIds(buildings: List<CampusBuilding>): Set<String> {
+    return mapNotNull { place ->
+        buildings.firstOrNull { building ->
+            building.id == place.buildingId || building.name == place.buildingName || building.name == place.buildingId
+        }?.id ?: place.buildingId.takeIf { it.isNotBlank() }
+    }.toSet()
+}
+
+private fun IndoorPlace.toLocationText(): String {
+    return if (buildingName == "일감호") {
+        buildingName
+    } else {
+        "$buildingName ${floor.toFloorText()}"
+    }
+}
+
+private fun Int.toFloorText(): String = if (this < 0) "B${-this}층" else "${this}층"
+
 @Composable
 private fun CommentSection(
     comments: List<BoardComment>,
-    postAuthorEmail: String,
+    postAuthorUserId: Long?,
+    currentUserId: Long?,
+    currentUserName: String,
+    currentUserEmail: String,
+    isLoading: Boolean,
+    onDeleteComment: (BoardComment) -> Unit,
+    onUpdateComment: (BoardComment, String) -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth()
@@ -400,7 +706,9 @@ private fun CommentSection(
 
         Spacer(Modifier.height(14.dp))
 
-        if (comments.isEmpty()) {
+        if (isLoading) {
+            LoadingRow("댓글을 불러오는 중입니다.")
+        } else if (comments.isEmpty()) {
             Text(
                 text = "아직 댓글이 없습니다.",
                 color = TextGray,
@@ -412,9 +720,17 @@ private fun CommentSection(
                 verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
                 comments.forEach { comment ->
+                    val canManage = comment.isWrittenByCurrentUser(
+                        currentUserId = currentUserId,
+                        currentUserName = currentUserName,
+                        currentUserEmail = currentUserEmail,
+                    )
                     CommentItem(
                         comment = comment,
-                        isPostAuthor = comment.authorEmail == postAuthorEmail
+                        isPostAuthor = postAuthorUserId != null && comment.authorUserId == postAuthorUserId,
+                        canManage = canManage,
+                        onDeleteClick = { onDeleteComment(comment) },
+                        onUpdateClick = { content -> onUpdateComment(comment, content) },
                     )
                 }
             }
@@ -426,7 +742,13 @@ private fun CommentSection(
 private fun CommentItem(
     comment: BoardComment,
     isPostAuthor: Boolean,
+    canManage: Boolean,
+    onDeleteClick: () -> Unit,
+    onUpdateClick: (String) -> Unit,
 ) {
+    var isEditing by remember(comment.id) { mutableStateOf(false) }
+    var editText by remember(comment.id, comment.content) { mutableStateOf(comment.content) }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top
@@ -486,13 +808,178 @@ private fun CommentItem(
 
             Spacer(Modifier.height(7.dp))
 
-            Text(
-                text = comment.content,
-                color = Color(0xFF444444),
-                fontSize = 13.sp,
-                lineHeight = 19.sp
-            )
+            if (isEditing) {
+                TextField(
+                    value = editText,
+                    onValueChange = { editText = it },
+                    shape = RoundedCornerShape(10.dp),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = FieldGray,
+                        unfocusedContainerColor = FieldGray,
+                        disabledContainerColor = FieldGray,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        cursorColor = DeepGreen,
+                        unfocusedTextColor = Color.Black,
+                        focusedTextColor = Color.Black,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "저장",
+                        color = DeepGreen,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.noRippleClickable {
+                            val trimmed = editText.trim()
+                            if (trimmed.isNotBlank()) {
+                                onUpdateClick(trimmed)
+                                isEditing = false
+                            }
+                        }
+                    )
+                    Text(
+                        text = "취소",
+                        color = TextGray,
+                        fontSize = 12.sp,
+                        modifier = Modifier.noRippleClickable {
+                            editText = comment.content
+                            isEditing = false
+                        }
+                    )
+                }
+            } else {
+                Text(
+                    text = comment.content,
+                    color = Color(0xFF444444),
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp
+                )
+
+                if (canManage) {
+                    Spacer(Modifier.height(6.dp))
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            text = "수정",
+                            color = TextGray,
+                            fontSize = 12.sp,
+                            modifier = Modifier.noRippleClickable { isEditing = true }
+                        )
+                        Text(
+                            text = "삭제",
+                            color = TextGray,
+                            fontSize = 12.sp,
+                            modifier = Modifier.noRippleClickable(onDeleteClick)
+                        )
+                    }
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun DeletePostConfirmDialog(
+    onCancelClick: () -> Unit,
+    onDeleteClick: () -> Unit,
+) {
+    Dialog(onDismissRequest = onCancelClick) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(22.dp))
+                .background(Color.White)
+                .padding(horizontal = 24.dp, vertical = 26.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = "글을 삭제하시겠습니까?",
+                color = Color(0xFF222222),
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+            )
+
+            Text(
+                text = "삭제한 게시글은 다시 되돌릴 수 없습니다.",
+                color = Color(0xFF9A9A9A),
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                lineHeight = 24.sp,
+                modifier = Modifier.padding(top = 14.dp),
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 26.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Button(
+                    onClick = onCancelClick,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFF1F1F1),
+                        contentColor = Color(0xFF555555),
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp),
+                ) {
+                    Text(
+                        text = "취소",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+
+                Button(
+                    onClick = onDeleteClick,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFD32F2F),
+                        contentColor = Color.White,
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp),
+                ) {
+                    Text(
+                        text = "삭제",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun BoardComment.isWrittenByCurrentUser(
+    currentUserId: Long?,
+    currentUserName: String,
+    currentUserEmail: String,
+): Boolean {
+    return (currentUserId != null && authorUserId == currentUserId) ||
+        (currentUserEmail.isNotBlank() && authorEmail.isNotBlank() && authorEmail == currentUserEmail) ||
+        (currentUserName.isNotBlank() && authorName == currentUserName)
+}
+
+@Composable
+private fun LoadingRow(text: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(18.dp),
+            strokeWidth = 2.dp,
+            color = DeepGreen,
+        )
+        Spacer(Modifier.size(10.dp))
+        Text(text = text, color = TextGray, fontSize = 13.sp)
     }
 }
 
@@ -546,7 +1033,7 @@ private fun CommentInputBar(
                 .background(
                     if (commentText.isBlank()) Color(0xFFB7CBB9) else DeepGreen
                 )
-                .clickable {
+                .noRippleClickable {
                     val text = commentText.trim()
                     if (text.isNotBlank()) {
                         onSubmit(text)

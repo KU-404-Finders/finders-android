@@ -44,6 +44,7 @@ data class LostItemCreateResponse(
 data class LostItemData(
     val id: Long,
     val userId: Long,
+    val authorName: String? = null,
     val title: String,
     val kind: String,
     val content: String,
@@ -77,8 +78,13 @@ data class LostItemErrorResponse(
 data class LostItemMatchesResponse(
     val success: Boolean,
     val message: String,
-    val data: List<LostItemMatchData>?,
+    val data: LostItemMatchesResult?,
     val errors: Map<String, String>? = null,
+)
+
+data class LostItemMatchesResult(
+    val status: MatchStatus,
+    val matches: List<LostItemMatchData> = emptyList(),
 )
 
 data class LostItemMatchData(

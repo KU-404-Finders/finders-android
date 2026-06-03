@@ -33,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -53,6 +54,8 @@ import com.ku.lostandfound.util.GeoUtils
 private val DeepGreen = Color(0xFF1B6425)
 private val FieldGray = Color(0xFFF4F4F4)
 private val DangerRed = Color(0xFFFF3B3B)
+private const val FLOORLESS_BUILDING_NAME = "일감호"
+private const val DEFAULT_FLOORLESS_PLACE_FLOOR = 1
 
 @Composable
 fun LocationPickerScreen(
@@ -76,6 +79,34 @@ fun LocationPickerScreen(
         outdoorPins.addAll(initialOutdoorPins)
         indoorPlaces.clear()
         indoorPlaces.addAll(initialIndoorPlaces)
+    }
+
+    fun addIndoorPlace(place: IndoorPlace) {
+        if (postType == PostType.LOST) {
+            if (indoorPlaces.size < 3 && indoorPlaces.none { it.buildingId == place.buildingId && it.floor == place.floor }) {
+                indoorPlaces.add(place)
+            }
+        } else {
+            indoorPlaces.clear()
+            indoorPlaces.add(place)
+            outdoorPins.clear()
+        }
+    }
+
+    fun selectIndoorBuilding(building: CampusBuilding) {
+        if (building.requiresFloorSelection()) {
+            pendingBuilding = building
+            return
+        }
+
+        addIndoorPlace(
+            IndoorPlace(
+                buildingId = building.id,
+                buildingName = building.name,
+                floor = DEFAULT_FLOORLESS_PLACE_FLOOR,
+            )
+        )
+        pendingBuilding = null
     }
 
     Column(
@@ -120,7 +151,7 @@ fun LocationPickerScreen(
                         referencePaths = referencePaths,
                         indoorPlaces = indoorPlaces,
                         pendingBuilding = pendingBuilding,
-                        onBuildingSelected = { pendingBuilding = it },
+                        onBuildingSelected = { selectIndoorBuilding(it) },
                     )
                 }
             }
@@ -154,15 +185,7 @@ fun LocationPickerScreen(
                     buildingName = building.name,
                     floor = floor,
                 )
-                if (postType == PostType.LOST) {
-                    if (indoorPlaces.size < 3 && indoorPlaces.none { it.buildingId == place.buildingId && it.floor == place.floor }) {
-                        indoorPlaces.add(place)
-                    }
-                } else {
-                    indoorPlaces.clear()
-                    indoorPlaces.add(place)
-                    outdoorPins.clear()
-                }
+                addIndoorPlace(place)
                 pendingBuilding = null
             }
         )
@@ -280,12 +303,13 @@ private fun IndoorPlaceRow(place: IndoorPlace, onRemoveClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .height(52.dp)
-            .background(FieldGray, RoundedCornerShape(9.dp))
+            .clip(RoundedCornerShape(9.dp))
+            .background(FieldGray)
             .padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "${place.buildingName} ${place.floor.toFloorText()}",
+            text = place.toLocationText(),
             color = Color(0xFF444444),
             fontSize = 14.sp,
             modifier = Modifier.weight(1f),
@@ -303,7 +327,8 @@ private fun IndoorPlaceRow(place: IndoorPlace, onRemoveClick: () -> Unit) {
 private fun CancelChip(text: String, onClick: () -> Unit) {
     Row(
         modifier = Modifier
-            .background(Color(0xFFFFF0F0), RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFFFFF0F0))
             .clickable(onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -346,7 +371,8 @@ private fun FloorSelectDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(52.dp)
-                            .background(FieldGray, RoundedCornerShape(9.dp))
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(FieldGray)
                             .clickable { expanded = true }
                             .padding(horizontal = 16.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -362,10 +388,11 @@ private fun FloorSelectDialog(
                     DropdownMenu(
                         expanded = expanded,
                         onDismissRequest = { expanded = false },
+                        containerColor = Color.White,
                     ) {
                         floors.forEach { floor ->
                             DropdownMenuItem(
-                                text = { Text(floor.toFloorText()) },
+                                text = { Text(floor.toFloorText(), color = Color.Black) },
                                 onClick = {
                                     selectedFloor = floor
                                     expanded = false
@@ -392,9 +419,10 @@ private fun FloorSelectDialog(
             TextButton(
                 onClick = onDismiss,
                 modifier = Modifier
-                    .background(FieldGray, RoundedCornerShape(10.dp))
                     .width(120.dp)
-                    .height(50.dp),
+                    .height(50.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(FieldGray),
             ) {
                 Text("취소", color = Color(0xFF555555), fontWeight = FontWeight.Bold)
             }
@@ -405,3 +433,13 @@ private fun FloorSelectDialog(
 }
 
 private fun Int.toFloorText(): String = if (this < 0) "B${-this}층" else "${this}층"
+
+private fun CampusBuilding.requiresFloorSelection(): Boolean = name != FLOORLESS_BUILDING_NAME
+
+private fun IndoorPlace.toLocationText(): String {
+    return if (buildingName == FLOORLESS_BUILDING_NAME) {
+        buildingName
+    } else {
+        "$buildingName ${floor.toFloorText()}"
+    }
+}

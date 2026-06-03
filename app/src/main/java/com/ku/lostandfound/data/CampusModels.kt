@@ -81,6 +81,7 @@ data class BoardPost(
     val id: String,
     val type: PostType,
     val status: PostStatus = PostStatus.OPEN,
+    val authorUserId: Long? = null,
     val title: String,
     val category: String,
     val content: String,
@@ -96,6 +97,7 @@ data class BoardPost(
 data class BoardComment(
     val id: String,
     val postId: String,
+    val authorUserId: Long? = null,
     val authorName: String,
     val authorEmail: String,
     val content: String,

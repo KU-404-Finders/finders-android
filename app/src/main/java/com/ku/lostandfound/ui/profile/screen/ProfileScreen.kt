@@ -1,10 +1,10 @@
 package com.ku.lostandfound.ui.profile.screen
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,15 +29,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ku.lostandfound.data.BoardPost
 import com.ku.lostandfound.data.PostType
 import com.ku.lostandfound.ui.board.screen.MainBottomBar
 import com.ku.lostandfound.ui.component.CompactPostCard
+import com.ku.lostandfound.ui.component.noRippleClickable
 import com.ku.lostandfound.ui.profile.component.LogoutConfirmDialog
+import com.ku.lostandfound.ui.profile.component.MyWrittenPostSection
 import com.ku.lostandfound.ui.profile.component.WithdrawCompleteDialog
 import com.ku.lostandfound.ui.profile.component.WithdrawConfirmDialog
+import com.ku.lostandfound.ui.profile.viewmodel.MyPostsUiState
+import com.ku.lostandfound.ui.theme.KUfindersTheme
 
 private val DeepGreen = Color(0xFF1B6425)
 private val ScreenGray = Color(0xFFF4F4F4)
@@ -49,8 +54,13 @@ fun ProfileScreen(
     userEmail: String,
     myPosts: List<BoardPost>,
     myPostCount: Int = myPosts.size,
+    myLostPostCount: Int? = null,
+    myFoundPostCount: Int? = null,
+    myPostCountState: MyPostsUiState = MyPostsUiState.Idle,
     onPostClick: (BoardPost) -> Unit,
     onShowAllClick: () -> Unit,
+    onMyLostPostsClick: () -> Unit = {},
+    onMyFoundPostsClick: () -> Unit = {},
     onLogoutClick: () -> Unit,
     onWithdrawClick: (onSuccess: () -> Unit) -> Unit,
     onWithdrawCompleteConfirm: () -> Unit,
@@ -73,7 +83,7 @@ fun ProfileScreen(
 
         LazyColumn(
             modifier = Modifier.weight(1f),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 18.dp),
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
@@ -86,40 +96,60 @@ fun ProfileScreen(
                 )
             }
 
+//            item {
+//                Row(
+//                    modifier = Modifier
+//                        .fillMaxWidth()
+//                        .padding(top = 12.dp, bottom = 4.dp),
+//                    verticalAlignment = Alignment.CenterVertically,
+//                ) {
+//                    //Text("나의 등록 내역", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+////                    Spacer(Modifier.size(8.dp))
+////                    Text(myPostCount.toString(), color = DeepGreen, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+////                    Spacer(Modifier.weight(1f))
+////                    Text(
+////                        text = "전체보기 〉",
+////                        color = Color.Black,
+////                        fontSize = 12.sp,
+////                        fontWeight = FontWeight.Bold,
+////                        modifier = Modifier
+////                            .clip(RoundedCornerShape(999.dp))
+////                            .background(Color.White)
+////                            .clickable(onClick = onShowAllClick)
+////                            .padding(horizontal = 12.dp, vertical = 8.dp),
+////                    )
+//                }
+//            }
             item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("나의 등록 내역", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Black)
-                    Spacer(Modifier.size(8.dp))
-                    Text(myPostCount.toString(), color = DeepGreen, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.weight(1f))
+                MyWrittenPostSection(
+                    lostCount = myLostPostCount,
+                    foundCount = myFoundPostCount,
+                    isLoading = myPostCountState == MyPostsUiState.Loading,
+                    onLostClick = onMyLostPostsClick,
+                    onFoundClick = onMyFoundPostsClick,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            if (myPostCountState is MyPostsUiState.Error) {
+                item {
                     Text(
-                        text = "전체보기 〉",
-                        color = Color.Black,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(Color.White)
-                            .clickable(onClick = onShowAllClick)
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        text = myPostCountState.message,
+                        color = Color(0xFFB3261E),
+                        fontSize = 13.sp,
                     )
                 }
             }
 
-            val previewPosts = myPosts.take(3)
-            items(previewPosts) { post ->
-                CompactPostCard(
-                    post = post,
-                    showThumbnail = true,
-                    showStatus = true,
-                    onClick = { onPostClick(post) },
-                )
-            }
+//            val previewPosts = myPosts.take(3)
+//            items(previewPosts) { post ->
+//                CompactPostCard(
+//                    post = post,
+//                    showThumbnail = true,
+//                    showStatus = true,
+//                    onClick = { onPostClick(post) },
+//                )
+//            }
 
             item {
                 Spacer(Modifier.height(58.dp))
@@ -129,7 +159,7 @@ fun ProfileScreen(
                         color = Color(0xFF888888),
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable {
+                        modifier = Modifier.noRippleClickable {
                             showWithdrawConfirmDialog = true
                         },
                     )
@@ -197,12 +227,18 @@ private fun ProfileTopBar(onSearchClick: () -> Unit) {
             fontWeight = FontWeight.Black,
         )
         Spacer(Modifier.weight(1f))
-        Text(
-            text = "⌕",
-            color = Color(0xFF777777),
-            fontSize = 34.sp,
-            modifier = Modifier.clickable(onClick = onSearchClick),
-        )
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .noRippleClickable(onSearchClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "⌕",
+                color = Color(0xFF777777),
+                fontSize = 38.sp,
+            )
+        }
     }
 }
 
@@ -245,11 +281,52 @@ private fun ProfileCard(
                     .height(48.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(DeepGreen)
-                    .clickable(onClick = onLogoutClick),
+                    .noRippleClickable(onLogoutClick),
                 contentAlignment = Alignment.Center,
             ) {
                 Text("로그아웃", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
         }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun ProfileScreenPreview() {
+    KUfindersTheme {
+        ProfileScreen(
+            userName = "건국이",
+            userEmail = "konkuk@konkuk.ac.kr",
+            myPosts = listOf(
+                BoardPost(
+                    id = "1",
+                    type = PostType.FOUND,
+                    title = "에어팟 프로 분실하신 분",
+                    category = "전자기기",
+                    content = "공학관 201호에서 습득했습니다.",
+                    authorName = "건국이",
+                    authorEmail = "konkuk@konkuk.ac.kr",
+                    createdAtText = "2024-03-22"
+                ),
+                BoardPost(
+                    id = "2",
+                    type = PostType.LOST,
+                    title = "검은색 장우산 찾습니다",
+                    category = "생활잡화",
+                    content = "도서관 1층 열람실에서 잃어버렸습니다.",
+                    authorName = "건국이",
+                    authorEmail = "konkuk@konkuk.ac.kr",
+                    createdAtText = "2024-03-21"
+                )
+            ),
+            onPostClick = {},
+            onShowAllClick = {},
+            onLogoutClick = {},
+            onWithdrawClick = {},
+            onWithdrawCompleteConfirm = {},
+            onFoundTabClick = {},
+            onLostTabClick = {},
+            onAddClick = {}
+        )
     }
 }

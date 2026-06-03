@@ -9,6 +9,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme = darkColorScheme(
@@ -50,8 +51,14 @@ fun KUfindersTheme(
         else -> LightColorScheme
     }
 
+    val appColorScheme = colorScheme.copy(
+        onBackground = Color.Black,
+        onSurface = Color.Black,
+        onSurfaceVariant = Color.Black,
+    )
+
     MaterialTheme(
-        colorScheme = colorScheme,
+        colorScheme = appColorScheme,
         typography = Typography,
         content = content
     )

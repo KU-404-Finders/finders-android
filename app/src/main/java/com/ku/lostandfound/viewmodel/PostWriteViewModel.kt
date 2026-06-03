@@ -1,7 +1,12 @@
 package com.ku.lostandfound.viewmodel
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
+import android.media.ExifInterface
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -29,8 +34,12 @@ import com.ku.lostandfound.network.RetrofitClient
 import com.ku.lostandfound.network.TokenManager
 import com.ku.lostandfound.network.httpErrorMessage
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 
 sealed class PostWriteUiState {
     object Idle : PostWriteUiState()
@@ -98,13 +107,10 @@ class PostWriteViewModel {
     suspend fun createLostItem(context: Context): Result<BoardPost> {
         uiState = PostWriteUiState.Loading
         return try {
-            val requestBody = Gson()
-                .toJson(toLostItemCreateRequest())
-                .toRequestBody("application/json".toMediaType())
             val response = RetrofitClient.lostItemApi.createLostItem(
                 authorization = bearerTokenOrThrow(),
-                request = requestBody,
-                image = imageUri?.let { createImagePart(context, it) },
+                request = createJsonPart(toLostItemCreateRequest()),
+                image = imageUri?.let { createImagePart(context, it).part },
             )
 
             if (response.isSuccessful) {
@@ -133,16 +139,27 @@ class PostWriteViewModel {
     suspend fun createFoundItem(context: Context): Result<BoardPost> {
         uiState = PostWriteUiState.Loading
         return try {
-            val imagePart = imageUri?.let { createImagePart(context, it) }
+            val token = TokenManager.accessToken ?: throw IllegalStateException("로그인이 필요합니다.")
+            val requestJson = Gson().toJson(toFoundItemCreateRequest())
+            val requestBody = createJsonPart(requestJson)
+            val uploadImage = imageUri?.let { createImagePart(context, it) }
                 ?: throw IllegalStateException("습득물 사진은 필수입니다.")
-            val requestBody = Gson()
-                .toJson(toFoundItemCreateRequest())
-                .toRequestBody("application/json".toMediaType())
+
+            Log.d(FOUND_ITEM_UPLOAD_TAG, "requestJson=$requestJson")
+            Log.d(FOUND_ITEM_UPLOAD_TAG, "imageUri=${uploadImage.uri}")
+            Log.d(FOUND_ITEM_UPLOAD_TAG, "mimeType=${uploadImage.mimeType}")
+            Log.d(FOUND_ITEM_UPLOAD_TAG, "fileName=${uploadImage.fileName}")
+            Log.d(FOUND_ITEM_UPLOAD_TAG, "byteSize=${uploadImage.byteSize}")
+            Log.d(FOUND_ITEM_UPLOAD_TAG, "requestPartName=request")
+            Log.d(FOUND_ITEM_UPLOAD_TAG, "imagePartName=image")
+            Log.d(FOUND_ITEM_UPLOAD_TAG, "hasAuthorization=${token.isNotBlank()}")
+
             val response = RetrofitClient.foundItemApi.createFoundItem(
-                authorization = bearerTokenOrThrow(),
+                authorization = "Bearer $token",
                 request = requestBody,
-                image = imagePart,
+                image = uploadImage.part,
             )
+            Log.d(FOUND_ITEM_UPLOAD_TAG, "responseCode=${response.code()}")
 
             if (response.isSuccessful) {
                 val body = response.body()
@@ -154,6 +171,7 @@ class PostWriteViewModel {
                 }
             } else {
                 val errorBody = response.errorBody()?.string()
+                Log.e(FOUND_ITEM_UPLOAD_TAG, "errorBody=$errorBody")
                 NetworkLog.httpError("createFoundItem", response.code(), errorBody)
                 Result.failure(IllegalStateException(httpErrorMessage(response.code(), parseFoundItemError(errorBody))))
             }
@@ -229,48 +247,133 @@ class PostWriteViewModel {
         )
     }
 
-    private fun createImagePart(context: Context, uriString: String): MultipartBody.Part {
+    private fun createImagePart(context: Context, uriString: String): UploadImage {
         val uri = Uri.parse(uriString)
         val contentResolver = context.contentResolver
-        val mimeType = normalizeImageMimeType(contentResolver.getType(uri))
-        require(mimeType in ALLOWED_IMAGE_MIME_TYPES) {
+        val sourceBytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            ?: throw IllegalStateException("이미지를 읽을 수 없습니다.")
+
+        require(sourceBytes.isNotEmpty()) {
+            "이미지를 읽을 수 없습니다."
+        }
+
+        val sourceMimeType = contentResolver.getType(uri)
+        val canUploadOriginal = sourceMimeType in ALLOWED_IMAGE_MIME_TYPES &&
+            sourceBytes.size <= MAX_IMAGE_BYTES &&
+            !sourceBytes.hasExifRotation()
+        val uploadMimeType: String
+        val uploadBytes: ByteArray
+        val extension: String
+
+        if (canUploadOriginal) {
+            uploadMimeType = sourceMimeType ?: UPLOAD_IMAGE_MIME_TYPE
+            uploadBytes = sourceBytes
+            extension = uploadMimeType.fileExtension()
+        } else {
+            uploadMimeType = UPLOAD_IMAGE_MIME_TYPE
+            uploadBytes = sourceBytes.toUploadJpegBytes()
+            extension = "jpg"
+        }
+
+        require(uploadBytes.size <= MAX_IMAGE_BYTES) {
+            "이미지는 최대 10MB까지 등록할 수 있습니다."
+        }
+        require(uploadMimeType in ALLOWED_IMAGE_MIME_TYPES) {
             "JPEG, PNG, WEBP 이미지만 등록할 수 있습니다."
         }
 
-        val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
-            ?: throw IllegalStateException("이미지를 읽을 수 없습니다.")
-        require(bytes.size <= MAX_IMAGE_BYTES) {
-            "이미지는 최대 10MB까지 등록할 수 있습니다."
-        }
+        val requestBody = uploadBytes.toRequestBody(uploadMimeType.toMediaTypeOrNull())
+        val fileLabel = if (postType == PostType.FOUND) "found-item" else "lost-item"
+        val fileName = "${fileLabel}_${System.currentTimeMillis()}.$extension"
+        return UploadImage(
+            uri = uri,
+            mimeType = uploadMimeType,
+            fileName = fileName,
+            byteSize = uploadBytes.size,
+            part = MultipartBody.Part.createFormData(
+                name = "image",
+                filename = fileName,
+                body = requestBody,
+            ),
+        )
+    }
 
-        val extension = when (mimeType) {
+    private fun createJsonPart(request: Any): RequestBody {
+        return createJsonPart(Gson().toJson(request))
+    }
+
+    private fun createJsonPart(jsonString: String): RequestBody {
+        return jsonString.toRequestBody("application/json; charset=utf-8".toMediaType())
+    }
+
+    private fun String.fileExtension(): String {
+        return when (this) {
             "image/png" -> "png"
             "image/webp" -> "webp"
             else -> "jpg"
         }
-        val requestBody = bytes.toRequestBody(mimeType.toMediaType())
-        val fileLabel = if (postType == PostType.FOUND) "found-item" else "lost-item"
-        return MultipartBody.Part.createFormData(
-            name = "image",
-            filename = "$fileLabel.$extension",
-            body = requestBody,
-        )
     }
 
-    /** ContentResolver MIME이 비어 있거나 image/jpg 등 비표준일 때 서버 허용 타입으로 맞춘다. */
-    private fun normalizeImageMimeType(rawMimeType: String?): String {
-        return when (rawMimeType?.lowercase()) {
-            null, "", "application/octet-stream" -> "image/jpeg"
-            "image/jpg", "image/pjpeg" -> "image/jpeg"
-            "image/x-png" -> "image/png"
-            else -> rawMimeType.lowercase()
+    private fun ByteArray.toUploadJpegBytes(): ByteArray {
+        val decoded = BitmapFactory.decodeByteArray(this, 0, size)
+            ?: throw IllegalStateException("JPEG, PNG, WEBP 이미지만 등록할 수 있습니다.")
+        val oriented = decoded.applyExifOrientation(this)
+
+        val qualities = listOf(90, 80, 70, 60)
+        var compressed = ByteArray(0)
+        for (quality in qualities) {
+            compressed = oriented.compressJpeg(quality)
+            if (compressed.size <= MAX_IMAGE_BYTES) break
         }
+
+        if (oriented !== decoded) oriented.recycle()
+        decoded.recycle()
+        return compressed
+    }
+
+    private fun ByteArray.hasExifRotation(): Boolean {
+        val orientation = runCatching {
+            ExifInterface(ByteArrayInputStream(this)).getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL,
+            )
+        }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+        return orientation == ExifInterface.ORIENTATION_ROTATE_90 ||
+            orientation == ExifInterface.ORIENTATION_ROTATE_180 ||
+            orientation == ExifInterface.ORIENTATION_ROTATE_270
+    }
+
+    private fun Bitmap.compressJpeg(quality: Int): ByteArray {
+        return ByteArrayOutputStream().use { output ->
+            compress(Bitmap.CompressFormat.JPEG, quality, output)
+            output.toByteArray()
+        }
+    }
+
+    private fun Bitmap.applyExifOrientation(sourceBytes: ByteArray): Bitmap {
+        val orientation = runCatching {
+            ExifInterface(ByteArrayInputStream(sourceBytes)).getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL,
+            )
+        }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+            else -> return this
+        }
+        return Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
     }
 
     private fun LostItemData.toBoardPost(): BoardPost {
         return BoardPost(
             id = id.toString(),
             type = PostType.LOST,
+            authorUserId = userId,
+            authorName = authorName?.takeIf { it.isNotBlank() } ?: "익명",
             title = title,
             category = kind,
             content = content,
@@ -289,6 +392,8 @@ class PostWriteViewModel {
             } else {
                 com.ku.lostandfound.data.PostStatus.OPEN
             },
+            authorUserId = userId,
+            authorName = authorName?.takeIf { it.isNotBlank() } ?: "익명",
             title = title,
             category = kind,
             content = content,
@@ -347,8 +452,18 @@ class PostWriteViewModel {
         return "Bearer $token"
     }
 
+    private data class UploadImage(
+        val uri: Uri,
+        val mimeType: String,
+        val fileName: String,
+        val byteSize: Int,
+        val part: MultipartBody.Part,
+    )
+
     private companion object {
+        const val FOUND_ITEM_UPLOAD_TAG = "FoundItemUpload"
         const val MAX_IMAGE_BYTES = 10 * 1024 * 1024
+        const val UPLOAD_IMAGE_MIME_TYPE = "image/jpeg"
         val ALLOWED_IMAGE_MIME_TYPES = setOf("image/jpeg", "image/png", "image/webp")
     }
 }

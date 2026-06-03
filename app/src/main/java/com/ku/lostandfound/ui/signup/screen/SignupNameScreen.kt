@@ -1,6 +1,7 @@
 package com.ku.lostandfound.ui.signup.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,6 +16,8 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -31,17 +34,21 @@ fun SignupNameScreen(
     onNavigateToBack: () -> Unit = {},
 ) {
     val isError = viewModel.name.isNotEmpty() && !viewModel.isNameValid
+    val focusManager = LocalFocusManager.current
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.White)
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { focusManager.clearFocus() })
+            }
     ) {
         GetBackTopAppBar(onClick = onNavigateToBack)
 
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .weight(1f)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
         ) {
@@ -82,7 +89,9 @@ fun SignupNameScreen(
                     unfocusedContainerColor = Color.Transparent,
                     focusedIndicatorColor = if (isError) Color(0xFFD32F2F) else Color(0xFF4A6741),
                     unfocusedIndicatorColor = if (isError) Color(0xFFD32F2F) else Color(0xFFD9D9D9),
-                    cursorColor = Color(0xFF4A6741)
+                    cursorColor = Color(0xFF4A6741),
+                    focusedTextColor = Color.Black,
+                    unfocusedTextColor = Color.Black,
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -98,16 +107,14 @@ fun SignupNameScreen(
                     modifier = Modifier.padding(top = 8.dp)
                 )
             }
-
-            Spacer(modifier = Modifier.height(220.dp))
-
-            BottomFixedButton(
-                text = "다음",
-                onClick = onNavigateToPw,
-                enabled = viewModel.isNameValid,
-                modifier = Modifier.padding(bottom = 20.dp)
-            )
         }
+
+        BottomFixedButton(
+            text = "다음",
+            onClick = onNavigateToPw,
+            enabled = viewModel.isNameValid,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp)
+        )
     }
 }
 

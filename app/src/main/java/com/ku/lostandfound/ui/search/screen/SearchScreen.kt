@@ -212,8 +212,12 @@ private fun BoardPost.matchesKeyword(keyword: String): Boolean {
         append(title)
         append(" ")
         append(category)
-        append(" ")
-        append(content)
+        searchableContent()
+            .takeIf { it.isNotBlank() }
+            ?.let {
+                append(" ")
+                append(it)
+            }
         append(" ")
         append(type.label)
         append(" ")
@@ -221,6 +225,13 @@ private fun BoardPost.matchesKeyword(keyword: String): Boolean {
     }.lowercase()
 
     return searchableText.contains(lowerKeyword)
+}
+
+private fun BoardPost.searchableContent(): String {
+    return content.takeUnless {
+        it.contains("상세 정보를 불러오려면 상세 조회 API가 필요합니다.") ||
+            it.contains("상세 조회가 필요합니다.")
+    }.orEmpty()
 }
 
 private fun BoardPost.locationText(): String {
