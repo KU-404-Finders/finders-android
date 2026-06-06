@@ -18,7 +18,7 @@
         "source_building_count": 36,
         "source_coordinate_reference_system": "EPSG:4326",
         "source_coordinate_order": "[longitude, latitude]",
-        "boundary_generation_method": "concave_hull of all first-file building polygon vertices; ratio=0.3",
+        "boundary_generation_method": "concave_hull of all first-file building polygon vertices; ratio=0.3; west pedestrian corridor expanded from path coordinates",
         "included_from_first_file_not_later_file": [
           "황소상",
           "새천년관대공연장",
@@ -202,8 +202,16 @@
               37.5401369
             ],
             [
-              127.0734358,
-              37.5405924
+              127.07302,
+              37.54062
+            ],
+            [
+              127.07295,
+              37.54114
+            ],
+            [
+              127.07302,
+              37.54152
             ],
             [
               127.0733465,

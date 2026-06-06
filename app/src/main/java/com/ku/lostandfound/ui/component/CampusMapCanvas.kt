@@ -72,6 +72,7 @@ fun CampusMapCanvas(
     selectedBuildingIds: Set<String> = emptySet(),
     showRoute: Boolean = true,
     showLabels: Boolean = true,
+    preferMapTap: Boolean = false,
     onMapTap: ((GeoPoint) -> Unit)? = null,
     onBuildingClick: ((CampusBuilding) -> Unit)? = null,
 ) {
@@ -84,10 +85,6 @@ fun CampusMapCanvas(
             buildings.flatMap { it.outerRing } +
             referencePaths.flatMap { it.coordinate }
     }
-    val outerBoundary = remember(mapPoints) {
-        mapPoints.convexHull().expandFromCenter(scale = 1.04).ifEmpty { boundary.polygon }
-    }
-
     fun clampPan(nextPanOffset: Offset, nextZoom: Float = zoom): Offset {
         return clampPanOffset(
             points = mapPoints,
@@ -127,7 +124,9 @@ fun CampusMapCanvas(
                                 val clickedBuilding = buildings.firstOrNull { building ->
                                     GeoUtils.pointInPolygon(tappedGeo, building.outerRing)
                                 }
-                                if (onMapTap != null && onBuildingClick == null) {
+                                if (preferMapTap && onMapTap != null) {
+                                    onMapTap(tappedGeo)
+                                } else if (onMapTap != null && onBuildingClick == null) {
                                     onMapTap(tappedGeo)
                                 } else if (clickedBuilding != null && onBuildingClick != null) {
                                     onBuildingClick(clickedBuilding)
@@ -153,7 +152,7 @@ fun CampusMapCanvas(
                 drawReferencePaths(referencePaths, converter)
             }
 
-            drawBoundary(outerBoundary, converter)
+            drawBoundary(boundary.polygon, converter)
 
             buildings.forEach { building ->
                 drawBuilding(
@@ -417,47 +416,6 @@ private fun List<GeoPoint>.toClosedPath(converter: GeoScreenConverter): Path = P
         lineTo(screen.x, screen.y)
     }
     close()
-}
-
-private fun List<GeoPoint>.convexHull(): List<GeoPoint> {
-    val points = distinctBy { it.longitude to it.latitude }
-        .sortedWith(compareBy<GeoPoint> { it.longitude }.thenBy { it.latitude })
-    if (points.size < 3) return points
-
-    fun cross(o: GeoPoint, a: GeoPoint, b: GeoPoint): Double {
-        return (a.longitude - o.longitude) * (b.latitude - o.latitude) -
-            (a.latitude - o.latitude) * (b.longitude - o.longitude)
-    }
-
-    val lower = mutableListOf<GeoPoint>()
-    points.forEach { point ->
-        while (lower.size >= 2 && cross(lower[lower.lastIndex - 1], lower.last(), point) <= 0.0) {
-            lower.removeAt(lower.lastIndex)
-        }
-        lower.add(point)
-    }
-
-    val upper = mutableListOf<GeoPoint>()
-    points.asReversed().forEach { point ->
-        while (upper.size >= 2 && cross(upper[upper.lastIndex - 1], upper.last(), point) <= 0.0) {
-            upper.removeAt(upper.lastIndex)
-        }
-        upper.add(point)
-    }
-
-    return (lower.dropLast(1) + upper.dropLast(1))
-}
-
-private fun List<GeoPoint>.expandFromCenter(scale: Double): List<GeoPoint> {
-    if (isEmpty()) return this
-    val centerLng = sumOf { it.longitude } / size
-    val centerLat = sumOf { it.latitude } / size
-    return map { point ->
-        GeoPoint(
-            longitude = centerLng + (point.longitude - centerLng) * scale,
-            latitude = centerLat + (point.latitude - centerLat) * scale,
-        )
-    }
 }
 
 private fun clampPanOffset(

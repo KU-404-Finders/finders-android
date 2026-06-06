@@ -201,7 +201,7 @@ fun PostDetailScreen(
                 Spacer(Modifier.size(8.dp))
                 PostStatusBadge(post.status)
                 Spacer(Modifier.weight(1f))
-                if (showOwnerActions && post.status == PostStatus.OPEN) {
+                if (showOwnerActions) {
                     Text(
                         text = "수정하기",
                         color = DeepGreen,

@@ -207,6 +207,7 @@ private fun OutdoorLocationBody(
             referencePaths = referencePaths,
             outdoorPins = pins.toList(),
             showRoute = postType == PostType.LOST,
+            preferMapTap = true,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(430.dp),
