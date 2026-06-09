@@ -1023,6 +1023,7 @@ private fun CommentInputBar(
     onSubmit: (String) -> Unit,
 ) {
     var commentText by remember { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
 
     Row(
         modifier = Modifier
@@ -1072,6 +1073,7 @@ private fun CommentInputBar(
                     if (text.isNotBlank()) {
                         onSubmit(text)
                         commentText = ""
+                        focusManager.clearFocus(force = true)
                     }
                 },
             contentAlignment = Alignment.Center

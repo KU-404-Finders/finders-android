@@ -314,6 +314,7 @@ private fun SoftTextField(
 @Composable
 private fun CategoryDropdown(selected: String, onSelected: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
     val categories = listOf("전자기기", "지갑/카드", "의류", "가방", "문서", "기타")
 
     Box {
@@ -323,7 +324,10 @@ private fun CategoryDropdown(selected: String, onSelected: (String) -> Unit) {
                 .height(52.dp)
                 .clip(RoundedCornerShape(9.dp))
                 .background(FieldGray)
-                .clickable { expanded = true }
+                .clickable {
+                    focusManager.clearFocus(force = true)
+                    expanded = true
+                }
                 .padding(horizontal = 18.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -344,6 +348,7 @@ private fun CategoryDropdown(selected: String, onSelected: (String) -> Unit) {
                 DropdownMenuItem(
                     text = { Text(category, color = Color.Black) },
                     onClick = {
+                        focusManager.clearFocus(force = true)
                         onSelected(category)
                         expanded = false
                     }

@@ -47,6 +47,7 @@ import com.ku.lostandfound.data.OutdoorPin
 import com.ku.lostandfound.util.GeoUtils
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToLong
 
 private val MapBackground = Color(0xFFEEF3EA)
 private val ReferencePathStroke = Color(0xFFC9D3CA)
@@ -73,6 +74,7 @@ fun CampusMapCanvas(
     showRoute: Boolean = true,
     showLabels: Boolean = true,
     preferMapTap: Boolean = false,
+    restrictMapTapToVisibleBoundary: Boolean = false,
     onMapTap: ((GeoPoint) -> Unit)? = null,
     onBuildingClick: ((CampusBuilding) -> Unit)? = null,
 ) {
@@ -84,6 +86,9 @@ fun CampusMapCanvas(
         boundary.polygon +
             buildings.flatMap { it.outerRing } +
             referencePaths.flatMap { it.coordinate }
+    }
+    val visualBoundary = remember(boundary, referencePaths) {
+        outerVisualBoundary(boundary.polygon, referencePaths.flatMap { it.coordinate })
     }
     fun clampPan(nextPanOffset: Offset, nextZoom: Float = zoom): Offset {
         return clampPanOffset(
@@ -111,7 +116,7 @@ fun CampusMapCanvas(
                 }
                 .then(
                     if (onMapTap != null || onBuildingClick != null) {
-                        Modifier.pointerInput(mapPoints, zoom, panOffset) {
+                        Modifier.pointerInput(mapPoints, visualBoundary, zoom, panOffset, restrictMapTapToVisibleBoundary) {
                             detectTapGestures { offset ->
                                 val converter = GeoScreenConverter(
                                     points = mapPoints,
@@ -121,6 +126,12 @@ fun CampusMapCanvas(
                                     paddingPx = with(density) { MapContentPadding.toPx() },
                                 )
                                 val tappedGeo = converter.screenToGeo(offset)
+                                if (
+                                    restrictMapTapToVisibleBoundary &&
+                                    !GeoUtils.pointInPolygonOrNearBoundary(tappedGeo, visualBoundary)
+                                ) {
+                                    return@detectTapGestures
+                                }
                                 val clickedBuilding = buildings.firstOrNull { building ->
                                     GeoUtils.pointInPolygon(tappedGeo, building.outerRing)
                                 }
@@ -152,7 +163,7 @@ fun CampusMapCanvas(
                 drawReferencePaths(referencePaths, converter)
             }
 
-            drawBoundary(boundary.polygon, converter)
+            drawBoundary(visualBoundary, converter)
 
             buildings.forEach { building ->
                 drawBuilding(
@@ -271,6 +282,41 @@ private fun DrawScope.drawReferencePaths(paths: List<CampusPath>, converter: Geo
             )
         }
     }
+}
+
+private fun outerVisualBoundary(boundary: List<GeoPoint>, referencePoints: List<GeoPoint>): List<GeoPoint> {
+    val points = (boundary + referencePoints).distinctBy { it.coordinateKey() }
+    if (points.size <= 3) return points
+
+    val sorted = points.sortedWith(compareBy<GeoPoint> { it.longitude }.thenBy { it.latitude })
+    val lower = mutableListOf<GeoPoint>()
+    for (point in sorted) {
+        while (lower.size >= 2 && cross(lower[lower.lastIndex - 1], lower.last(), point) <= 0.0) {
+            lower.removeAt(lower.lastIndex)
+        }
+        lower.add(point)
+    }
+
+    val upper = mutableListOf<GeoPoint>()
+    for (point in sorted.asReversed()) {
+        while (upper.size >= 2 && cross(upper[upper.lastIndex - 1], upper.last(), point) <= 0.0) {
+            upper.removeAt(upper.lastIndex)
+        }
+        upper.add(point)
+    }
+
+    return (lower.dropLast(1) + upper.dropLast(1)).ifEmpty { boundary }
+}
+
+private fun GeoPoint.coordinateKey(): Pair<Long, Long> =
+    Pair((longitude * 100_000_000).roundToLong(), (latitude * 100_000_000).roundToLong())
+
+private fun cross(origin: GeoPoint, a: GeoPoint, b: GeoPoint): Double {
+    val ax = a.longitude - origin.longitude
+    val ay = a.latitude - origin.latitude
+    val bx = b.longitude - origin.longitude
+    val by = b.latitude - origin.latitude
+    return ax * by - ay * bx
 }
 
 private fun DrawScope.drawBuilding(

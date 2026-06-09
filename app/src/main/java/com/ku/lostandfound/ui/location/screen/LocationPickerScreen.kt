@@ -208,12 +208,11 @@ private fun OutdoorLocationBody(
             outdoorPins = pins.toList(),
             showRoute = postType == PostType.LOST,
             preferMapTap = true,
+            restrictMapTapToVisibleBoundary = true,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(430.dp),
             onMapTap = { point ->
-                if (!GeoUtils.pointInPolygonOrNearBoundary(point, boundary.polygon)) return@CampusMapCanvas
-
                 if (postType == PostType.LOST) {
                     if (pins.size < 10) {
                         pins.add(OutdoorPin(order = pins.size + 1, point = point))
@@ -432,7 +431,8 @@ private fun FloorSelectDialog(
 
 private fun Int.toFloorText(): String = if (this < 0) "B${-this}층" else "${this}층"
 
-private fun CampusBuilding.requiresFloorSelection(): Boolean = name != FLOORLESS_BUILDING_NAME
+private fun CampusBuilding.requiresFloorSelection(): Boolean =
+    name != FLOORLESS_BUILDING_NAME && (levels > 1 || undergroundLevels > 0)
 
 private fun IndoorPlace.toLocationText(): String {
     return if (buildingName == FLOORLESS_BUILDING_NAME) {
