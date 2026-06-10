@@ -45,21 +45,24 @@ import com.ku.lostandfound.data.CampusPath
 import com.ku.lostandfound.data.GeoPoint
 import com.ku.lostandfound.data.OutdoorPin
 import com.ku.lostandfound.util.GeoUtils
+import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToLong
 
 private val MapBackground = Color(0xFFEEF3EA)
 private val ReferencePathStroke = Color(0xFFC9D3CA)
-private val BuildingFill = Color(0xFFC4D09A)
-private val BuildingStroke = Color(0xFF849362)
+private val BuildingFill = Color(0xFFD6DAD2)
+private val BuildingStroke = Color(0xFF8C9388)
 private val SelectedBuildingFill = Color(0xFF5FAF69)
 private val SelectedBuildingStroke = Color(0xFF1B6425)
 private val LakeFill = Color(0xFFAED7EC)
-private val BoundaryStroke = Color(0xFF2E442F)
+private val BoundaryStroke = Color(0xFF171C18)
 private val RouteRed = Color(0xFFCB4050)
 private val PinPink = Color(0xFFFF5D7A)
 private val MapContentPadding = 8.dp
+private const val VisualBoundaryExpansionMeters = 18.0
+private const val BuildingVisualExpansionMeters = 3.5
 
 @Composable
 fun CampusMapCanvas(
@@ -82,13 +85,15 @@ fun CampusMapCanvas(
     var panOffset by remember { mutableStateOf(Offset.Zero) }
     var canvasSize by remember { mutableStateOf(Size.Zero) }
     val density = LocalDensity.current
-    val mapPoints = remember(boundary, buildings, referencePaths) {
-        boundary.polygon +
-            buildings.flatMap { it.outerRing } +
-            referencePaths.flatMap { it.coordinate }
-    }
     val visualBoundary = remember(boundary, referencePaths) {
         outerVisualBoundary(boundary.polygon, referencePaths.flatMap { it.coordinate })
+            .expandFromCentroid(VisualBoundaryExpansionMeters)
+    }
+    val mapPoints = remember(boundary, buildings, referencePaths, visualBoundary) {
+        visualBoundary +
+            boundary.polygon +
+            buildings.flatMap { it.outerRing } +
+            referencePaths.flatMap { it.coordinate }
     }
     fun clampPan(nextPanOffset: Offset, nextZoom: Float = zoom): Offset {
         return clampPanOffset(
@@ -249,7 +254,7 @@ private fun DrawScope.drawBoundary(boundary: List<GeoPoint>, converter: GeoScree
     drawPath(
         path = boundary.toClosedPath(converter),
         color = BoundaryStroke,
-        style = Stroke(width = 2.2.dp.toPx(), cap = StrokeCap.Round),
+        style = Stroke(width = 3.4.dp.toPx(), cap = StrokeCap.Round),
     )
 }
 
@@ -319,6 +324,29 @@ private fun cross(origin: GeoPoint, a: GeoPoint, b: GeoPoint): Double {
     return ax * by - ay * bx
 }
 
+private fun List<GeoPoint>.expandFromCentroid(expansionMeters: Double): List<GeoPoint> {
+    if (size < 3 || expansionMeters <= 0.0) return this
+
+    val center = GeoUtils.centroid(this)
+    val metersPerLat = 111_320.0
+    val metersPerLng = metersPerLat * cos(Math.toRadians(center.latitude)).coerceAtLeast(1e-6)
+
+    return map { point ->
+        val dx = (point.longitude - center.longitude) * metersPerLng
+        val dy = (point.latitude - center.latitude) * metersPerLat
+        val length = kotlin.math.sqrt(dx * dx + dy * dy)
+        if (length <= 1e-9) {
+            point
+        } else {
+            val expandedLength = length + expansionMeters
+            GeoPoint(
+                longitude = center.longitude + (dx / length * expandedLength) / metersPerLng,
+                latitude = center.latitude + (dy / length * expandedLength) / metersPerLat,
+            )
+        }
+    }
+}
+
 private fun DrawScope.drawBuilding(
     building: CampusBuilding,
     converter: GeoScreenConverter,
@@ -326,7 +354,7 @@ private fun DrawScope.drawBuilding(
     zoom: Float,
     isSelected: Boolean,
 ) {
-    val outer = building.outerRing
+    val outer = building.outerRing.expandFromCentroid(BuildingVisualExpansionMeters)
     if (outer.size < 3) return
     val fill = when {
         isSelected -> SelectedBuildingFill
@@ -338,7 +366,7 @@ private fun DrawScope.drawBuilding(
         building.name == "일감호" -> LakeFill.copy(alpha = 0.8f)
         else -> BuildingStroke
     }
-    val strokeWidth = if (isSelected) 1.8.dp.toPx() else 0.8.dp.toPx()
+    val strokeWidth = if (isSelected) 2.2.dp.toPx() else 1.25.dp.toPx()
 
     drawPath(path = outer.toClosedPath(converter), color = fill)
     drawPath(path = outer.toClosedPath(converter), color = stroke, style = Stroke(width = strokeWidth))
