@@ -11,7 +11,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
 object RetrofitClient {
-    private const val BASE_URL = "http://finders-alb-2066093184.ap-northeast-2.elb.amazonaws.com/"
+    private const val BASE_URL = "https://finders.hyungyu.dev/"
 
     private val loggingInterceptor = HttpLoggingInterceptor { message ->
         Log.d("KUFindersOkHttp", message)
