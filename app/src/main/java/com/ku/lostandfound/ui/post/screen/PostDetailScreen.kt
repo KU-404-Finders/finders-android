@@ -1055,7 +1055,10 @@ private fun CommentInputBar(
             ),
             modifier = Modifier
                 .weight(1f)
-                .height(48.dp)
+                // Material TextField's minimum content height is 56dp. Keeping it at
+                // that height leaves room for Korean glyph descenders instead of
+                // constraining and clipping the text at the bottom.
+                .height(56.dp)
         )
 
         Spacer(Modifier.size(10.dp))
