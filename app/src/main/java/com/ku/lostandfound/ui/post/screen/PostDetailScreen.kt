@@ -4,9 +4,9 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.media.ExifInterface
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,16 +24,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -66,9 +66,9 @@ import com.ku.lostandfound.data.PostStatus
 import com.ku.lostandfound.data.PostType
 import com.ku.lostandfound.ui.component.BackTitleBar
 import com.ku.lostandfound.ui.component.CampusMapCanvas
-import com.ku.lostandfound.ui.component.noRippleClickable
 import com.ku.lostandfound.ui.component.PostStatusBadge
 import com.ku.lostandfound.ui.component.PostTypeBadge
+import com.ku.lostandfound.ui.component.noRippleClickable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
@@ -98,6 +98,7 @@ fun PostDetailScreen(
     buildings: List<CampusBuilding>,
     referencePaths: List<CampusPath> = emptyList(),
     onBackClick: () -> Unit,
+    onChatClick: () -> Unit = {},
     showOwnerActions: Boolean = false,
     onToggleResolvedClick: (BoardPost) -> Unit = {},
     onEditClick: (BoardPost) -> Unit = {},
@@ -118,6 +119,21 @@ fun PostDetailScreen(
     val focusManager = LocalFocusManager.current
     var showResolveConfirmDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var showReportDialog by remember {
+        mutableStateOf(false)
+    }
+
+    var showBlockDialog by remember {
+        mutableStateOf(false)
+    }
+
+    var reportCompleted by remember {
+        mutableStateOf(false)
+    }
+
+    var blockCompleted by remember {
+        mutableStateOf(false)
+    }
 
     if (showResolveConfirmDialog) {
         AlertDialog(
@@ -169,6 +185,114 @@ fun PostDetailScreen(
         )
     }
 
+    if (showReportDialog) {
+        ReportPostDialog(
+            onDismiss = {
+                showReportDialog = false
+            },
+
+            onReport = { reason ->
+
+                // 나중에 여기서 신고 API 호출
+                println("신고 사유: $reason")
+
+                showReportDialog = false
+                reportCompleted = true
+            }
+        )
+    }
+
+    if (showBlockDialog) {
+        BlockUserDialog(
+            userName = post.authorName,
+
+            onDismiss = {
+                showBlockDialog = false
+            },
+
+            onBlock = {
+
+                // 나중에 여기서 차단 API 호출
+                println("차단 사용자: ${post.authorName}")
+
+                showBlockDialog = false
+                blockCompleted = true
+            }
+        )
+    }
+
+    if (reportCompleted) {
+        AlertDialog(
+            onDismissRequest = {
+                reportCompleted = false
+            },
+
+            title = {
+                Text(
+                    text = "신고 완료",
+                    fontWeight = FontWeight.Bold,
+                )
+            },
+
+            text = {
+                Text(
+                    text = "신고가 정상적으로 접수되었습니다."
+                )
+            },
+
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        reportCompleted = false
+                    }
+                ) {
+                    Text(
+                        text = "확인",
+                        color = DeepGreen,
+                    )
+                }
+            },
+
+            containerColor = Color.White,
+        )
+    }
+
+    if (blockCompleted) {
+        AlertDialog(
+            onDismissRequest = {
+                blockCompleted = false
+            },
+
+            title = {
+                Text(
+                    text = "차단 완료",
+                    fontWeight = FontWeight.Bold,
+                )
+            },
+
+            text = {
+                Text(
+                    text = "사용자가 차단되었습니다."
+                )
+            },
+
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        blockCompleted = false
+                    }
+                ) {
+                    Text(
+                        text = "확인",
+                        color = DeepGreen,
+                    )
+                }
+            },
+
+            containerColor = Color.White,
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -178,8 +302,31 @@ fun PostDetailScreen(
             }
     ) {
         BackTitleBar(
-            title = if (post.type == PostType.LOST) "분실물 상세" else "습득물 상세",
+            title = if (post.type == PostType.LOST) {
+                "분실물 상세"
+            } else {
+                "습득물 상세"
+            },
+
             onBackClick = onBackClick,
+
+            onChatClick = onChatClick,
+
+            onReportClick = if (!showOwnerActions) {
+                {
+                    showReportDialog = true
+                }
+            } else {
+                null
+            },
+
+            onBlockClick = if (!showOwnerActions) {
+                {
+                    showBlockDialog = true
+                }
+            } else {
+                null
+            }
         )
 
         Column(
@@ -269,7 +416,9 @@ fun PostDetailScreen(
                     onClick = { showResolveConfirmDialog = true },
                     enabled = post.status == PostStatus.OPEN,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (post.status == PostStatus.OPEN) DeepGreen else Color(0xFF777777),
+                        containerColor = if (post.status == PostStatus.OPEN) DeepGreen else Color(
+                            0xFF777777
+                        ),
                         disabledContainerColor = Color(0xFFD8D8D8),
                     ),
                     shape = RoundedCornerShape(8.dp),
@@ -520,13 +669,15 @@ private fun rememberPostImageBitmap(imageUri: String?): ImageBitmap? {
         if (imageUri.isNullOrBlank()) return@LaunchedEffect
         bitmap = withContext(Dispatchers.IO) {
             runCatching {
-                val sourceBytes = if (imageUri.startsWith("http://") || imageUri.startsWith("https://")) {
-                    URL(imageUri).openStream().use { stream -> stream.readBytes() }
-                } else {
-                    context.contentResolver.openInputStream(android.net.Uri.parse(imageUri)).use { stream ->
-                        stream?.readBytes()
+                val sourceBytes =
+                    if (imageUri.startsWith("http://") || imageUri.startsWith("https://")) {
+                        URL(imageUri).openStream().use { stream -> stream.readBytes() }
+                    } else {
+                        context.contentResolver.openInputStream(android.net.Uri.parse(imageUri))
+                            .use { stream ->
+                                stream?.readBytes()
+                            }
                     }
-                }
                 sourceBytes?.toOrientedImageBitmap()
             }.getOrNull()
         }
@@ -997,8 +1148,8 @@ private fun BoardComment.isWrittenByCurrentUser(
     currentUserEmail: String,
 ): Boolean {
     return (currentUserId != null && authorUserId == currentUserId) ||
-        (currentUserEmail.isNotBlank() && authorEmail.isNotBlank() && authorEmail == currentUserEmail) ||
-        (currentUserName.isNotBlank() && authorName == currentUserName)
+            (currentUserEmail.isNotBlank() && authorEmail.isNotBlank() && authorEmail == currentUserEmail) ||
+            (currentUserName.isNotBlank() && authorName == currentUserName)
 }
 
 @Composable
@@ -1087,4 +1238,193 @@ private fun CommentInputBar(
             )
         }
     }
+}
+
+@Composable
+private fun ReportPostDialog(
+    onDismiss: () -> Unit,
+    onReport: (String) -> Unit,
+) {
+    val reasons = listOf(
+        "스팸 또는 광고성 게시글",
+        "부적절한 내용",
+        "허위 정보",
+        "분실물/습득물과 관련 없는 게시글",
+        "기타",
+    )
+
+    var selectedReason by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+
+        title = {
+            Text(
+                text = "게시글 신고",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.Black,
+            )
+        },
+
+        text = {
+            Column {
+                Text(
+                    text = "신고 사유를 선택해주세요.",
+                    fontSize = 14.sp,
+                    color = Color(0xFF666666),
+                )
+
+                Spacer(
+                    modifier = Modifier.height(16.dp)
+                )
+
+                reasons.forEach { reason ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .noRippleClickable {
+                                selectedReason = reason
+                            }
+                            .padding(vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (selectedReason == reason) {
+                                        DeepGreen
+                                    } else {
+                                        Color(0xFFE1E1E1)
+                                    }
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (selectedReason == reason) {
+                                Text(
+                                    text = "✓",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+
+                        Spacer(
+                            modifier = Modifier.size(12.dp)
+                        )
+
+                        Text(
+                            text = reason,
+                            color = Color(0xFF333333),
+                            fontSize = 14.sp,
+                        )
+                    }
+                }
+            }
+        },
+
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    selectedReason?.let { reason ->
+                        onReport(reason)
+                    }
+                },
+                enabled = selectedReason != null,
+            ) {
+                Text(
+                    text = "신고하기",
+                    color = if (selectedReason != null) {
+                        DeepGreen
+                    } else {
+                        TextGray
+                    },
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        },
+
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss
+            ) {
+                Text(
+                    text = "취소",
+                    color = TextGray,
+                )
+            }
+        },
+
+        containerColor = Color.White,
+    )
+}
+
+@Composable
+private fun BlockUserDialog(
+    userName: String,
+    onDismiss: () -> Unit,
+    onBlock: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+
+        title = {
+            Text(
+                text = "사용자를 차단하시겠습니까?",
+                color = Color.Black,
+                fontWeight = FontWeight.Bold,
+            )
+        },
+
+        text = {
+            Column {
+                Text(
+                    text = "$userName 님을 차단합니다.",
+                    color = Color(0xFF444444),
+                    fontSize = 14.sp,
+                )
+
+                Spacer(
+                    modifier = Modifier.height(8.dp)
+                )
+
+                Text(
+                    text = "차단한 사용자의 게시글과 메시지가 제한될 수 있습니다.",
+                    color = TextGray,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                )
+            }
+        },
+
+        confirmButton = {
+            TextButton(
+                onClick = onBlock
+            ) {
+                Text(
+                    text = "차단하기",
+                    color = Color(0xFFD32F2F),
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        },
+
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss
+            ) {
+                Text(
+                    text = "취소",
+                    color = TextGray,
+                )
+            }
+        },
+
+        containerColor = Color.White,
+    )
 }

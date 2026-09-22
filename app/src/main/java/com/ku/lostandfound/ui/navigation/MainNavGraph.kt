@@ -6,17 +6,20 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.ku.lostandfound.data.BoardComment
 import com.ku.lostandfound.data.BoardPost
 import com.ku.lostandfound.data.CampusBoundary
 import com.ku.lostandfound.data.CampusBuilding
@@ -24,34 +27,36 @@ import com.ku.lostandfound.data.CampusJsonRepository
 import com.ku.lostandfound.data.CampusPath
 import com.ku.lostandfound.data.PostStatus
 import com.ku.lostandfound.data.PostType
-import com.ku.lostandfound.ui.found.screen.FoundBoardScreen
-import com.ku.lostandfound.ui.location.screen.LocationPickerScreen
-import com.ku.lostandfound.ui.login.screen.LoginScreen
-import com.ku.lostandfound.ui.lost.screen.LostBoardScreen
-import com.ku.lostandfound.ui.post.screen.MatchCandidateUiModel
-import com.ku.lostandfound.ui.post.screen.PostDetailScreen
-import com.ku.lostandfound.ui.post.screen.PostWriteScreen
 import com.ku.lostandfound.network.MyFoundItemData
 import com.ku.lostandfound.network.MyLostItemData
 import com.ku.lostandfound.network.TokenManager
 import com.ku.lostandfound.network.UserMeData
+import com.ku.lostandfound.ui.admin.screen.AdminDashboardScreen
+import com.ku.lostandfound.ui.admin.screen.AdminReportListScreen
+import com.ku.lostandfound.ui.chat.screen.ChatListScreen
+import com.ku.lostandfound.ui.chat.screen.ChatRoomScreen
+import com.ku.lostandfound.ui.found.screen.FoundBoardScreen
+import com.ku.lostandfound.ui.found.viewmodel.FoundItemMatchUiState
+import com.ku.lostandfound.ui.found.viewmodel.FoundItemViewModel
+import com.ku.lostandfound.ui.location.screen.LocationPickerScreen
+import com.ku.lostandfound.ui.login.screen.LoginScreen
+import com.ku.lostandfound.ui.login.viewmodel.LoginViewModel
+import com.ku.lostandfound.ui.lost.screen.LostBoardScreen
+import com.ku.lostandfound.ui.lost.viewmodel.LostItemViewModel
+import com.ku.lostandfound.ui.post.screen.MatchCandidateUiModel
+import com.ku.lostandfound.ui.post.screen.PostDetailScreen
+import com.ku.lostandfound.ui.post.screen.PostWriteScreen
 import com.ku.lostandfound.ui.post.viewmodel.PostCommentViewModel
-import com.ku.lostandfound.ui.profile.screen.MyPostsType
 import com.ku.lostandfound.ui.profile.screen.MyPostsScreen
+import com.ku.lostandfound.ui.profile.screen.MyPostsType
 import com.ku.lostandfound.ui.profile.screen.ProfileScreen
+import com.ku.lostandfound.ui.profile.viewmodel.UserViewModel
+import com.ku.lostandfound.ui.search.screen.SearchScreen
 import com.ku.lostandfound.ui.signup.screen.SignupCodeScreen
 import com.ku.lostandfound.ui.signup.screen.SignupEmailScreen
 import com.ku.lostandfound.ui.signup.screen.SignupFinishScreen
 import com.ku.lostandfound.ui.signup.screen.SignupNameScreen
 import com.ku.lostandfound.ui.signup.screen.SignupPwScreen
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.ku.lostandfound.data.BoardComment
-import com.ku.lostandfound.ui.found.viewmodel.FoundItemMatchUiState
-import com.ku.lostandfound.ui.found.viewmodel.FoundItemViewModel
-import com.ku.lostandfound.ui.login.viewmodel.LoginViewModel
-import com.ku.lostandfound.ui.lost.viewmodel.LostItemViewModel
-import com.ku.lostandfound.ui.profile.viewmodel.UserViewModel
-import com.ku.lostandfound.ui.search.screen.SearchScreen
 import com.ku.lostandfound.ui.signup.viewmodel.SignupViewmodel
 import com.ku.lostandfound.viewmodel.PostWriteViewModel
 import kotlinx.coroutines.launch
@@ -83,8 +88,8 @@ fun MainNavGraph(
     var commentsByPostId by remember {
         mutableStateOf<Map<String, List<BoardComment>>>(emptyMap())
     }
-    var lastAppliedFoundListVersion by remember { mutableStateOf(0) }
-    var lastAppliedLostListVersion by remember { mutableStateOf(0) }
+    var lastAppliedFoundListVersion by remember { mutableIntStateOf(0) }
+    var lastAppliedLostListVersion by remember { mutableIntStateOf(0) }
 
     val startDestination = remember {
         if (TokenManager.isLoggedIn()) Route.Found.route else Route.Login.route
@@ -111,7 +116,7 @@ fun MainNavGraph(
         val serverIds = serverPosts.map { it.id }.toSet()
         posts = posts.filter { cachedPost ->
             cachedPost.type != type ||
-                (cachedPost.status == PostStatus.OPEN && cachedPost.id in serverIds)
+                    (cachedPost.status == PostStatus.OPEN && cachedPost.id in serverIds)
         }
     }
 
@@ -141,8 +146,8 @@ fun MainNavGraph(
 
     fun deleteLocalComment(postId: String, commentId: String) {
         commentsByPostId = commentsByPostId + (
-            postId to commentsByPostId[postId].orEmpty().filterNot { it.id == commentId }
-            )
+                postId to commentsByPostId[postId].orEmpty().filterNot { it.id == commentId }
+                )
     }
 
     fun updateLocalComment(postId: String, commentId: String, content: String) {
@@ -150,14 +155,14 @@ fun MainNavGraph(
         if (trimmedContent.isBlank()) return
 
         commentsByPostId = commentsByPostId + (
-            postId to commentsByPostId[postId].orEmpty().map { comment ->
-                if (comment.id == commentId) {
-                    comment.copy(content = trimmedContent)
-                } else {
-                    comment
+                postId to commentsByPostId[postId].orEmpty().map { comment ->
+                    if (comment.id == commentId) {
+                        comment.copy(content = trimmedContent)
+                    } else {
+                        comment
+                    }
                 }
-            }
-            )
+                )
     }
 
     suspend fun currentUserOrLoad(): UserMeData? {
@@ -419,6 +424,43 @@ fun MainNavGraph(
             )
         }
 
+        composable(
+            route = Route.ChatList.route
+        ) {
+            ChatListScreen(
+                onBackClick = {
+                    navController.popBackStack()
+                },
+                onRoomClick = { postId ->
+                    navController.navigate(
+                        Route.ChatRoom.create(postId)
+                    )
+                }
+            )
+        }
+
+        composable(
+            route = Route.ChatRoom.route,
+            arguments = listOf(
+                navArgument(Route.ChatRoom.ARG_POST_ID) {
+                    type = NavType.StringType
+                }
+            )
+        ) { backStackEntry ->
+
+            val postId = backStackEntry.arguments
+                ?.getString(Route.ChatRoom.ARG_POST_ID)
+                .orEmpty()
+
+            ChatRoomScreen(
+                postId = postId,
+                onBackClick = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+
         composable(route = Route.Profile.route) {
             LaunchedEffect(Unit) {
                 userViewModel.loadMe()
@@ -427,7 +469,8 @@ fun MainNavGraph(
             val userMe = userViewModel.me
             val userName = userMe?.name ?: currentUserName
             val userEmail = userMe?.email ?: currentUserEmail
-            val myPosts = posts.filter { it.authorEmail == userEmail || it.authorEmail == currentUserEmail }
+            val myPosts =
+                posts.filter { it.authorEmail == userEmail || it.authorEmail == currentUserEmail }
             val myPostCount = myPosts.size
             ProfileScreen(
                 userName = userName,
@@ -437,7 +480,14 @@ fun MainNavGraph(
                 myLostPostCount = userViewModel.myLostCount,
                 myFoundPostCount = userViewModel.myFoundCount,
                 myPostCountState = userViewModel.myPostCountState,
-                onPostClick = { navController.navigate(Route.PostDetail.create(it.id, it.type.name)) },
+                onPostClick = {
+                    navController.navigate(
+                        Route.PostDetail.create(
+                            it.id,
+                            it.type.name
+                        )
+                    )
+                },
                 onShowAllClick = { navController.navigate(Route.MyLostPosts.route) },
                 onMyLostPostsClick = { navController.navigate(Route.MyLostPosts.route) },
                 onMyFoundPostsClick = { navController.navigate(Route.MyFoundPosts.route) },
@@ -449,8 +499,7 @@ fun MainNavGraph(
                         navigateToLoginClearingBackStack()
                     }
                 },
-                onWithdrawClick = {
-                    onSuccess ->
+                onWithdrawClick = { onSuccess ->
                     loginViewModel.withdraw {
                         onSuccess()
                     }
@@ -467,15 +516,21 @@ fun MainNavGraph(
                 onFoundTabClick = { navigateMainTab(Route.Found.route) },
                 onLostTabClick = { navigateMainTab(Route.Lost.route) },
                 onAddClick = { openPostWrite() },
+                showAdminMenu = true,
+                onAdminClick = {
+                    navController.navigate(
+                        Route.Admin.route
+                    )
+                },
             )
         }
 
         composable(route = Route.Search.route) {
             val searchablePosts = (
-                lostItemViewModel.asBoardPosts() +
-                    foundItemViewModel.asBoardPosts() +
-                    posts.filter { it.status == PostStatus.OPEN }
-                ).filter { it.status == PostStatus.OPEN }
+                    lostItemViewModel.asBoardPosts() +
+                            foundItemViewModel.asBoardPosts() +
+                            posts.filter { it.status == PostStatus.OPEN }
+                    ).filter { it.status == PostStatus.OPEN }
                 .distinctBy { it.type to it.id }
             SearchScreen(
                 posts = searchablePosts,
@@ -500,8 +555,10 @@ fun MainNavGraph(
                 uiState = userViewModel.myLostItemsState,
                 onBackClick = { navController.popBackStack() },
                 onLostItemClick = { item ->
-                    val post = item.toBoardPost().copy(authorName = currentUserName, authorEmail = currentUserEmail)
-                    posts = listOf(post) + posts.filterNot { it.id == post.id && it.type == post.type }
+                    val post = item.toBoardPost()
+                        .copy(authorName = currentUserName, authorEmail = currentUserEmail)
+                    posts =
+                        listOf(post) + posts.filterNot { it.id == post.id && it.type == post.type }
                     navController.navigate(Route.PostDetail.create(post.id, post.type.name))
                 },
                 onFoundItemClick = {},
@@ -520,8 +577,10 @@ fun MainNavGraph(
                 onBackClick = { navController.popBackStack() },
                 onLostItemClick = {},
                 onFoundItemClick = { item ->
-                    val post = item.toBoardPost().copy(authorName = currentUserName, authorEmail = currentUserEmail)
-                    posts = listOf(post) + posts.filterNot { it.id == post.id && it.type == post.type }
+                    val post = item.toBoardPost()
+                        .copy(authorName = currentUserName, authorEmail = currentUserEmail)
+                    posts =
+                        listOf(post) + posts.filterNot { it.id == post.id && it.type == post.type }
                     navController.navigate(Route.PostDetail.create(post.id, post.type.name))
                 },
             )
@@ -534,14 +593,22 @@ fun MainNavGraph(
                     writeViewModel.reset()
                     navController.popBackStack()
                 },
-                onAddLocationClick = { postType -> navController.navigate(Route.LocationPicker.create(postType.name)) },
+                onAddLocationClick = { postType ->
+                    navController.navigate(
+                        Route.LocationPicker.create(
+                            postType.name
+                        )
+                    )
+                },
                 onSubmitClick = { submitPost() },
             )
         }
 
         composable(
             route = Route.PostEdit.route,
-            arguments = listOf(navArgument(Route.PostEdit.ARG_POST_ID) { type = NavType.StringType })
+            arguments = listOf(navArgument(Route.PostEdit.ARG_POST_ID) {
+                type = NavType.StringType
+            })
         ) { backStackEntry ->
             val postId = backStackEntry.arguments?.getString(Route.PostEdit.ARG_POST_ID).orEmpty()
             val itemId = postId.toLongOrNull()
@@ -555,13 +622,20 @@ fun MainNavGraph(
                     writeViewModel.reset()
                     navController.popBackStack()
                 },
-                onAddLocationClick = { postType -> navController.navigate(Route.LocationPicker.create(postType.name)) },
+                onAddLocationClick = { postType ->
+                    navController.navigate(
+                        Route.LocationPicker.create(
+                            postType.name
+                        )
+                    )
+                },
                 onSubmitClick = {
                     if (!writeViewModel.canSubmit() || itemId == null) return@PostWriteScreen
                     coroutineScope.launch {
                         writeViewModel.updatePost(context, itemId)
                             .onSuccess { updatedPost ->
-                                posts = listOf(updatedPost) + posts.filterNot { it.id == updatedPost.id && it.type == updatedPost.type }
+                                posts =
+                                    listOf(updatedPost) + posts.filterNot { it.id == updatedPost.id && it.type == updatedPost.type }
                                 if (updatedPost.type == PostType.LOST) {
                                     lostItemViewModel.loadLostItemDetail(itemId)
                                     lostItemViewModel.loadLostItems()
@@ -570,7 +644,12 @@ fun MainNavGraph(
                                     foundItemViewModel.loadFoundItems()
                                 }
                                 writeViewModel.reset()
-                                navController.navigate(Route.PostDetail.create(updatedPost.id, updatedPost.type.name)) {
+                                navController.navigate(
+                                    Route.PostDetail.create(
+                                        updatedPost.id,
+                                        updatedPost.type.name
+                                    )
+                                ) {
                                     popUpTo(Route.PostEdit.route) { inclusive = true }
                                 }
                             }
@@ -581,7 +660,9 @@ fun MainNavGraph(
 
         composable(
             route = Route.LocationPicker.route,
-            arguments = listOf(navArgument(Route.LocationPicker.ARG_POST_TYPE) { type = NavType.StringType })
+            arguments = listOf(navArgument(Route.LocationPicker.ARG_POST_TYPE) {
+                type = NavType.StringType
+            })
         ) { backStackEntry ->
             val b = boundary
             val postType = backStackEntry.arguments
@@ -636,7 +717,8 @@ fun MainNavGraph(
                 ?.getString(Route.PostDetail.ARG_POST_TYPE)
                 ?.let { runCatching { PostType.valueOf(it) }.getOrNull() }
             val postId = backStackEntry.arguments?.getString(Route.PostDetail.ARG_POST_ID).orEmpty()
-            val localPost = posts.firstOrNull { it.id == postId && (routePostType == null || it.type == routePostType) }
+            val localPost =
+                posts.firstOrNull { it.id == postId && (routePostType == null || it.type == routePostType) }
             val numericItemId = postId.toLongOrNull()
             var isDetailLoading by remember(postId) { mutableStateOf(false) }
             var isMatchLoading by remember(postId) { mutableStateOf(false) }
@@ -656,6 +738,7 @@ fun MainNavGraph(
                             postCommentViewModel.loadCommentsNow(numericItemId, PostType.FOUND)
                             isCommentsLoading = false
                         }
+
                         else -> {
                             isDetailLoading = true
                             lostItemViewModel.loadLostItemDetailNow(numericItemId)
@@ -675,7 +758,8 @@ fun MainNavGraph(
                     ?.takeIf { it.id == postId }
                     ?.let { serverPost ->
                         serverPost.copy(
-                            authorName = localPost?.authorName?.takeIf { it != "익명" } ?: serverPost.authorName,
+                            authorName = localPost?.authorName?.takeIf { it != "익명" }
+                                ?: serverPost.authorName,
                             authorEmail = localPost?.authorEmail ?: serverPost.authorEmail,
                         )
                     }
@@ -685,7 +769,8 @@ fun MainNavGraph(
                     ?.takeIf { it.id == postId }
                     ?.let { serverPost ->
                         serverPost.copy(
-                            authorName = localPost?.authorName?.takeIf { it != "익명" } ?: serverPost.authorName,
+                            authorName = localPost?.authorName?.takeIf { it != "익명" }
+                                ?: serverPost.authorName,
                             authorEmail = localPost?.authorEmail ?: serverPost.authorEmail,
                         )
                     }
@@ -717,6 +802,7 @@ fun MainNavGraph(
                             associatedBuildingNames = match.foundItem.associatedBuildingNames,
                         )
                     }
+
                     PostType.FOUND -> {
                         val state = foundItemViewModel.matchUiState
                         if (state is FoundItemMatchUiState.Completed) {
@@ -752,34 +838,47 @@ fun MainNavGraph(
                     buildings = buildings,
                     referencePaths = referencePaths,
                     onBackClick = { navController.popBackStack() },
+                    onChatClick = {
+                        navController.navigate(
+                            Route.ChatRoom.create(post.id)
+                        )
+                    },
                     showOwnerActions = (currentUserId != null && post.authorUserId == currentUserId) ||
-                        (post.authorEmail.isNotBlank() && post.authorEmail == currentUserEmail) ||
-                        (currentUserName.isNotBlank() && post.authorName == currentUserName),
+                            (post.authorEmail.isNotBlank() && post.authorEmail == currentUserEmail) ||
+                            (currentUserName.isNotBlank() && post.authorName == currentUserName),
                     onEditClick = { openPostEdit(it) },
                     onToggleResolvedClick = {
                         val itemId = it.id.toLongOrNull()
-                        if (it.type == PostType.LOST && itemId != null && it.status == PostStatus.OPEN) {
-                            lostItemViewModel.markReturned(itemId) { updatedPost ->
-                                posts = posts.filterNot { existing -> existing.id == updatedPost.id && existing.type == updatedPost.type }
+                        when (it.type) {
+                            PostType.LOST if itemId != null && it.status == PostStatus.OPEN -> {
+                                lostItemViewModel.markReturned(itemId) { updatedPost ->
+                                    posts =
+                                        posts.filterNot { existing -> existing.id == updatedPost.id && existing.type == updatedPost.type }
+                                }
                             }
-                        } else if (it.type == PostType.FOUND && itemId != null && it.status == PostStatus.OPEN) {
-                            foundItemViewModel.updateFoundItemStatus(itemId) { updatedPost ->
-                                posts = posts.filterNot { existing -> existing.id == updatedPost.id && existing.type == updatedPost.type }
+                            PostType.FOUND if itemId != null && it.status == PostStatus.OPEN -> {
+                                foundItemViewModel.updateFoundItemStatus(itemId) { updatedPost ->
+                                    posts =
+                                        posts.filterNot { existing -> existing.id == updatedPost.id && existing.type == updatedPost.type }
+                                }
                             }
-                        } else {
-                            toggleResolved(it)
+                            else -> {
+                                toggleResolved(it)
+                            }
                         }
                     },
                     onDeleteClick = {
                         val itemId = it.id.toLongOrNull() ?: return@PostDetailScreen
                         if (it.type == PostType.LOST) {
                             lostItemViewModel.deleteLostItem(itemId) {
-                                posts = posts.filterNot { existing -> existing.id == it.id && existing.type == it.type }
+                                posts =
+                                    posts.filterNot { existing -> existing.id == it.id && existing.type == it.type }
                                 navController.popBackStack()
                             }
                         } else {
                             foundItemViewModel.deleteFoundItem(itemId) {
-                                posts = posts.filterNot { existing -> existing.id == it.id && existing.type == it.type }
+                                posts =
+                                    posts.filterNot { existing -> existing.id == it.id && existing.type == it.type }
                                 navController.popBackStack()
                             }
                         }
@@ -816,7 +915,12 @@ fun MainNavGraph(
                         val itemId = post.id.toLongOrNull()
                         val commentId = comment.id.toLongOrNull()
                         if (itemId != null && commentId != null) {
-                            postCommentViewModel.updateComment(itemId, post.type, commentId, content)
+                            postCommentViewModel.updateComment(
+                                itemId,
+                                post.type,
+                                commentId,
+                                content
+                            )
                         } else {
                             updateLocalComment(post.id, comment.id, content)
                         }
@@ -833,11 +937,51 @@ fun MainNavGraph(
                             createdAtText = candidate.createdAtText,
                             associatedBuildingNames = candidate.associatedBuildingNames,
                         )
-                        posts = listOf(candidatePost) + posts.filterNot { it.id == candidate.id && it.type == candidate.type }
-                        navController.navigate(Route.PostDetail.create(candidate.id, candidate.type.name))
+                        posts =
+                            listOf(candidatePost) + posts.filterNot { it.id == candidate.id && it.type == candidate.type }
+                        navController.navigate(
+                            Route.PostDetail.create(
+                                candidate.id,
+                                candidate.type.name
+                            )
+                        )
                     },
                 )
             }
+        }
+
+        composable(
+            route = Route.Admin.route
+        ) {
+            AdminDashboardScreen(
+                onBackClick = {
+                    navController.popBackStack()
+                },
+                onReportManagementClick = {
+                    navController.navigate(
+                        Route.AdminReports.route
+                    )
+                },
+                onUserManagementClick = {
+                    // 이후 구현
+                },
+                onPostManagementClick = {
+                    // 이후 구현
+                },
+            )
+        }
+
+        composable(
+            route = Route.AdminReports.route
+        ) {
+            AdminReportListScreen(
+                onBackClick = {
+                    navController.popBackStack()
+                },
+                onReportClick = { reportId ->
+                    // 다음 단계에서 신고 상세 화면 연결
+                }
+            )
         }
     }
 }

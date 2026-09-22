@@ -27,6 +27,19 @@ sealed class Route(val route: String) {
         fun create(postId: String, postTypeName: String): String = "postDetail/$postTypeName/$postId"
     }
 
+    object ChatList : Route(route = "chatList")
+
+    object ChatRoom : Route(route = "chatRoom/{postId}") {
+        const val ARG_POST_ID = "postId"
+
+        fun create(postId: String): String {
+            return "chatRoom/$postId"
+        }
+    }
+
+    object Admin : Route(route = "admin")
+
+    object AdminReports : Route(route = "adminReports")
     object LocationPicker : Route(route = "locationPicker/{postType}") {
         const val ARG_POST_TYPE = "postType"
         fun create(postTypeName: String): String = "locationPicker/$postTypeName"
