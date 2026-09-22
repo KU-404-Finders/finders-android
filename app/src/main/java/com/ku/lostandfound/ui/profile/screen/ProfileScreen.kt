@@ -70,6 +70,8 @@ fun ProfileScreen(
     onFoundTabClick: () -> Unit,
     onLostTabClick: () -> Unit,
     onAddClick: () -> Unit,
+    showAdminMenu: Boolean = false,
+    onAdminClick: () -> Unit = {},
 ) {
     var showWithdrawConfirmDialog by remember { mutableStateOf(false) }
     var showWithdrawCompleteDialog by remember { mutableStateOf(false) }
@@ -109,6 +111,14 @@ fun ProfileScreen(
                     onFoundClick = onMyFoundPostsClick,
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+
+            if (showAdminMenu) {
+                item {
+                    AdminMenuCard(
+                        onClick = onAdminClick
+                    )
+                }
             }
 
             if (myPostCountState is MyPostsUiState.Error) {
@@ -267,6 +277,59 @@ private fun ProfileCard(
             ) {
                 Text("로그아웃", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
+        }
+    }
+}
+
+@Composable
+private fun AdminMenuCard(
+    onClick: () -> Unit,
+) {
+    Card(
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color.White
+        ),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = 1.dp
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .noRippleClickable(onClick),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = "관리자 페이지",
+                    color = Color(0xFF222222),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+
+                Spacer(
+                    modifier = Modifier.height(5.dp)
+                )
+
+                Text(
+                    text = "신고, 사용자 및 게시글을 관리합니다.",
+                    color = Color(0xFF888888),
+                    fontSize = 12.sp,
+                )
+            }
+
+            Text(
+                text = "›",
+                color = DeepGreen,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+            )
         }
     }
 }
