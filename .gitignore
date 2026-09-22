@@ -13,3 +13,12 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Local Android Studio files
+.idea/deploymentTargetSelector.xml
+.idea/misc.xml
+.idea/.name
+.idea/git_toolbox_prj.xml
+
+# Local release build outputs
+app/release/
