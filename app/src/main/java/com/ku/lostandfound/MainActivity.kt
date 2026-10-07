@@ -3,6 +3,7 @@ package com.ku.lostandfound
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.WindowInsets
@@ -45,6 +46,12 @@ class MainActivity : ComponentActivity() {
                     Route.ChatList.route,
                     Route.Profile.route,
                 )
+
+                BackHandler(
+                    enabled = currentRoute in mainRoutes
+                ) {
+                    finish()
+                }
 
                 Scaffold(
                     contentWindowInsets = WindowInsets.safeDrawing,
