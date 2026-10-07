@@ -15,7 +15,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ku.lostandfound.R
@@ -52,10 +51,3 @@ fun SignupFinishScreen(onNavigateToLogin: () -> Unit = {}) {
         Spacer(modifier = Modifier.size(54.dp))
     }
 }
-
-@Preview
-@Composable
-private fun SignupFinishScreenPreview() {
-    SignupFinishScreen()
-}
-

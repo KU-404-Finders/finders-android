@@ -21,7 +21,6 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ku.lostandfound.ui.component.BottomFixedButton
@@ -137,10 +136,4 @@ fun SignupCodeScreen(
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp)
         )
     }
-}
-
-@Preview
-@Composable
-private fun SignupAuthNumPreview() {
-    SignupCodeScreen(viewModel = SignupViewmodel().apply { emailPrefix = "konkuk26" })
 }

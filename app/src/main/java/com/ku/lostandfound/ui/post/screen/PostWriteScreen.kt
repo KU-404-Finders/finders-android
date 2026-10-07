@@ -11,13 +11,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -314,9 +317,19 @@ private fun SoftTextField(
 @Composable
 private fun CategoryDropdown(selected: String, onSelected: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    val categories = listOf("전자기기", "지갑/카드", "의류", "가방", "문서", "기타")
+    val categories = listOf(
+        "전자기기",
+        "지갑/카드",
+        "의류/패션잡화",
+        "가방/파우치",
+        "책/문구/서류",
+        "텀블러/컵",
+        "우산",
+        "열쇠/키링",
+        "기타",
+    )
 
-    Box {
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -338,6 +351,7 @@ private fun CategoryDropdown(selected: String, onSelected: (String) -> Unit) {
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
+            modifier = Modifier.width(maxWidth).heightIn(max = 320.dp),
             containerColor = Color.White,
         ) {
             categories.forEach { category ->

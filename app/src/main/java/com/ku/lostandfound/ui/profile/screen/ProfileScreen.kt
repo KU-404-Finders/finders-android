@@ -10,17 +10,21 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,8 +34,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ku.lostandfound.data.BoardPost
@@ -42,7 +46,6 @@ import com.ku.lostandfound.ui.profile.component.MyWrittenPostSection
 import com.ku.lostandfound.ui.profile.component.WithdrawCompleteDialog
 import com.ku.lostandfound.ui.profile.component.WithdrawConfirmDialog
 import com.ku.lostandfound.ui.profile.viewmodel.MyPostsUiState
-import com.ku.lostandfound.ui.theme.KUfindersTheme
 
 private val DeepGreen = Color(0xFF1B6425)
 private val ScreenGray = Color(0xFFF4F4F4)
@@ -72,6 +75,8 @@ fun ProfileScreen(
     onAddClick: () -> Unit,
     showAdminMenu: Boolean = false,
     onAdminClick: () -> Unit = {},
+    showSimilarityScores: Boolean = false,
+    onShowSimilarityScoresChange: (Boolean) -> Unit = {},
 ) {
     var showWithdrawConfirmDialog by remember { mutableStateOf(false) }
     var showWithdrawCompleteDialog by remember { mutableStateOf(false) }
@@ -110,6 +115,13 @@ fun ProfileScreen(
                     onLostClick = onMyLostPostsClick,
                     onFoundClick = onMyFoundPostsClick,
                     modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            item {
+                DisplaySettingsCard(
+                    showSimilarityScores = showSimilarityScores,
+                    onShowSimilarityScoresChange = onShowSimilarityScoresChange,
                 )
             }
 
@@ -181,6 +193,64 @@ fun ProfileScreen(
                 onWithdrawCompleteConfirm()
             }
         )
+    }
+}
+
+@Composable
+private fun DisplaySettingsCard(
+    showSimilarityScores: Boolean,
+    onShowSimilarityScoresChange: (Boolean) -> Unit,
+) {
+    Card(
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(vertical = 16.dp)) {
+            Text(
+                text = "설정",
+                color = Color.Black,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .toggleable(
+                        value = showSimilarityScores,
+                        role = Role.Switch,
+                        onValueChange = onShowSimilarityScoresChange,
+                    )
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = "유사도 표시 모드",
+                        fontSize = 15.sp,
+                        color = Color.Black,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        text = "추천 글에 위치·텍스트·이미지·종합 점수를 표시합니다. 점수가 없는 항목은 —로 표시합니다.",
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                        color = Color(0xFF666666),
+                    )
+                }
+                Switch(
+                    checked = showSimilarityScores,
+                    onCheckedChange = null,
+                    colors = SwitchDefaults.colors(checkedTrackColor = DeepGreen),
+                )
+            }
+        }
     }
 }
 
@@ -331,46 +401,5 @@ private fun AdminMenuCard(
                 fontWeight = FontWeight.Bold,
             )
         }
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun ProfileScreenPreview() {
-    KUfindersTheme {
-        ProfileScreen(
-            userName = "건국이",
-            userEmail = "konkuk@konkuk.ac.kr",
-            myPosts = listOf(
-                BoardPost(
-                    id = "1",
-                    type = PostType.FOUND,
-                    title = "에어팟 프로 분실하신 분",
-                    category = "전자기기",
-                    content = "공학관 201호에서 습득했습니다.",
-                    authorName = "건국이",
-                    authorEmail = "konkuk@konkuk.ac.kr",
-                    createdAtText = "2024-03-22"
-                ),
-                BoardPost(
-                    id = "2",
-                    type = PostType.LOST,
-                    title = "검은색 장우산 찾습니다",
-                    category = "생활잡화",
-                    content = "도서관 1층 열람실에서 잃어버렸습니다.",
-                    authorName = "건국이",
-                    authorEmail = "konkuk@konkuk.ac.kr",
-                    createdAtText = "2024-03-21"
-                )
-            ),
-            onPostClick = {},
-            onShowAllClick = {},
-            onLogoutClick = {},
-            onWithdrawClick = {},
-            onWithdrawCompleteConfirm = {},
-            onFoundTabClick = {},
-            onLostTabClick = {},
-            onAddClick = {}
-        )
     }
 }
