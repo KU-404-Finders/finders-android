@@ -12,20 +12,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ku.lostandfound.network.ChatRoomResponse
 import com.ku.lostandfound.ui.component.BackTitleBar
 import com.ku.lostandfound.ui.component.noRippleClickable
 
@@ -33,51 +32,14 @@ private val DeepGreen = Color(0xFF1B6425)
 private val ScreenGray = Color(0xFFF4F4F4)
 private val TextGray = Color(0xFF8A8A8A)
 
-private data class ChatRoomUiModel(
-    val id: String,
-    val postId: String,
-    val userName: String,
-    val postTitle: String,
-    val lastMessage: String,
-    val timeText: String,
-    val unreadCount: Int = 0,
-)
-
 @Composable
 fun ChatListScreen(
+    rooms: List<ChatRoomResponse>,
+    isLoading: Boolean,
+    errorMessage: String?,
     onBackClick: () -> Unit,
-    onRoomClick: (String) -> Unit,
+    onRoomClick: (Long) -> Unit,
 ) {
-    val rooms = remember {
-        listOf(
-            ChatRoomUiModel(
-                id = "1",
-                postId = "101",
-                userName = "습득자01",
-                postTitle = "왼쪽 에어팟 분실",
-                lastMessage = "네, 5시에 뵙겠습니다!",
-                timeText = "오후 2:34",
-                unreadCount = 1,
-            ),
-            ChatRoomUiModel(
-                id = "2",
-                postId = "102",
-                userName = "습득자02",
-                postTitle = "검정 우산을 찾습니다",
-                lastMessage = "도서관 안내데스크에 맡겼어요.",
-                timeText = "어제",
-            ),
-            ChatRoomUiModel(
-                id = "3",
-                postId = "103",
-                userName = "습득자03",
-                postTitle = "파란 카드지갑 분실",
-                lastMessage = "감사합니다. 잘 받았습니다!",
-                timeText = "9월 9일",
-            ),
-        )
-    }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -88,21 +50,68 @@ fun ChatListScreen(
             onBackClick = onBackClick,
         )
 
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.White),
-        ) {
-            items(
-                items = rooms,
-                key = { it.id }
-            ) { room ->
-                ChatRoomItem(
-                    room = room,
-                    onClick = {
-                        onRoomClick(room.postId)
+        when {
+            isLoading -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.White),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(
+                        color = DeepGreen
+                    )
+                }
+            }
+
+            errorMessage != null -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.White),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = errorMessage,
+                        color = Color(0xFFD32F2F),
+                        fontSize = 14.sp,
+                    )
+                }
+            }
+
+            rooms.isEmpty() -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.White),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "아직 참여 중인 채팅방이 없습니다.",
+                        color = TextGray,
+                        fontSize = 14.sp,
+                    )
+                }
+            }
+
+            else -> {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.White),
+                ) {
+                    items(
+                        items = rooms,
+                        key = { it.id },
+                    ) { room ->
+                        ChatRoomItem(
+                            room = room,
+                            onClick = {
+                                onRoomClick(room.id)
+                            }
+                        )
                     }
-                )
+                }
             }
         }
     }
@@ -110,7 +119,7 @@ fun ChatListScreen(
 
 @Composable
 private fun ChatRoomItem(
-    room: ChatRoomUiModel,
+    room: ChatRoomResponse,
     onClick: () -> Unit,
 ) {
     Row(
@@ -133,7 +142,7 @@ private fun ChatRoomItem(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = "사진",
+                    text = "채팅",
                     color = TextGray,
                     fontSize = 11.sp,
                 )
@@ -146,59 +155,34 @@ private fun ChatRoomItem(
 
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             Text(
-                text = room.postTitle,
+                text = "채팅방 #${room.id}",
                 color = Color(0xFF222222),
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,
-                maxLines = 1,
             )
 
             Text(
-                text = room.userName,
+                text = "참여자 ${room.creatorId} · ${room.recipientId}",
                 color = TextGray,
                 fontSize = 12.sp,
             )
 
             Text(
-                text = room.lastMessage,
+                text = "채팅방을 열어 메시지를 확인하세요.",
                 color = Color(0xFF555555),
                 fontSize = 13.sp,
-                maxLines = 1,
             )
         }
 
-        Column(
-            horizontalAlignment = Alignment.End,
-        ) {
-            Text(
-                text = room.timeText,
-                color = TextGray,
-                fontSize = 11.sp,
-            )
-
-            if (room.unreadCount > 0) {
-                Spacer(
-                    modifier = Modifier.size(8.dp)
-                )
-
-                Box(
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(CircleShape)
-                        .background(DeepGreen),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = room.unreadCount.toString(),
-                        color = Color.White,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            }
-        }
+        Text(
+            text = room.createdAt
+                .take(16)
+                .replace("T", " "),
+            color = TextGray,
+            fontSize = 11.sp,
+        )
     }
 }

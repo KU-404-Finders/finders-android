@@ -29,6 +29,7 @@ private val TextGray = Color(0xFF888888)
 
 @Composable
 fun AdminDashboardScreen(
+    pendingReportCount: Int,
     onBackClick: () -> Unit,
     onReportManagementClick: () -> Unit = {},
     onUserManagementClick: () -> Unit = {},
@@ -68,7 +69,7 @@ fun AdminDashboardScreen(
             AdminMenuCard(
                 title = "신고 관리",
                 description = "접수된 게시글 및 사용자 신고를 확인합니다.",
-                countText = "미처리 3건",
+                countText = "미처리 ${pendingReportCount}건",
                 onClick = onReportManagementClick,
             )
 

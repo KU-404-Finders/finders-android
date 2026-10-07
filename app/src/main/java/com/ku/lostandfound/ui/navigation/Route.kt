@@ -10,6 +10,7 @@ sealed class Route(val route: String) {
 
     object Found : Route(route = "found")
     object Lost : Route(route = "lost")
+    object Board : Route(route = "board")
     object Profile : Route(route = "profile")
     object MyLostPosts : Route(route = "myPosts/lost")
     object MyFoundPosts : Route(route = "myPosts/found")
@@ -29,17 +30,25 @@ sealed class Route(val route: String) {
 
     object ChatList : Route(route = "chatList")
 
-    object ChatRoom : Route(route = "chatRoom/{postId}") {
-        const val ARG_POST_ID = "postId"
+    object ChatRoom : Route(route = "chatRoom/{roomId}") {
+        const val ARG_ROOM_ID = "roomId"
 
-        fun create(postId: String): String {
-            return "chatRoom/$postId"
+        fun create(roomId: Long): String {
+            return "chatRoom/$roomId"
         }
     }
 
     object Admin : Route(route = "admin")
 
     object AdminReports : Route(route = "adminReports")
+
+    object AdminReportDetail : Route(route = "adminReports/{reportId}") {
+        const val ARG_REPORT_ID = "reportId"
+
+        fun create(reportId: String): String {
+            return "adminReports/$reportId"
+        }
+    }
     object LocationPicker : Route(route = "locationPicker/{postType}") {
         const val ARG_POST_TYPE = "postType"
         fun create(postTypeName: String): String = "locationPicker/$postTypeName"

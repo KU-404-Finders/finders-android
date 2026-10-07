@@ -1,9 +1,11 @@
 package com.ku.lostandfound.ui.navigation
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -32,9 +34,14 @@ import com.ku.lostandfound.network.MyLostItemData
 import com.ku.lostandfound.network.TokenManager
 import com.ku.lostandfound.network.UserMeData
 import com.ku.lostandfound.ui.admin.screen.AdminDashboardScreen
+import com.ku.lostandfound.ui.admin.screen.AdminReportDetailScreen
 import com.ku.lostandfound.ui.admin.screen.AdminReportListScreen
+import com.ku.lostandfound.ui.admin.screen.sampleAdminReports
+import com.ku.lostandfound.ui.board.screen.HomeScreen
 import com.ku.lostandfound.ui.chat.screen.ChatListScreen
 import com.ku.lostandfound.ui.chat.screen.ChatRoomScreen
+import com.ku.lostandfound.ui.chat.viewmodel.ChatUiState
+import com.ku.lostandfound.ui.chat.viewmodel.ChatViewModel
 import com.ku.lostandfound.ui.found.screen.FoundBoardScreen
 import com.ku.lostandfound.ui.found.viewmodel.FoundItemMatchUiState
 import com.ku.lostandfound.ui.found.viewmodel.FoundItemViewModel
@@ -85,6 +92,9 @@ fun MainNavGraph(
     var buildings by remember { mutableStateOf<List<CampusBuilding>>(emptyList()) }
     var referencePaths by remember { mutableStateOf<List<CampusPath>>(emptyList()) }
     var posts by remember { mutableStateOf<List<BoardPost>>(emptyList()) }
+    var adminReports by remember {
+        mutableStateOf(sampleAdminReports)
+    }
     var commentsByPostId by remember {
         mutableStateOf<Map<String, List<BoardComment>>>(emptyMap())
     }
@@ -93,6 +103,20 @@ fun MainNavGraph(
 
     val startDestination = remember {
         if (TokenManager.isLoggedIn()) Route.Found.route else Route.Login.route
+    }
+
+    val chatViewModel = viewModel<ChatViewModel>()
+
+    LaunchedEffect(chatViewModel.uiState) {
+        val state = chatViewModel.uiState
+
+        if (state is ChatUiState.Error) {
+            Toast.makeText(
+                context,
+                state.message,
+                Toast.LENGTH_SHORT
+            ).show()
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -226,8 +250,9 @@ fun MainNavGraph(
         }
     }
 
-    fun openPostWrite() {
+    fun openPostWrite(type: PostType = PostType.FOUND) {
         writeViewModel.reset()
+        writeViewModel.changePostType(type)
         navigateSingleTop(Route.PostWrite.route)
     }
 
@@ -380,7 +405,7 @@ fun MainNavGraph(
                         }
                         navController.navigate(Route.PostDetail.create(post.id, post.type.name))
                     },
-                    onAddClick = { openPostWrite() },
+                    onAddClick = { openPostWrite(PostType.FOUND) },
                     onFoundTabClick = { navigateMainTab(Route.Found.route) },
                     onLostTabClick = { navigateMainTab(Route.Lost.route) },
                     onProfileClick = { navigateMainTab(Route.Profile.route) },
@@ -416,7 +441,7 @@ fun MainNavGraph(
                     }
                     navController.navigate(Route.PostDetail.create(post.id, post.type.name))
                 },
-                onAddClick = { openPostWrite() },
+                onAddClick = { openPostWrite(PostType.LOST) },
                 onFoundTabClick = { navigateMainTab(Route.Found.route) },
                 onLostTabClick = { navigateMainTab(Route.Lost.route) },
                 onProfileClick = { navigateMainTab(Route.Profile.route) },
@@ -424,41 +449,146 @@ fun MainNavGraph(
             )
         }
 
+
+        composable(route = Route.Board.route) {
+
+            LaunchedEffect(Unit) {
+                foundItemViewModel.loadFoundItems()
+                lostItemViewModel.loadLostItems()
+            }
+
+            val allPosts = (
+                    foundItemViewModel.asBoardPosts() +
+                            lostItemViewModel.asBoardPosts() +
+                            posts.filter { it.status == PostStatus.OPEN }
+                    )
+                .filter { it.status == PostStatus.OPEN }
+                .distinctBy { it.type to it.id }
+
+            HomeScreen(
+                title = "전체 게시판",
+                selectedType = PostType.LOST,
+                posts = allPosts,
+                boundary = null,
+                showCampusMap = false,
+
+                onPostClick = { post ->
+                    if (posts.none {
+                            it.id == post.id && it.type == post.type
+                        }
+                    ) {
+                        posts = listOf(post) + posts
+                    }
+
+                    navController.navigate(
+                        Route.PostDetail.create(
+                            post.id,
+                            post.type.name
+                        )
+                    )
+                },
+
+                onAddClick = {
+                    openPostWrite()
+                },
+
+                onFoundTabClick = {
+                    navigateMainTab(Route.Found.route)
+                },
+
+                onLostTabClick = {
+                    navigateMainTab(Route.Board.route)
+                },
+
+                onProfileClick = {
+                    navigateMainTab(Route.Profile.route)
+                },
+
+                onSearchClick = {
+                    navigateSingleTop(Route.Search.route)
+                },
+            )
+        }
+
         composable(
             route = Route.ChatList.route
         ) {
+            LaunchedEffect(Unit) {
+                chatViewModel.loadRooms()
+            }
+
+            val chatState = chatViewModel.uiState
+
             ChatListScreen(
+                rooms = chatViewModel.rooms,
+
+                isLoading = chatState is ChatUiState.Loading,
+
+                errorMessage = if (chatState is ChatUiState.Error) {
+                    chatState.message
+                } else {
+                    null
+                },
+
                 onBackClick = {
                     navController.popBackStack()
                 },
-                onRoomClick = { postId ->
+
+                onRoomClick = { roomId ->
                     navController.navigate(
-                        Route.ChatRoom.create(postId)
+                        Route.ChatRoom.create(roomId)
                     )
                 }
             )
         }
 
+
+
         composable(
             route = Route.ChatRoom.route,
             arguments = listOf(
-                navArgument(Route.ChatRoom.ARG_POST_ID) {
-                    type = NavType.StringType
+                navArgument(Route.ChatRoom.ARG_ROOM_ID) {
+                    type = NavType.LongType
                 }
             )
         ) { backStackEntry ->
 
-            val postId = backStackEntry.arguments
-                ?.getString(Route.ChatRoom.ARG_POST_ID)
-                .orEmpty()
+            val roomId = backStackEntry.arguments
+                ?.getLong(Route.ChatRoom.ARG_ROOM_ID)
+                ?: return@composable
+
+            DisposableEffect(roomId) {
+                chatViewModel.connectRoom(roomId)
+
+                onDispose {
+                    chatViewModel.disconnectRoom()
+                }
+            }
+
+            val chatState = chatViewModel.messageUiState
 
             ChatRoomScreen(
-                postId = postId,
+                roomId = roomId,
+                messages = chatViewModel.messages,
+                currentUserId = currentUserId,
+                isLoading = chatState is ChatUiState.Loading,
+                errorMessage = if (chatState is ChatUiState.Error) {
+                    chatState.message
+                } else {
+                    null
+                },
+                isConnected = chatViewModel.connectedRoomId == roomId,
+                connectionMessage = chatViewModel.connectionMessage,
+                onSendMessage = { text ->
+                    chatViewModel.sendLiveMessage(text)
+                },
                 onBackClick = {
                     navController.popBackStack()
                 }
             )
         }
+
+
 
 
         composable(route = Route.Profile.route) {
@@ -839,9 +969,46 @@ fun MainNavGraph(
                     referencePaths = referencePaths,
                     onBackClick = { navController.popBackStack() },
                     onChatClick = {
-                        navController.navigate(
-                            Route.ChatRoom.create(post.id)
-                        )
+                        val recipientId = post.authorUserId
+
+                        when {
+                            recipientId == null -> {
+                                Toast.makeText(
+                                    context,
+                                    "게시글 작성자 정보를 확인할 수 없습니다.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+
+                            currentUserId == null -> {
+                                Toast.makeText(
+                                    context,
+                                    "사용자 정보를 불러오지 못했습니다.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+
+                            recipientId == currentUserId -> {
+                                Toast.makeText(
+                                    context,
+                                    "본인과는 채팅할 수 없습니다.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+
+                            chatViewModel.uiState is ChatUiState.Loading -> Unit
+
+                            else -> {
+                                chatViewModel.createRoom(
+                                    recipientId = recipientId,
+                                    onSuccess = { room ->
+                                        navController.navigate(
+                                            Route.ChatRoom.create(room.id)
+                                        )
+                                    }
+                                )
+                            }
+                        }
                     },
                     showOwnerActions = (currentUserId != null && post.authorUserId == currentUserId) ||
                             (post.authorEmail.isNotBlank() && post.authorEmail == currentUserEmail) ||
@@ -856,12 +1023,14 @@ fun MainNavGraph(
                                         posts.filterNot { existing -> existing.id == updatedPost.id && existing.type == updatedPost.type }
                                 }
                             }
+
                             PostType.FOUND if itemId != null && it.status == PostStatus.OPEN -> {
                                 foundItemViewModel.updateFoundItemStatus(itemId) { updatedPost ->
                                     posts =
                                         posts.filterNot { existing -> existing.id == updatedPost.id && existing.type == updatedPost.type }
                                 }
                             }
+
                             else -> {
                                 toggleResolved(it)
                             }
@@ -950,21 +1119,29 @@ fun MainNavGraph(
             }
         }
 
+
         composable(
             route = Route.Admin.route
         ) {
             AdminDashboardScreen(
+                pendingReportCount = adminReports.count {
+                    !it.isProcessed
+                },
+
                 onBackClick = {
                     navController.popBackStack()
                 },
+
                 onReportManagementClick = {
                     navController.navigate(
                         Route.AdminReports.route
                     )
                 },
+
                 onUserManagementClick = {
                     // 이후 구현
                 },
+
                 onPostManagementClick = {
                     // 이후 구현
                 },
@@ -975,13 +1152,58 @@ fun MainNavGraph(
             route = Route.AdminReports.route
         ) {
             AdminReportListScreen(
+                reports = adminReports,
+
                 onBackClick = {
                     navController.popBackStack()
                 },
+
                 onReportClick = { reportId ->
-                    // 다음 단계에서 신고 상세 화면 연결
+                    navController.navigate(
+                        Route.AdminReportDetail.create(reportId)
+                    )
                 }
             )
         }
+
+        composable(
+            route = Route.AdminReportDetail.route,
+            arguments = listOf(
+                navArgument(Route.AdminReportDetail.ARG_REPORT_ID) {
+                    type = NavType.StringType
+                }
+            )
+        ) { backStackEntry ->
+
+            val reportId = backStackEntry.arguments
+                ?.getString(Route.AdminReportDetail.ARG_REPORT_ID)
+                .orEmpty()
+
+            val report = adminReports.firstOrNull {
+                it.id == reportId
+            }
+
+            AdminReportDetailScreen(
+                report = report,
+
+                onBackClick = {
+                    navController.popBackStack()
+                },
+
+                onActionConfirmed = { action ->
+                    adminReports = adminReports.map { item ->
+                        if (item.id == reportId && !item.isProcessed) {
+                            item.copy(
+                                isProcessed = true,
+                                processedAction = action,
+                            )
+                        } else {
+                            item
+                        }
+                    }
+                }
+            )
+        }
+
     }
 }

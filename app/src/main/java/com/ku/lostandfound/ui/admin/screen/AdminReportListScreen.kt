@@ -39,45 +39,45 @@ data class AdminReportUiModel(
     val reason: String,
     val createdAt: String,
     val isProcessed: Boolean,
+    val processedAction: String? = null,
+)
+
+internal val sampleAdminReports = listOf(
+    AdminReportUiModel(
+        id = "1",
+        reporterName = "김건국",
+        reportedUserName = "습득자01",
+        postTitle = "에어팟 습득했습니다",
+        reason = "허위 정보",
+        createdAt = "2026.09.22 18:30",
+        isProcessed = false,
+    ),
+    AdminReportUiModel(
+        id = "2",
+        reporterName = "이건국",
+        reportedUserName = "사용자02",
+        postTitle = "검정 우산 주웠습니다",
+        reason = "분실물/습득물과 관련 없는 게시글",
+        createdAt = "2026.09.21 14:20",
+        isProcessed = false,
+    ),
+    AdminReportUiModel(
+        id = "3",
+        reporterName = "박건국",
+        reportedUserName = "사용자03",
+        postTitle = "학생증 습득",
+        reason = "스팸 또는 광고성 게시글",
+        createdAt = "2026.09.20 10:15",
+        isProcessed = true,
+    ),
 )
 
 @Composable
 fun AdminReportListScreen(
+    reports: List<AdminReportUiModel>,
     onBackClick: () -> Unit,
     onReportClick: (String) -> Unit,
 ) {
-    val reports = remember {
-        listOf(
-            AdminReportUiModel(
-                id = "1",
-                reporterName = "김건국",
-                reportedUserName = "습득자01",
-                postTitle = "에어팟 습득했습니다",
-                reason = "허위 정보",
-                createdAt = "2026.09.22 18:30",
-                isProcessed = false,
-            ),
-            AdminReportUiModel(
-                id = "2",
-                reporterName = "이건국",
-                reportedUserName = "사용자02",
-                postTitle = "검정 우산 주웠습니다",
-                reason = "분실물/습득물과 관련 없는 게시글",
-                createdAt = "2026.09.21 14:20",
-                isProcessed = false,
-            ),
-            AdminReportUiModel(
-                id = "3",
-                reporterName = "박건국",
-                reportedUserName = "사용자03",
-                postTitle = "학생증 습득",
-                reason = "스팸 또는 광고성 게시글",
-                createdAt = "2026.09.20 10:15",
-                isProcessed = true,
-            ),
-        )
-    }
-
     Column(
         modifier = Modifier
             .fillMaxSize()

@@ -37,6 +37,10 @@ import com.ku.lostandfound.ui.component.CampusMapCanvas
 import com.ku.lostandfound.ui.component.CompactPostCard
 import com.ku.lostandfound.ui.component.HomeTopBar
 import com.ku.lostandfound.ui.component.noRippleClickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
 
 private val DeepGreen = Color(0xFF1B6425)
 private val ScreenGray = Color(0xFFF4F4F4)
@@ -71,81 +75,92 @@ fun HomeScreen(
             onSearchClick = onSearchClick,
         )
 
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+        Box(
+            modifier = Modifier.weight(1f)
         ) {
-            if (showCampusMap && boundary != null) {
-                item {
-                    CampusMapCanvas(
-                        boundary = boundary,
-                        buildings = buildings,
-                        referencePaths = referencePaths,
-                        selectedBuildingIds = selectedBuilding?.let { setOf(it.id) }.orEmpty(),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(330.dp),
-                        showLabels = true,
-                        showRoute = false,
-                        onBuildingClick = onBuildingClick,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    if (selectedBuilding != null) {
-                        Row(
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(vertical = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (showCampusMap && boundary != null) {
+                    item {
+                        CampusMapCanvas(
+                            boundary = boundary,
+                            buildings = buildings,
+                            referencePaths = referencePaths,
+                            selectedBuildingIds = selectedBuilding?.let { setOf(it.id) }.orEmpty(),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 20.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = "📍 ${selectedBuilding.name} 게시물만 보는 중",
-                                color = DeepGreen,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.weight(1f),
-                            )
-                            TextButton(onClick = onClearBuildingFilter) {
-                                Text("전체보기", color = DeepGreen, fontSize = 13.sp)
+                                .height(330.dp),
+                            showLabels = true,
+                            showRoute = false,
+                            onBuildingClick = onBuildingClick,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        if (selectedBuilding != null) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = "📍 ${selectedBuilding.name} 게시물만 보는 중",
+                                    color = DeepGreen,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(onClick = onClearBuildingFilter) {
+                                    Text("전체보기", color = DeepGreen, fontSize = 13.sp)
+                                }
                             }
+                        } else {
+                            Text(
+                                text = "📍 전체 구역 게시물",
+                                color = Color.Gray,
+                                fontSize = 13.sp,
+                                modifier = Modifier.padding(horizontal = 20.dp),
+                            )
                         }
-                    } else {
+                    }
+                } else {
+                    item {
                         Text(
-                            text = "📍 전체 구역 게시물",
+                            text = "전체 분실물 게시물",
                             color = Color.Gray,
                             fontSize = 13.sp,
-                            modifier = Modifier.padding(horizontal = 20.dp),
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
                         )
                     }
                 }
-            } else {
-                item {
-                    Text(
-                        text = "전체 분실물 게시물",
-                        color = Color.Gray,
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+
+                items(posts) { post ->
+                    CompactPostCard(
+                        post = post,
+                        modifier = Modifier.padding(horizontal = 20.dp),
+                        showStatus = true,
+                        showThumbnail = true,
+                        onClick = { onPostClick(post) },
                     )
                 }
             }
-
-            items(posts) { post ->
-                CompactPostCard(
-                    post = post,
-                    modifier = Modifier.padding(horizontal = 20.dp),
-                    showStatus = true,
-                    showThumbnail = true,
-                    onClick = { onPostClick(post) },
+            FloatingActionButton(
+                onClick = onAddClick,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp),
+                containerColor = DeepGreen,
+                contentColor = Color.White,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "게시글 작성",
                 )
             }
-        }
 
-        MainBottomBar(
-            selectedType = selectedType,
-            onFoundTabClick = onFoundTabClick,
-            onLostTabClick = onLostTabClick,
-            onAddClick = onAddClick,
-        )
+        }
     }
 }
 

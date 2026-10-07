@@ -77,6 +77,7 @@ object RetrofitClient {
     val userApi: UserApiService = retrofit.create(UserApiService::class.java)
     val lostItemApi: LostItemApiService = retrofit.create(LostItemApiService::class.java)
     val foundItemApi: FoundItemApiService = retrofit.create(FoundItemApiService::class.java)
+    val chatApi: ChatApiService = retrofit.create(ChatApiService::class.java)
 
     private fun refreshTokensBlocking(): String? {
         val refreshToken = TokenManager.refreshToken ?: return null

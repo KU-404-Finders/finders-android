@@ -2,14 +2,14 @@ package com.ku.lostandfound.viewmodel
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.net.Uri
-import android.media.ExifInterface
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.net.Uri
 import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.exifinterface.media.ExifInterface
 import com.google.gson.Gson
 import com.ku.lostandfound.data.BoardPost
 import com.ku.lostandfound.data.FoundLocationSelection
@@ -41,6 +41,7 @@ import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import androidx.core.net.toUri
 
 sealed class PostWriteUiState {
     object Idle : PostWriteUiState()
@@ -127,7 +128,14 @@ class PostWriteViewModel {
             } else {
                 val errorBody = response.errorBody()?.string()
                 NetworkLog.httpError("createLostItem", response.code(), errorBody)
-                Result.failure(IllegalStateException(httpErrorMessage(response.code(), parseLostItemError(errorBody))))
+                Result.failure(
+                    IllegalStateException(
+                        httpErrorMessage(
+                            response.code(),
+                            parseLostItemError(errorBody)
+                        )
+                    )
+                )
             }
         } catch (e: Exception) {
             NetworkLog.exception("createLostItem", e)
@@ -176,7 +184,14 @@ class PostWriteViewModel {
                 val errorBody = response.errorBody()?.string()
                 Log.e(FOUND_ITEM_UPLOAD_TAG, "errorBody=$errorBody")
                 NetworkLog.httpError("createFoundItem", response.code(), errorBody)
-                Result.failure(IllegalStateException(httpErrorMessage(response.code(), parseFoundItemError(errorBody))))
+                Result.failure(
+                    IllegalStateException(
+                        httpErrorMessage(
+                            response.code(),
+                            parseFoundItemError(errorBody)
+                        )
+                    )
+                )
             }
         } catch (e: Exception) {
             NetworkLog.exception("createFoundItem", e)
@@ -275,7 +290,7 @@ class PostWriteViewModel {
     }
 
     private fun createImagePart(context: Context, uriString: String): UploadImage {
-        val uri = Uri.parse(uriString)
+        val uri = uriString.toUri()
         val contentResolver = context.contentResolver
         val sourceBytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
             ?: throw IllegalStateException("이미지를 읽을 수 없습니다.")
@@ -286,8 +301,8 @@ class PostWriteViewModel {
 
         val sourceMimeType = contentResolver.getType(uri)
         val canUploadOriginal = sourceMimeType in ALLOWED_IMAGE_MIME_TYPES &&
-            sourceBytes.size <= MAX_IMAGE_BYTES &&
-            !sourceBytes.hasExifRotation()
+                sourceBytes.size <= MAX_IMAGE_BYTES &&
+                !sourceBytes.hasExifRotation()
         val uploadMimeType: String
         val uploadBytes: ByteArray
         val extension: String
@@ -331,7 +346,8 @@ class PostWriteViewModel {
                 authorization = bearerTokenOrThrow(),
                 id = id,
                 request = createJsonPart(toLostItemCreateRequest()),
-                image = imageUri?.takeIf { it.isLocalImageUri() }?.let { createImagePart(context, it).part },
+                image = imageUri?.takeIf { it.isLocalImageUri() }
+                    ?.let { createImagePart(context, it).part },
             )
             if (response.isSuccessful) {
                 val body = response.body()
@@ -344,7 +360,14 @@ class PostWriteViewModel {
             } else {
                 val errorBody = response.errorBody()?.string()
                 NetworkLog.httpError("updateLostItem", response.code(), errorBody)
-                Result.failure(IllegalStateException(httpErrorMessage(response.code(), parseLostItemError(errorBody))))
+                Result.failure(
+                    IllegalStateException(
+                        httpErrorMessage(
+                            response.code(),
+                            parseLostItemError(errorBody)
+                        )
+                    )
+                )
             }
         } catch (e: Exception) {
             NetworkLog.exception("updateLostItem", e)
@@ -358,7 +381,8 @@ class PostWriteViewModel {
                 authorization = bearerTokenOrThrow(),
                 id = id,
                 request = createJsonPart(toFoundItemCreateRequest()),
-                image = imageUri?.takeIf { it.isLocalImageUri() }?.let { createImagePart(context, it).part },
+                image = imageUri?.takeIf { it.isLocalImageUri() }
+                    ?.let { createImagePart(context, it).part },
             )
             if (response.isSuccessful) {
                 val body = response.body()
@@ -371,7 +395,14 @@ class PostWriteViewModel {
             } else {
                 val errorBody = response.errorBody()?.string()
                 NetworkLog.httpError("updateFoundItem", response.code(), errorBody)
-                Result.failure(IllegalStateException(httpErrorMessage(response.code(), parseFoundItemError(errorBody))))
+                Result.failure(
+                    IllegalStateException(
+                        httpErrorMessage(
+                            response.code(),
+                            parseFoundItemError(errorBody)
+                        )
+                    )
+                )
             }
         } catch (e: Exception) {
             NetworkLog.exception("updateFoundItem", e)
@@ -423,8 +454,8 @@ class PostWriteViewModel {
             )
         }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
         return orientation == ExifInterface.ORIENTATION_ROTATE_90 ||
-            orientation == ExifInterface.ORIENTATION_ROTATE_180 ||
-            orientation == ExifInterface.ORIENTATION_ROTATE_270
+                orientation == ExifInterface.ORIENTATION_ROTATE_180 ||
+                orientation == ExifInterface.ORIENTATION_ROTATE_270
     }
 
     private fun Bitmap.compressJpeg(quality: Int): ByteArray {
@@ -473,9 +504,9 @@ class PostWriteViewModel {
             id = id.toString(),
             type = PostType.FOUND,
             status = if (itemStatus == ItemStatus.RETURNED) {
-                com.ku.lostandfound.data.PostStatus.RESOLVED
+                PostStatus.RESOLVED
             } else {
-                com.ku.lostandfound.data.PostStatus.OPEN
+                PostStatus.OPEN
             },
             authorUserId = userId,
             authorName = displayUserName(),
@@ -499,6 +530,7 @@ class PostWriteViewModel {
                     )
                 }
             )
+
             FoundItemLocationType.OUTDOOR -> FoundLocationSelection(
                 outdoorPin = if (latitude != null && longitude != null) {
                     OutdoorPin(
@@ -516,8 +548,8 @@ class PostWriteViewModel {
         if (errorBody == null) return "오류가 발생했습니다."
         return try {
             val errorResponse = Gson().fromJson(errorBody, LostItemErrorResponse::class.java)
-            errorResponse.errors?.values?.firstOrNull() ?: errorResponse.message ?: "요청을 처리할 수 없습니다."
-        } catch (e: Exception) {
+            errorResponse.errors?.values?.firstOrNull() ?: errorResponse.message
+        } catch (_: Exception) {
             "오류가 발생했습니다."
         }
     }
@@ -526,8 +558,8 @@ class PostWriteViewModel {
         if (errorBody == null) return "오류가 발생했습니다."
         return try {
             val errorResponse = Gson().fromJson(errorBody, FoundItemErrorResponse::class.java)
-            errorResponse.errors?.values?.firstOrNull() ?: errorResponse.message ?: "요청을 처리할 수 없습니다."
-        } catch (e: Exception) {
+            errorResponse.errors?.values?.firstOrNull() ?: errorResponse.message
+        } catch (_: Exception) {
             "오류가 발생했습니다."
         }
     }
