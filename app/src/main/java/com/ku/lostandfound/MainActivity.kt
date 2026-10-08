@@ -16,6 +16,7 @@ import com.ku.lostandfound.network.TokenManager
 import com.ku.lostandfound.ui.navigation.AppBottomBar
 import com.ku.lostandfound.ui.navigation.MainNavGraph
 import com.ku.lostandfound.ui.navigation.Route
+import com.ku.lostandfound.ui.navigation.navigateToMainTab
 import com.ku.lostandfound.ui.theme.KUfindersTheme
 
 class MainActivity : ComponentActivity() {
@@ -60,14 +61,7 @@ class MainActivity : ComponentActivity() {
                             AppBottomBar(
                                 currentRoute = currentRoute.orEmpty(),
                                 onTabClick = { targetRoute ->
-                                    navController.navigate(targetRoute) {
-                                        launchSingleTop = true
-                                        restoreState = true
-
-                                        popUpTo(Route.Found.route) {
-                                            saveState = true
-                                        }
-                                    }
+                                    navController.navigateToMainTab(targetRoute)
                                 },
                             )
                         }

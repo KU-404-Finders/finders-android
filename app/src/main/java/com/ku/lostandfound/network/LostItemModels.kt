@@ -91,6 +91,11 @@ data class LostItemMatchesResult(
 data class LostItemMatchData(
     val locationScore: Double,
     val foundItem: MatchedFoundItemData,
+    val textScore: Double? = null,
+    val imageScore: Double? = null,
+    val rawImageCosine: Double? = null,
+    val totalScore: Double? = null,
+    val weightsCase: String? = null,
 )
 
 data class MatchedFoundItemData(

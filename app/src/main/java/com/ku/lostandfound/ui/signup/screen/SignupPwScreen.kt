@@ -31,7 +31,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ku.lostandfound.ui.component.BottomFixedButton
@@ -135,10 +134,4 @@ fun SignupPwScreen(
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp)
         )
     }
-}
-
-@Preview
-@Composable
-private fun SignupPwPreview() {
-    SignupPwScreen(viewModel = SignupViewmodel())
 }

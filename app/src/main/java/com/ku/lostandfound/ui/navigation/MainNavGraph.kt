@@ -27,6 +27,7 @@ import com.ku.lostandfound.data.CampusBoundary
 import com.ku.lostandfound.data.CampusBuilding
 import com.ku.lostandfound.data.CampusJsonRepository
 import com.ku.lostandfound.data.CampusPath
+import com.ku.lostandfound.data.DisplayPreferences
 import com.ku.lostandfound.data.PostStatus
 import com.ku.lostandfound.data.PostType
 import com.ku.lostandfound.network.MyFoundItemData
@@ -75,6 +76,12 @@ fun MainNavGraph(
     padding: PaddingValues,
 ) {
     val context = LocalContext.current
+    val displayPreferences = remember(context.applicationContext) {
+        DisplayPreferences(context.applicationContext)
+    }
+    var showSimilarityScores by remember(displayPreferences) {
+        mutableStateOf(displayPreferences.showSimilarityScores)
+    }
     val coroutineScope = rememberCoroutineScope()
     val writeViewModel = remember { PostWriteViewModel() }
     val loginViewModel = viewModel<LoginViewModel>()
@@ -193,6 +200,15 @@ fun MainNavGraph(
         return userViewModel.me ?: userViewModel.loadMeNow()
     }
 
+    fun navigateMainTab(route: String) {
+        if (navController.currentBackStackEntry?.destination?.route == route) return
+        when (route) {
+            Route.Found.route -> foundItemViewModel.loadFoundItems()
+            Route.Lost.route -> lostItemViewModel.loadLostItems()
+        }
+        navController.navigateToMainTab(route)
+    }
+
     fun submitPost() {
         if (!writeViewModel.canSubmit()) return
 
@@ -212,9 +228,7 @@ fun MainNavGraph(
                             )
                         ) + posts
                         writeViewModel.reset()
-                        navController.navigate(Route.Lost.route) {
-                            popUpTo(Route.PostWrite.route) { inclusive = true }
-                        }
+                        navigateMainTab(Route.Lost.route)
                     }
             }
             return
@@ -235,9 +249,7 @@ fun MainNavGraph(
                         )
                     ) + posts
                     writeViewModel.reset()
-                    navController.navigate(Route.Found.route) {
-                        popUpTo(Route.PostWrite.route) { inclusive = true }
-                    }
+                    navigateMainTab(Route.Found.route)
                 }
         }
     }
@@ -246,7 +258,6 @@ fun MainNavGraph(
         if (navController.currentBackStackEntry?.destination?.route == route) return
         navController.navigate(route) {
             launchSingleTop = true
-            restoreState = true
         }
     }
 
@@ -259,21 +270,6 @@ fun MainNavGraph(
     fun openPostEdit(post: BoardPost) {
         writeViewModel.loadForEdit(post)
         navController.navigate(Route.PostEdit.create(post.id))
-    }
-
-    fun navigateMainTab(route: String) {
-        if (navController.currentBackStackEntry?.destination?.route == route) return
-        when (route) {
-            Route.Found.route -> foundItemViewModel.loadFoundItems()
-            Route.Lost.route -> lostItemViewModel.loadLostItems()
-        }
-        navController.navigate(route) {
-            launchSingleTop = true
-            restoreState = true
-            popUpTo(Route.Found.route) {
-                saveState = true
-            }
-        }
     }
 
     fun navigateToLoginClearingBackStack() {
@@ -647,6 +643,11 @@ fun MainNavGraph(
                 onLostTabClick = { navigateMainTab(Route.Lost.route) },
                 onAddClick = { openPostWrite() },
                 showAdminMenu = true,
+                showSimilarityScores = showSimilarityScores,
+                onShowSimilarityScoresChange = { enabled ->
+                    displayPreferences.showSimilarityScores = enabled
+                    showSimilarityScores = enabled
+                },
                 onAdminClick = {
                     navController.navigate(
                         Route.Admin.route
@@ -929,6 +930,9 @@ fun MainNavGraph(
                             createdAtText = match.foundItem.createdAt.take(10),
                             imageUrl = match.foundItem.imageUrl,
                             locationScore = match.locationScore,
+                            textScore = match.textScore,
+                            imageScore = match.imageScore,
+                            totalScore = match.totalScore,
                             associatedBuildingNames = match.foundItem.associatedBuildingNames,
                         )
                     }
@@ -950,6 +954,9 @@ fun MainNavGraph(
                                     createdAtText = match.lostItem.createdAt.take(10),
                                     imageUrl = match.lostItem.imageUrl,
                                     locationScore = match.locationScore,
+                                    textScore = match.textScore,
+                                    imageScore = match.imageScore,
+                                    totalScore = match.totalScore,
                                 )
                             }
                         } else {
@@ -964,6 +971,7 @@ fun MainNavGraph(
                 }
                 PostDetailScreen(
                     post = displayPost,
+                    showSimilarityScores = showSimilarityScores,
                     boundary = b,
                     buildings = buildings,
                     referencePaths = referencePaths,

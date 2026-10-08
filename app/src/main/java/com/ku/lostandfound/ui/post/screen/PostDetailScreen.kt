@@ -88,7 +88,10 @@ data class MatchCandidateUiModel(
     val createdAtText: String,
     val imageUrl: String?,
     val locationScore: Double,
+    val totalScore: Double? = null,
     val associatedBuildingNames: List<String> = emptyList(),
+    val textScore: Double? = null,
+    val imageScore: Double? = null,
 )
 
 @Composable
@@ -115,6 +118,7 @@ fun PostDetailScreen(
     onDeleteComment: (BoardComment) -> Unit = {},
     onUpdateComment: (BoardComment, String) -> Unit = { _, _ -> },
     onMatchCandidateClick: (MatchCandidateUiModel) -> Unit = {},
+    showSimilarityScores: Boolean = false,
 ) {
     val focusManager = LocalFocusManager.current
     var showResolveConfirmDialog by remember { mutableStateOf(false) }
@@ -406,6 +410,7 @@ fun PostDetailScreen(
                 MatchCandidateSection(
                     candidates = matchCandidates.take(10),
                     onCandidateClick = onMatchCandidateClick,
+                    showSimilarityScores = showSimilarityScores,
                 )
             }
 
@@ -485,6 +490,7 @@ fun PostDetailScreen(
 private fun MatchCandidateSection(
     candidates: List<MatchCandidateUiModel>,
     onCandidateClick: (MatchCandidateUiModel) -> Unit,
+    showSimilarityScores: Boolean,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth()
@@ -513,6 +519,7 @@ private fun MatchCandidateSection(
                 MatchCandidateCard(
                     candidate = candidate,
                     onClick = { onCandidateClick(candidate) },
+                    showSimilarityScores = showSimilarityScores,
                 )
             }
         }
@@ -520,7 +527,11 @@ private fun MatchCandidateSection(
 }
 
 @Composable
-private fun MatchCandidateCard(candidate: MatchCandidateUiModel, onClick: () -> Unit) {
+private fun MatchCandidateCard(
+    candidate: MatchCandidateUiModel,
+    onClick: () -> Unit,
+    showSimilarityScores: Boolean,
+) {
     Card(
         shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -566,18 +577,6 @@ private fun MatchCandidateCard(candidate: MatchCandidateUiModel, onClick: () -> 
                 }
             }
 
-            Spacer(Modifier.height(10.dp))
-
-            Text(
-                text = "위치 유사도 ${"%.2f".format(candidate.locationScore)}",
-                color = DeepGreen,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .background(LightGreen, RoundedCornerShape(999.dp))
-                    .padding(horizontal = 9.dp, vertical = 5.dp),
-            )
-
             val locationText = candidate.associatedBuildingNames
                 .take(2)
                 .joinToString(", ")
@@ -599,6 +598,24 @@ private fun MatchCandidateCard(candidate: MatchCandidateUiModel, onClick: () -> 
                 color = TextGray,
                 fontSize = 11.sp,
             )
+
+            if (showSimilarityScores) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = "위치: ${formatSimilarityScore(candidate.locationScore)}\n" +
+                        "텍스트: ${formatSimilarityScore(candidate.textScore)}\n" +
+                        "이미지: ${formatSimilarityScore(candidate.imageScore)}\n" +
+                        "종합: ${formatSimilarityScore(candidate.totalScore)}",
+                    color = DeepGreen,
+                    fontSize = 12.sp,
+                    lineHeight = 19.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(LightGreen, RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                )
+            }
         }
     }
 }
