@@ -44,6 +44,7 @@ import com.ku.lostandfound.data.CampusBuilding
 import com.ku.lostandfound.data.CampusPath
 import com.ku.lostandfound.data.GeoPoint
 import com.ku.lostandfound.data.OutdoorPin
+import com.ku.lostandfound.util.CampusMapGeometry
 import com.ku.lostandfound.util.GeoUtils
 import kotlin.math.max
 import kotlin.math.min
@@ -79,14 +80,10 @@ fun CampusMapCanvas(
     var panOffset by remember { mutableStateOf(Offset.Zero) }
     var canvasSize by remember { mutableStateOf(Size.Zero) }
     val density = LocalDensity.current
-    val mapPoints = remember(boundary, buildings, referencePaths) {
-        boundary.polygon +
-            buildings.flatMap { it.outerRing } +
-            referencePaths.flatMap { it.coordinate }
+    val geometry = remember(boundary, buildings, referencePaths) {
+        CampusMapGeometry(boundary, buildings, referencePaths)
     }
-    val outerBoundary = remember(mapPoints) {
-        mapPoints.convexHull().expandFromCenter(scale = 1.04).ifEmpty { boundary.polygon }
-    }
+    val mapPoints = geometry.points
 
     fun clampPan(nextPanOffset: Offset, nextZoom: Float = zoom): Offset {
         return clampPanOffset(
@@ -114,7 +111,7 @@ fun CampusMapCanvas(
                 }
                 .then(
                     if (onMapTap != null || onBuildingClick != null) {
-                        Modifier.pointerInput(mapPoints, zoom, panOffset) {
+                        Modifier.pointerInput(geometry, zoom, panOffset) {
                             detectTapGestures { offset ->
                                 val converter = GeoScreenConverter(
                                     points = mapPoints,
@@ -124,6 +121,7 @@ fun CampusMapCanvas(
                                     paddingPx = with(density) { MapContentPadding.toPx() },
                                 )
                                 val tappedGeo = converter.screenToGeo(offset)
+                                if (!geometry.contains(tappedGeo)) return@detectTapGestures
                                 val clickedBuilding = buildings.firstOrNull { building ->
                                     GeoUtils.pointInPolygon(tappedGeo, building.outerRing)
                                 }
@@ -153,7 +151,7 @@ fun CampusMapCanvas(
                 drawReferencePaths(referencePaths, converter)
             }
 
-            drawBoundary(outerBoundary, converter)
+            drawBoundary(geometry.outerBoundary, converter)
 
             buildings.forEach { building ->
                 drawBuilding(
@@ -417,47 +415,6 @@ private fun List<GeoPoint>.toClosedPath(converter: GeoScreenConverter): Path = P
         lineTo(screen.x, screen.y)
     }
     close()
-}
-
-private fun List<GeoPoint>.convexHull(): List<GeoPoint> {
-    val points = distinctBy { it.longitude to it.latitude }
-        .sortedWith(compareBy<GeoPoint> { it.longitude }.thenBy { it.latitude })
-    if (points.size < 3) return points
-
-    fun cross(o: GeoPoint, a: GeoPoint, b: GeoPoint): Double {
-        return (a.longitude - o.longitude) * (b.latitude - o.latitude) -
-            (a.latitude - o.latitude) * (b.longitude - o.longitude)
-    }
-
-    val lower = mutableListOf<GeoPoint>()
-    points.forEach { point ->
-        while (lower.size >= 2 && cross(lower[lower.lastIndex - 1], lower.last(), point) <= 0.0) {
-            lower.removeAt(lower.lastIndex)
-        }
-        lower.add(point)
-    }
-
-    val upper = mutableListOf<GeoPoint>()
-    points.asReversed().forEach { point ->
-        while (upper.size >= 2 && cross(upper[upper.lastIndex - 1], upper.last(), point) <= 0.0) {
-            upper.removeAt(upper.lastIndex)
-        }
-        upper.add(point)
-    }
-
-    return (lower.dropLast(1) + upper.dropLast(1))
-}
-
-private fun List<GeoPoint>.expandFromCenter(scale: Double): List<GeoPoint> {
-    if (isEmpty()) return this
-    val centerLng = sumOf { it.longitude } / size
-    val centerLat = sumOf { it.latitude } / size
-    return map { point ->
-        GeoPoint(
-            longitude = centerLng + (point.longitude - centerLng) * scale,
-            latitude = centerLat + (point.latitude - centerLat) * scale,
-        )
-    }
 }
 
 private fun clampPanOffset(

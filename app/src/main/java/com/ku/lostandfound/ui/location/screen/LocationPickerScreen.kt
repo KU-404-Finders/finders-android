@@ -211,8 +211,6 @@ private fun OutdoorLocationBody(
                 .fillMaxWidth()
                 .height(430.dp),
             onMapTap = { point ->
-                if (!GeoUtils.pointInPolygonOrNearBoundary(point, boundary.polygon)) return@CampusMapCanvas
-
                 if (postType == PostType.LOST) {
                     if (pins.size < 10) {
                         pins.add(OutdoorPin(order = pins.size + 1, point = point))
