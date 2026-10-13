@@ -275,13 +275,35 @@ private fun ChatMessageBubble(
 
             Spacer(Modifier.height(4.dp))
 
-            Text(
-                text = message.createdAt
-                    .substringAfter("T", "")
-                    .take(5),
-                color = TextGray,
-                fontSize = 10.sp,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = message.createdAt
+                        .substringAfter("T", "")
+                        .take(5),
+                    color = TextGray,
+                    fontSize = 10.sp,
+                )
+
+                if (isMine) {
+                    Text(
+                        text = if (message.unreadCount == 0) {
+                            "읽음"
+                        } else {
+                            "안읽음"
+                        },
+                        color = if (message.unreadCount == 0) {
+                            DeepGreen
+                        } else {
+                            TextGray
+                        },
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
         }
     }
 }
