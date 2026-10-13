@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "933686871736",
+    "project_id": "findku-bd2dc",
+    "storage_bucket": "findku-bd2dc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:933686871736:android:67114fffbf0c63b427164d",
+        "android_client_info": {
+          "package_name": "com.ku.lostandfound"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCrQbB6soIHyX4wTvnL0ATu-DZSVYXejbM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

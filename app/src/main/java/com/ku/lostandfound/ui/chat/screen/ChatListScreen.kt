@@ -158,7 +158,9 @@ private fun ChatRoomItem(
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             Text(
-                text = "채팅방 #${room.id}",
+                text = room.postTitle
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "채팅방 #${room.id}",
                 color = Color(0xFF222222),
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,
@@ -171,16 +173,18 @@ private fun ChatRoomItem(
             )
 
             Text(
-                text = "채팅방을 열어 메시지를 확인하세요.",
+                text = room.lastMessage
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "아직 메시지가 없습니다.",
                 color = Color(0xFF555555),
                 fontSize = 13.sp,
             )
         }
 
         Text(
-            text = room.createdAt
-                .take(16)
-                .replace("T", " "),
+            text = (room.lastMessageAt ?: room.createdAt)
+                .substringAfter("T", "")
+                .take(5),
             color = TextGray,
             fontSize = 11.sp,
         )
