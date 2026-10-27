@@ -6,6 +6,7 @@ import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.PATCH
 
 interface ChatApiService {
 
@@ -25,4 +26,15 @@ interface ChatApiService {
         @Query("beforeId") beforeId: Long? = null,
         @Query("size") size: Int = 50,
     ): Response<ApiResponse<List<ChatMessageResponse>>>
+
+    @GET("api/v1/chat/rooms/{roomId}/read")
+    suspend fun getReadState(
+        @Path("roomId") roomId: Long,
+    ): Response<ApiResponse<ChatReadStateResponse>>
+
+    @PATCH("api/v1/chat/rooms/{roomId}/read")
+    suspend fun markRead(
+        @Path("roomId") roomId: Long,
+        @Body request: ChatReadRequest,
+    ): Response<ApiResponse<ChatReadReceipt>>
 }

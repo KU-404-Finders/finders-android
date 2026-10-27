@@ -11,6 +11,7 @@ import java.util.concurrent.TimeUnit
 class ChatStompClient(
     private val onConnected: () -> Unit,
     private val onMessage: (ChatMessageResponse) -> Unit,
+    private val onReadReceipt: (ChatReadReceipt) -> Unit,
     private val onError: (String) -> Unit,
     private val onDisconnected: () -> Unit,
 ) {
@@ -138,7 +139,13 @@ class ChatStompClient(
                             "destination:/user/queue/chat-errors\n\n\u0000"
                 )
 
-                if (roomSubscribed && errorsSubscribed) {
+                val readSubscribed = webSocket.send(
+                    "SUBSCRIBE\n" +
+                            "id:room-$roomId-read\n" +
+                            "destination:/topic/chat/rooms/$roomId/read\n\n\u0000"
+                )
+
+                if (roomSubscribed && readSubscribed && errorsSubscribed) {
                     onConnected()
                 } else {
                     onError("채팅방 구독에 실패했습니다.")
@@ -168,6 +175,20 @@ class ChatStompClient(
                     }
                 } else if (destination == "/user/queue/chat-errors") {
                     onError("메시지 전송이 거부되었습니다.")
+                }
+                else if (destination == "/topic/chat/rooms/$roomId/read") {
+                    try {
+                        val receipt = gson.fromJson(
+                            body,
+                            ChatReadReceipt::class.java
+                        )
+
+                        if (receipt != null && receipt.roomId == roomId) {
+                            onReadReceipt(receipt)
+                        }
+                    } catch (_: Exception) {
+                        onError("읽음 상태를 해석하지 못했습니다.")
+                    }
                 }
             }
 

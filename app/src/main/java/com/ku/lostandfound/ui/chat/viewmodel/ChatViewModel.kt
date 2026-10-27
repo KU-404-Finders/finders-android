@@ -6,15 +6,20 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ku.lostandfound.network.ChatMessageResponse
+import com.ku.lostandfound.network.ChatReadReceipt
+import com.ku.lostandfound.network.ChatReadRequest
 import com.ku.lostandfound.network.ChatRoomResponse
+import com.ku.lostandfound.network.ChatStompClient
 import com.ku.lostandfound.network.CreateChatRoomRequest
 import com.ku.lostandfound.network.NetworkLog
 import com.ku.lostandfound.network.RetrofitClient
-import com.ku.lostandfound.network.httpErrorMessage
-import kotlinx.coroutines.launch
-import com.ku.lostandfound.network.ChatStompClient
 import com.ku.lostandfound.network.TokenManager
+import com.ku.lostandfound.network.httpErrorMessage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 sealed class ChatUiState {
     object Idle : ChatUiState()
@@ -36,6 +41,8 @@ class ChatViewModel : ViewModel() {
     var messageUiState by mutableStateOf<ChatUiState>(ChatUiState.Idle)
         private set
 
+    private var lastMarkedReadMessageId: Long? = null
+
     private var messageLoadRequestId = 0
 
     fun loadRooms() {
@@ -49,7 +56,31 @@ class ChatViewModel : ViewModel() {
                     val body = response.body()
 
                     if (body?.success == true) {
-                        rooms = body.data.orEmpty()
+                        val baseRooms = body.data.orEmpty()
+
+                        rooms = coroutineScope {
+
+                            baseRooms.map { room ->
+
+                                async {
+
+                                    if (
+                                        room.lastMessage != null &&
+                                        room.lastMessageAt != null
+                                    ) {
+                                        room
+                                    } else {
+                                        loadLatestMessageForRoom(room)
+                                    }
+                                }
+
+                            }.awaitAll()
+
+                        }.sortedByDescending { room ->
+
+                            room.lastMessageAt
+                                ?: room.createdAt
+                        }
                         uiState = ChatUiState.Idle
                     } else {
                         uiState = ChatUiState.Error(
@@ -118,6 +149,7 @@ class ChatViewModel : ViewModel() {
                             .sortedBy { it.id }
 
                         messageUiState = ChatUiState.Idle
+                        markVisibleMessagesRead(roomId)
                     } else {
                         messageUiState = ChatUiState.Error(
                             body?.message ?: "채팅 내역을 불러오지 못했습니다."
@@ -234,6 +266,7 @@ class ChatViewModel : ViewModel() {
         val generation = ++connectionGeneration
         activeRoomId = roomId
         messages = emptyList()
+        lastMarkedReadMessageId = null
         connectionMessage = null
 
         // WebSocket 연결이 실패해도 기존 메시지는 조회
@@ -267,6 +300,15 @@ class ChatViewModel : ViewModel() {
                         .distinctBy { it.id }
                         .sortedBy { it.id }
                     messageUiState = ChatUiState.Idle
+                    markVisibleMessagesRead(roomId)
+                }
+            },
+
+            onReadReceipt = { receipt ->
+                viewModelScope.launch(Dispatchers.Main.immediate) {
+                    if (generation != connectionGeneration) return@launch
+
+                    applyReadReceipt(receipt)
                 }
             },
 
@@ -333,4 +375,114 @@ class ChatViewModel : ViewModel() {
         super.onCleared()
     }
 
+    private fun markVisibleMessagesRead(roomId: Long) {
+        if (activeRoomId != roomId) return
+
+        val latestMessageId =
+            messages.lastOrNull()?.id ?: return
+
+        val alreadyMarked =
+            lastMarkedReadMessageId
+
+        if (
+            alreadyMarked != null &&
+            latestMessageId <= alreadyMarked
+        ) {
+            return
+        }
+
+        lastMarkedReadMessageId = latestMessageId
+
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.chatApi.markRead(
+                    roomId = roomId,
+                    request = ChatReadRequest(
+                        lastReadMessageId = latestMessageId
+                    ),
+                )
+
+                if (activeRoomId != roomId) {
+                    return@launch
+                }
+
+                val body = response.body()
+                val receipt = body?.data
+
+                if (
+                    response.isSuccessful &&
+                    body?.success == true &&
+                    receipt != null
+                ) {
+                    applyReadReceipt(receipt)
+                } else {
+                    if (lastMarkedReadMessageId == latestMessageId) {
+                        lastMarkedReadMessageId = null
+                    }
+                }
+            } catch (_: Exception) {
+                if (lastMarkedReadMessageId == latestMessageId) {
+                    lastMarkedReadMessageId = null
+                }
+            }
+        }
+
+    }
+
+    private fun applyReadReceipt(
+        receipt: ChatReadReceipt,
+    ) {
+        if (activeRoomId != receipt.roomId) return
+
+        messages = messages.map { message ->
+
+            if (
+                message.id <= receipt.lastReadMessageId &&
+                message.senderId != receipt.readerId &&
+                message.unreadCount != 0
+            ) {
+                message.copy(
+                    unreadCount = 0
+                )
+            } else {
+                message
+            }
+        }
+    }
+
+    private suspend fun loadLatestMessageForRoom(
+        room: ChatRoomResponse,
+    ): ChatRoomResponse {
+
+        return try {
+
+            val response =
+                RetrofitClient.chatApi.getMessages(
+                    roomId = room.id,
+                    size = 1,
+                )
+
+            val latest =
+                if (
+                    response.isSuccessful &&
+                    response.body()?.success == true
+                ) {
+                    response.body()
+                        ?.data
+                        ?.firstOrNull()
+                } else {
+                    null
+                }
+
+            room.copy(
+                lastMessage = latest?.content,
+                lastMessageAt = latest?.createdAt,
+                lastMessageSenderId = latest?.senderId,
+            )
+
+        } catch (_: Exception) {
+
+            room
+        }
+    }
 }
