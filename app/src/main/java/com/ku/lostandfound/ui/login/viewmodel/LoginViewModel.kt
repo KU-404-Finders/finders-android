@@ -13,7 +13,10 @@ import com.ku.lostandfound.network.RefreshTokenRequest
 import com.ku.lostandfound.network.RetrofitClient
 import com.ku.lostandfound.network.TokenManager
 import com.ku.lostandfound.network.httpErrorMessage
+import com.ku.lostandfound.notification.PushDeviceManager
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration.Companion.milliseconds
 
 sealed class LoginUiState {
     object Idle : LoginUiState()
@@ -29,12 +32,6 @@ class LoginViewModel : ViewModel() {
     fun login(emailPrefix: String, password: String) {
         viewModelScope.launch {
             uiState = LoginUiState.Loading
-            if (isTemporaryLogin(emailPrefix, password)) {
-                TokenManager.accessToken = TEMP_ACCESS_TOKEN
-                TokenManager.refreshToken = TEMP_REFRESH_TOKEN
-                uiState = LoginUiState.Success
-                return@launch
-            }
 
             try {
                 val response = RetrofitClient.authApi.login(
@@ -48,6 +45,10 @@ class LoginViewModel : ViewModel() {
                     if (body?.success == true && body.data != null) {
                         TokenManager.accessToken = body.data.accessToken
                         TokenManager.refreshToken = body.data.refreshToken
+
+                        // 로그인된 사용자와 Firebase 기기 연결
+                        PushDeviceManager.onLoginSucceeded()
+
                         uiState = LoginUiState.Success
                     } else {
                         uiState = LoginUiState.Error(body?.message ?: "로그인에 실패했습니다.")
@@ -55,7 +56,12 @@ class LoginViewModel : ViewModel() {
                 } else {
                     val errorBody = response.errorBody()?.string()
                     NetworkLog.httpError("login", response.code(), errorBody)
-                    uiState = LoginUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
+                    uiState = LoginUiState.Error(
+                        httpErrorMessage(
+                            response.code(),
+                            parseErrorMessage(errorBody)
+                        )
+                    )
                 }
             } catch (e: Exception) {
                 NetworkLog.exception("login", e)
@@ -84,7 +90,12 @@ class LoginViewModel : ViewModel() {
                     TokenManager.clear()
                     val errorBody = response.errorBody()?.string()
                     NetworkLog.httpError("refreshToken", response.code(), errorBody)
-                    uiState = LoginUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
+                    uiState = LoginUiState.Error(
+                        httpErrorMessage(
+                            response.code(),
+                            parseErrorMessage(errorBody)
+                        )
+                    )
                 }
             } catch (e: Exception) {
                 NetworkLog.exception("refreshToken", e)
@@ -96,7 +107,18 @@ class LoginViewModel : ViewModel() {
     fun logout(onFinished: () -> Unit) {
         viewModelScope.launch {
             try {
-                RetrofitClient.authApi.logout(bearerTokenOrThrow())
+                // JWT를 삭제하기 전에 기기 등록 해제
+                // 서버 오류로 로그아웃이 지나치게 지연되지 않도록 제한
+                withTimeoutOrNull(4000L.milliseconds) {
+                    PushDeviceManager.unregisterBeforeLogout()
+                }
+
+                RetrofitClient.authApi.logout(
+                    bearerTokenOrThrow()
+                )
+
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 NetworkLog.exception("logout", e)
             } finally {
@@ -123,7 +145,12 @@ class LoginViewModel : ViewModel() {
                 } else {
                     val errorBody = response.errorBody()?.string()
                     NetworkLog.httpError("withdraw", response.code(), errorBody)
-                    uiState = LoginUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
+                    uiState = LoginUiState.Error(
+                        httpErrorMessage(
+                            response.code(),
+                            parseErrorMessage(errorBody)
+                        )
+                    )
                 }
             } catch (e: Exception) {
                 NetworkLog.exception("withdraw", e)
@@ -154,20 +181,8 @@ class LoginViewModel : ViewModel() {
         }
     }
 
-    private fun isTemporaryLogin(emailPrefix: String, password: String): Boolean {
-        val normalizedEmail = emailPrefix.trim().substringBefore("@")
-        return normalizedEmail == TEMP_EMAIL_PREFIX && password == TEMP_PASSWORD
-    }
-
     private fun bearerTokenOrThrow(): String {
         val token = TokenManager.accessToken ?: throw IllegalStateException("로그인이 필요합니다.")
         return "Bearer $token"
-    }
-
-    private companion object {
-        const val TEMP_EMAIL_PREFIX = "test"
-        const val TEMP_PASSWORD = "test1234"
-        const val TEMP_ACCESS_TOKEN = "temporary-access-token"
-        const val TEMP_REFRESH_TOKEN = "temporary-refresh-token"
     }
 }

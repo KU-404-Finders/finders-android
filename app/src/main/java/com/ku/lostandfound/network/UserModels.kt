@@ -13,6 +13,7 @@ data class UserMeData(
     val name: String,
     val foundItemCount: Int = 0,
     val lostItemCount: Int = 0,
+    val role: String? = null,
 )
 
 data class MyLostItemsResponse(

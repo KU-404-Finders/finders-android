@@ -26,9 +26,9 @@ object RetrofitClient {
         val path = originalRequest.url.encodedPath
         val method = originalRequest.method
         val isAuthRequest = path.endsWith("/api/v1/auth/login") ||
-            path.endsWith("/api/v1/auth/join") ||
-            path.endsWith("/api/v1/auth/reissue") ||
-            path.endsWith("/api/v1/auth/email/send")
+                path.endsWith("/api/v1/auth/join") ||
+                path.endsWith("/api/v1/auth/reissue") ||
+                path.endsWith("/api/v1/auth/email/send")
         val isPublicLostItemRequest = method == "GET" && path.startsWith("/api/v1/lost-items")
         val isPublicFoundItemRequest = method == "GET" && path.startsWith("/api/v1/found-items")
 
@@ -78,6 +78,9 @@ object RetrofitClient {
     val lostItemApi: LostItemApiService = retrofit.create(LostItemApiService::class.java)
     val foundItemApi: FoundItemApiService = retrofit.create(FoundItemApiService::class.java)
     val chatApi: ChatApiService = retrofit.create(ChatApiService::class.java)
+
+    val pushDeviceApi: PushDeviceApiService =
+        retrofit.create(PushDeviceApiService::class.java)
 
     private fun refreshTokensBlocking(): String? {
         val refreshToken = TokenManager.refreshToken ?: return null
