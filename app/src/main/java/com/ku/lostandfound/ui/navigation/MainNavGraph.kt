@@ -1,5 +1,6 @@
 package com.ku.lostandfound.ui.navigation
 
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
@@ -68,6 +69,8 @@ import com.ku.lostandfound.ui.signup.screen.SignupPwScreen
 import com.ku.lostandfound.ui.signup.viewmodel.SignupViewmodel
 import com.ku.lostandfound.viewmodel.PostWriteViewModel
 import kotlinx.coroutines.launch
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 
 @Composable
 fun MainNavGraph(
@@ -396,10 +399,19 @@ fun MainNavGraph(
                     buildings = buildings,
                     referencePaths = referencePaths,
                     onPostClick = { post ->
+
+                        Log.d(
+                            "DeepLinkTest",
+                            "게시글 ID: ${post.id}, 게시글 타입: ${post.type.name}"
+                        )
+
                         if (posts.none { it.id == post.id && it.type == post.type }) {
                             posts = listOf(post) + posts
                         }
-                        navController.navigate(Route.PostDetail.create(post.id, post.type.name))
+
+                        navController.navigate(
+                            Route.PostDetail.create(post.id, post.type.name)
+                        )
                     },
                     onAddClick = { openPostWrite(PostType.FOUND) },
                     onFoundTabClick = { navigateMainTab(Route.Found.route) },
@@ -531,9 +543,8 @@ fun MainNavGraph(
                 },
 
                 onRoomClick = { roomId ->
-                    navController.navigate(
-                        Route.ChatRoom.create(roomId)
-                    )
+                    Log.d("DeepLinkTest", "채팅방 ID: $roomId")
+                    navController.navigate(Route.ChatRoom.create(roomId))
                 }
             )
         }
@@ -558,6 +569,71 @@ fun MainNavGraph(
 
                 onDispose {
                     chatViewModel.disconnectRoom()
+                }
+            }
+
+            DisposableEffect(roomId, backStackEntry, currentUserId) {
+
+                val lifecycle = backStackEntry.lifecycle
+
+                val observer = LifecycleEventObserver { _, event ->
+                    when (event) {
+                        Lifecycle.Event.ON_RESUME -> {
+                            chatViewModel.setRoomVisibility(
+                                roomId = roomId,
+                                currentUserId = currentUserId,
+                                visible = true,
+                            )
+                        }
+
+                        Lifecycle.Event.ON_PAUSE,
+                        Lifecycle.Event.ON_STOP -> {
+                            chatViewModel.setRoomVisibility(
+                                roomId = roomId,
+                                currentUserId = currentUserId,
+                                visible = false,
+                            )
+                        }
+
+                        else -> Unit
+                    }
+                }
+
+                lifecycle.addObserver(observer)
+
+                if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                    chatViewModel.setRoomVisibility(
+                        roomId = roomId,
+                        currentUserId = currentUserId,
+                        visible = true,
+                    )
+                }
+
+                onDispose {
+                    lifecycle.removeObserver(observer)
+
+                    chatViewModel.setRoomVisibility(
+                        roomId = roomId,
+                        currentUserId = currentUserId,
+                        visible = false,
+                    )
+                }
+            }
+
+            LaunchedEffect(
+                roomId,
+                currentUserId,
+                chatViewModel.messages.lastOrNull()?.id,
+            ) {
+                if (
+                    backStackEntry.lifecycle.currentState
+                        .isAtLeast(Lifecycle.State.RESUMED)
+                ) {
+                    chatViewModel.setRoomVisibility(
+                        roomId = roomId,
+                        currentUserId = currentUserId,
+                        visible = true,
+                    )
                 }
             }
 
@@ -642,7 +718,7 @@ fun MainNavGraph(
                 onFoundTabClick = { navigateMainTab(Route.Found.route) },
                 onLostTabClick = { navigateMainTab(Route.Lost.route) },
                 onAddClick = { openPostWrite() },
-                showAdminMenu = true,
+                showAdminMenu = userViewModel.me?.role == "ADMIN",
                 showSimilarityScores = showSimilarityScores,
                 onShowSimilarityScoresChange = { enabled ->
                     displayPreferences.showSimilarityScores = enabled

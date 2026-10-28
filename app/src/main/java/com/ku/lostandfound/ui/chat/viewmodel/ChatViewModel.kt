@@ -20,6 +20,9 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 sealed class ChatUiState {
     object Idle : ChatUiState()
@@ -42,6 +45,13 @@ class ChatViewModel : ViewModel() {
         private set
 
     private var lastMarkedReadMessageId: Long? = null
+    // 사용자별 마지막 읽은 메시지 ID
+    private var confirmedReadMessageId = 0L
+    private var readRequestJob: Job? = null
+
+    private var isRoomVisible = false
+    private var visibleUserId: Long? = null
+    private val lastReadByUserId = mutableMapOf<Long, Long>()
 
     private var messageLoadRequestId = 0
 
@@ -144,9 +154,7 @@ class ChatViewModel : ViewModel() {
                     val body = response.body()
 
                     if (body?.success == true) {
-                        messages = (messages + body.data.orEmpty())
-                            .distinctBy { it.id }
-                            .sortedBy { it.id }
+                        mergeMessages(body.data.orEmpty())
 
                         messageUiState = ChatUiState.Idle
                         markVisibleMessagesRead(roomId)
@@ -189,6 +197,36 @@ class ChatViewModel : ViewModel() {
                 )
             }
         }
+    }
+
+    private fun mergeMessages(
+        incoming: List<ChatMessageResponse>,
+    ) {
+        val messageMap = messages
+            .associateBy { it.id }
+            .toMutableMap()
+
+        incoming.forEach { newMessage ->
+
+            val previous = messageMap[newMessage.id]
+
+            val readByOther = lastReadByUserId.any { (readerId, lastReadId) ->
+                readerId != newMessage.senderId &&
+                        newMessage.id <= lastReadId
+            }
+
+            val alreadyRead = previous?.unreadCount == 0
+
+            messageMap[newMessage.id] = newMessage.copy(
+                unreadCount = if (readByOther || alreadyRead) {
+                    0
+                } else {
+                    newMessage.unreadCount
+                }
+            )
+        }
+
+        messages = messageMap.values.sortedBy { it.id }
     }
 
     fun createRoom(
@@ -287,8 +325,8 @@ class ChatViewModel : ViewModel() {
                     connectedRoomId = roomId
                     connectionMessage = null
 
-                    // 구독 완료 이후 다시 조회해 놓친 메시지 복구
                     loadMessages(roomId)
+                    refreshReadState(roomId)
                 }
             },
 
@@ -296,10 +334,10 @@ class ChatViewModel : ViewModel() {
                 viewModelScope.launch(Dispatchers.Main.immediate) {
                     if (generation != connectionGeneration) return@launch
 
-                    messages = (messages + incoming)
-                        .distinctBy { it.id }
-                        .sortedBy { it.id }
+                    mergeMessages(listOf(incoming))
+
                     messageUiState = ChatUiState.Idle
+
                     markVisibleMessagesRead(roomId)
                 }
             },
@@ -368,6 +406,15 @@ class ChatViewModel : ViewModel() {
 
         messageUiState = ChatUiState.Idle
         messages = emptyList()
+        readRequestJob?.cancel()
+        readRequestJob = null
+
+        isRoomVisible = false
+        visibleUserId = null
+
+        lastMarkedReadMessageId = null
+        confirmedReadMessageId = 0L
+        lastReadByUserId.clear()
     }
 
     override fun onCleared() {
@@ -376,57 +423,85 @@ class ChatViewModel : ViewModel() {
     }
 
     private fun markVisibleMessagesRead(roomId: Long) {
-        if (activeRoomId != roomId) return
+        if (activeRoomId != roomId || !isRoomVisible) return
 
-        val latestMessageId =
-            messages.lastOrNull()?.id ?: return
+        val userId = visibleUserId ?: return
 
-        val alreadyMarked =
-            lastMarkedReadMessageId
+        // 내가 보낸 메시지는 제외하고
+        // 실제로 받은 메시지 중 마지막 ID를 선택
+        val latestMessageId = messages
+            .lastOrNull { it.senderId != userId }
+            ?.id ?: return
 
+        if (latestMessageId <= confirmedReadMessageId) return
+
+        // 같은 메시지를 이미 처리 중이면 중복 요청 방지
         if (
-            alreadyMarked != null &&
-            latestMessageId <= alreadyMarked
+            lastMarkedReadMessageId == latestMessageId &&
+            readRequestJob?.isActive == true
         ) {
             return
         }
 
+        readRequestJob?.cancel()
         lastMarkedReadMessageId = latestMessageId
 
-        viewModelScope.launch {
-            try {
-                val response = RetrofitClient.chatApi.markRead(
-                    roomId = roomId,
-                    request = ChatReadRequest(
-                        lastReadMessageId = latestMessageId
-                    ),
-                )
+        val session = connectionGeneration
 
-                if (activeRoomId != roomId) {
+        readRequestJob = viewModelScope.launch {
+            repeat(3) { attempt ->
+
+                if (
+                    activeRoomId != roomId ||
+                    session != connectionGeneration ||
+                    !isRoomVisible
+                ) {
                     return@launch
                 }
 
-                val body = response.body()
-                val receipt = body?.data
+                try {
+                    val response = RetrofitClient.chatApi.markRead(
+                        roomId = roomId,
+                        request = ChatReadRequest(
+                            lastReadMessageId = latestMessageId
+                        )
+                    )
 
-                if (
-                    response.isSuccessful &&
-                    body?.success == true &&
-                    receipt != null
-                ) {
-                    applyReadReceipt(receipt)
-                } else {
-                    if (lastMarkedReadMessageId == latestMessageId) {
-                        lastMarkedReadMessageId = null
+                    val body = response.body()
+                    val receipt = body?.data
+
+                    if (
+                        response.isSuccessful &&
+                        body?.success == true &&
+                        receipt != null
+                    ) {
+                        confirmedReadMessageId = maxOf(
+                            confirmedReadMessageId,
+                            receipt.lastReadMessageId
+                        )
+
+                        applyReadReceipt(receipt)
+                        return@launch
                     }
+
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    NetworkLog.exception("markChatRead", e)
                 }
-            } catch (_: Exception) {
-                if (lastMarkedReadMessageId == latestMessageId) {
-                    lastMarkedReadMessageId = null
+
+                // 첫 실패 후 1초, 두 번째 실패 후 2초
+                if (attempt < 2) {
+                    delay(1000L * (1L shl attempt))
                 }
             }
-        }
 
+            // 3회 모두 실패하면 다음 화면 재진입이나
+            // 새 메시지 수신 시 다시 시도할 수 있도록 초기화
+            if (lastMarkedReadMessageId == latestMessageId) {
+                lastMarkedReadMessageId = null
+            }
+        }
     }
 
     private fun applyReadReceipt(
@@ -434,16 +509,32 @@ class ChatViewModel : ViewModel() {
     ) {
         if (activeRoomId != receipt.roomId) return
 
-        messages = messages.map { message ->
+        applyReadCursor(
+            readerId = receipt.readerId,
+            lastReadMessageId = receipt.lastReadMessageId,
+        )
+    }
 
+    private fun applyReadCursor(
+        readerId: Long,
+        lastReadMessageId: Long,
+    ) {
+        val previousReadId = lastReadByUserId[readerId] ?: 0L
+
+        val updatedReadId = maxOf(
+            previousReadId,
+            lastReadMessageId,
+        )
+
+        lastReadByUserId[readerId] = updatedReadId
+
+        messages = messages.map { message ->
             if (
-                message.id <= receipt.lastReadMessageId &&
-                message.senderId != receipt.readerId &&
+                message.senderId != readerId &&
+                message.id <= updatedReadId &&
                 message.unreadCount != 0
             ) {
-                message.copy(
-                    unreadCount = 0
-                )
+                message.copy(unreadCount = 0)
             } else {
                 message
             }
@@ -474,15 +565,81 @@ class ChatViewModel : ViewModel() {
                     null
                 }
 
-            room.copy(
-                lastMessage = latest?.content,
-                lastMessageAt = latest?.createdAt,
-                lastMessageSenderId = latest?.senderId,
-            )
+            if (latest == null) {
+                room
+            } else {
+                room.copy(
+                    lastMessage = latest.content,
+                    lastMessageAt = latest.createdAt,
+                    lastMessageSenderId = latest.senderId,
+                )
+            }
 
         } catch (_: Exception) {
 
             room
+        }
+    }
+
+    private fun refreshReadState(roomId: Long) {
+        val session = connectionGeneration
+
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.chatApi.getReadState(roomId)
+
+                if (
+                    activeRoomId != roomId ||
+                    session != connectionGeneration
+                ) {
+                    return@launch
+                }
+
+                val body = response.body()
+
+                if (!response.isSuccessful || body?.success != true) {
+                    return@launch
+                }
+
+                val state = body.data ?: return@launch
+
+                state.creatorLastReadMessageId?.let { lastReadId ->
+                    applyReadCursor(
+                        readerId = state.creatorId,
+                        lastReadMessageId = lastReadId,
+                    )
+                }
+
+                state.recipientLastReadMessageId?.let { lastReadId ->
+                    applyReadCursor(
+                        readerId = state.recipientId,
+                        lastReadMessageId = lastReadId,
+                    )
+                }
+
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                NetworkLog.exception("refreshChatReadState", e)
+            }
+        }
+    }
+
+    fun setRoomVisibility(
+        roomId: Long,
+        currentUserId: Long?,
+        visible: Boolean,
+    ) {
+        if (activeRoomId != roomId) return
+
+        isRoomVisible = visible
+        visibleUserId = if (visible) currentUserId else null
+
+        if (visible) {
+            markVisibleMessagesRead(roomId)
+        } else {
+            readRequestJob?.cancel()
+            readRequestJob = null
         }
     }
 }
