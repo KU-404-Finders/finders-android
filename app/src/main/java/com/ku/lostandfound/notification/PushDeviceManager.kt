@@ -22,7 +22,7 @@ object PushDeviceManager {
     private const val SERVER_SYNC_ENABLED = false
 
     private const val PREFS_NAME = "fcm_registration"
-    private const val KEY_INSTALLATION_ID = "installation_id"
+    private const val KEY_FCM_TOKEN = "fcm_token"
 
     private var appContext: Context? = null
 
@@ -40,12 +40,12 @@ object PushDeviceManager {
         appContext = context.applicationContext
     }
 
-    // Firebase 등록 완료 또는 식별자 변경 시 호출
-    fun onFirebaseRegistered(
+    // FCM 토큰을 새로 받거나 갱신했을 때 호출
+    fun onFcmTokenUpdated(
         context: Context,
-        installationId: String,
+        fcmToken: String,
     ) {
-        if (installationId.isBlank()) return
+        if (fcmToken.isBlank()) return
 
         init(context)
         TokenManager.init(context.applicationContext)
@@ -54,22 +54,22 @@ object PushDeviceManager {
             PREFS_NAME,
             Context.MODE_PRIVATE
         ).edit()
-            .putString(KEY_INSTALLATION_ID, installationId)
+            .putString(KEY_FCM_TOKEN, fcmToken)
             .apply()
 
-        Log.d(TAG, "Firebase 기기 식별자 저장 완료")
+        Log.d(TAG, "FCM 토큰 저장 완료")
 
         // 로그인된 상태라면 서버에 동기화
         syncIfLoggedIn()
     }
 
-    private fun getInstallationId(): String? {
+    private fun getFcmToken(): String? {
         val context = appContext ?: return null
 
         return context.getSharedPreferences(
             PREFS_NAME,
             Context.MODE_PRIVATE
-        ).getString(KEY_INSTALLATION_ID, null)
+        ).getString(KEY_FCM_TOKEN, null)
             ?.takeIf { it.isNotBlank() }
     }
 
@@ -83,7 +83,7 @@ object PushDeviceManager {
     fun syncIfLoggedIn() {
         if (!SERVER_SYNC_ENABLED || sessionClosed) return
 
-        val installationId = getInstallationId() ?: return
+        val fcmToken = getFcmToken() ?: return
 
         if (TokenManager.accessToken.isNullOrBlank()) return
 
@@ -100,7 +100,7 @@ object PushDeviceManager {
                     val response =
                         RetrofitClient.pushDeviceApi.registerDevice(
                             PushDeviceRequest(
-                                installationId = installationId
+                                fcmToken = fcmToken
                             )
                         )
 
@@ -128,7 +128,7 @@ object PushDeviceManager {
 
         if (!SERVER_SYNC_ENABLED) return
 
-        val installationId = getInstallationId() ?: return
+        val fcmToken = getFcmToken() ?: return
 
         if (TokenManager.accessToken.isNullOrBlank()) return
 
@@ -137,7 +137,7 @@ object PushDeviceManager {
                 try {
                     val response =
                         RetrofitClient.pushDeviceApi.unregisterDevice(
-                            installationId = installationId
+                            fcmToken = fcmToken
                         )
 
                     if (response.isSuccessful) {

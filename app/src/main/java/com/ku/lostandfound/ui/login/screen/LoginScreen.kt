@@ -57,6 +57,7 @@ fun LoginScreen(
     viewModel: LoginViewModel,
     onLoginSuccess: () -> Unit = {},
     onNavigateToSignUp: () -> Unit = {},
+    onNavigateToPasswordReset: () -> Unit = {},
 ) {
     var emailPrefix by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -229,6 +230,9 @@ fun LoginScreen(
                 fontWeight = FontWeight.Bold
             )
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(text = "비밀번호를 잊으셨나요?", color = Color(0xFF4A6741), fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.clickable { onNavigateToPasswordReset() })
 
         Spacer(modifier = Modifier.height(20.dp))
 
