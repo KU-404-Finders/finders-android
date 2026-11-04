@@ -30,15 +30,10 @@ object RetrofitClient {
                 path.endsWith("/api/v1/auth/reissue") ||
                 path.endsWith("/api/v1/auth/email/send") ||
                 path.startsWith("/api/v1/auth/password-reset/")
-        val isPublicLostItemRequest = method == "GET" && path.startsWith("/api/v1/lost-items")
-        val isPublicFoundItemRequest = method == "GET" && path.startsWith("/api/v1/found-items")
-
         val request = if (
             token != null &&
             originalRequest.header("Authorization") == null &&
-            !isAuthRequest &&
-            !isPublicLostItemRequest &&
-            !isPublicFoundItemRequest
+            !isAuthRequest
         ) {
             originalRequest.newBuilder()
                 .addHeader("Authorization", "Bearer $token")
@@ -80,6 +75,7 @@ object RetrofitClient {
     val lostItemApi: LostItemApiService = retrofit.create(LostItemApiService::class.java)
     val foundItemApi: FoundItemApiService = retrofit.create(FoundItemApiService::class.java)
     val chatApi: ChatApiService = retrofit.create(ChatApiService::class.java)
+    val moderationApi: ModerationApiService = retrofit.create(ModerationApiService::class.java)
 
     val pushDeviceApi: PushDeviceApiService =
         retrofit.create(PushDeviceApiService::class.java)

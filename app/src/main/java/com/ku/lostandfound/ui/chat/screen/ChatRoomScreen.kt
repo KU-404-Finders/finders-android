@@ -36,6 +36,7 @@ private val MyMessageColor = Color(0xFFE4F6E5)
 @Composable
 fun ChatRoomScreen(
     roomId: Long,
+    roomTitle: String?,
     messages: List<ChatMessageResponse>,
     currentUserId: Long?,
     isLoading: Boolean,
@@ -66,7 +67,7 @@ fun ChatRoomScreen(
             .background(Color.White)
     ) {
         BackTitleBar(
-            title = "1:1 채팅",
+            title = roomTitle?.takeIf { it.isNotBlank() } ?: "채팅",
             onBackClick = onBackClick,
         )
         if (!isConnected || connectionMessage != null) {
@@ -81,7 +82,7 @@ fun ChatRoomScreen(
         }
 
         Text(
-            text = "채팅방 #${roomId}",
+            text = roomTitle?.takeIf { it.isNotBlank() } ?: "상대방과의 대화",
             color = TextGray,
             fontSize = 12.sp,
             modifier = Modifier
@@ -241,7 +242,7 @@ private fun ChatMessageBubble(
         ) {
             if (!isMine) {
                 Text(
-                    text = "사용자 #${message.senderId}",
+                    text = "상대방",
                     color = TextGray,
                     fontSize = 11.sp,
                 )
@@ -289,16 +290,8 @@ private fun ChatMessageBubble(
 
                 if (isMine) {
                     Text(
-                        text = if (message.unreadCount == 0) {
-                            "읽음"
-                        } else {
-                            "안읽음"
-                        },
-                        color = if (message.unreadCount == 0) {
-                            DeepGreen
-                        } else {
-                            TextGray
-                        },
+                        text = message.unreadCount.takeIf { it > 0 }?.toString().orEmpty(),
+                        color = TextGray,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Medium,
                     )

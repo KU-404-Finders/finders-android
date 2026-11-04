@@ -7,12 +7,12 @@ import com.ku.lostandfound.network.TokenManager
 
 class FindersFirebaseMessagingService : FirebaseMessagingService() {
 
-    override fun onNewToken(token: String) {
-        super.onNewToken(token)
+    override fun onRegistered(installationId: String) {
+        super.onRegistered(installationId)
 
-        PushDeviceManager.onFcmTokenUpdated(
+        PushDeviceManager.onRegistered(
             context = applicationContext,
-            fcmToken = token,
+            installationId = installationId,
         )
     }
 
