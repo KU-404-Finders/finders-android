@@ -158,18 +158,14 @@ private fun ChatRoomItem(
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             Text(
-                text = room.postTitle
+                text = room.roomName
                     ?.takeIf { it.isNotBlank() }
-                    ?: "채팅방 #${room.id}",
+                    ?: room.postTitle
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "상대방",
                 color = Color(0xFF222222),
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,
-            )
-
-            Text(
-                text = "참여자 ${room.creatorId} · ${room.recipientId}",
-                color = TextGray,
-                fontSize = 12.sp,
             )
 
             Text(
@@ -188,5 +184,15 @@ private fun ChatRoomItem(
             color = TextGray,
             fontSize = 11.sp,
         )
+
+        room.unreadMessageCount?.takeIf { it > 0 }?.let { count ->
+            Text(
+                text = count.toString(),
+                modifier = Modifier.padding(start = 6.dp),
+                color = DeepGreen,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
     }
 }

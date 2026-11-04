@@ -66,18 +66,13 @@ class MainActivity : ComponentActivity() {
 
         enableEdgeToEdge()
 
-        // 앱 시작 시 FCM 토큰을 얻어 로그인 후 서버 동기화에 사용할 수 있게 저장한다.
-        FirebaseMessaging.getInstance().token
+        // FID 기반 FCM 등록을 시작한다. 성공 FID는 onRegistered에서만 서버에 전달한다.
+        FirebaseMessaging.getInstance().register()
             .addOnCompleteListener { task ->
-                if (task.isSuccessful) {
-                    PushDeviceManager.onFcmTokenUpdated(
-                        context = applicationContext,
-                        fcmToken = task.result
-                    )
-                } else {
+                if (!task.isSuccessful) {
                     Log.w(
                         "FindersFCM",
-                        "FCM 토큰 조회 실패",
+                        "FCM FID 등록 시작 실패",
                         task.exception
                     )
                 }

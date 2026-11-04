@@ -16,9 +16,6 @@ import com.ku.lostandfound.network.RetrofitClient
 import com.ku.lostandfound.network.TokenManager
 import com.ku.lostandfound.network.httpErrorMessage
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -68,25 +65,9 @@ class ChatViewModel : ViewModel() {
                     if (body?.success == true) {
                         val baseRooms = body.data.orEmpty()
 
-                        rooms = coroutineScope {
-
-                            baseRooms.map { room ->
-
-                                async {
-
-                                    if (
-                                        room.lastMessage != null &&
-                                        room.lastMessageAt != null
-                                    ) {
-                                        room
-                                    } else {
-                                        loadLatestMessageForRoom(room)
-                                    }
-                                }
-
-                            }.awaitAll()
-
-                        }.sortedByDescending { room ->
+                        // RoomView already contains the latest-message fields.  Empty rooms are
+                        // hidden locally without issuing one history request per room.
+                        rooms = baseRooms.filter { it.lastMessage != null }.sortedByDescending { room ->
 
                             room.lastMessageAt
                                 ?: room.createdAt
@@ -231,6 +212,8 @@ class ChatViewModel : ViewModel() {
 
     fun createRoom(
         recipientId: Long,
+        postType: String,
+        postId: Long,
         onSuccess: (ChatRoomResponse) -> Unit,
     ) {
         viewModelScope.launch {
@@ -239,7 +222,9 @@ class ChatViewModel : ViewModel() {
             try {
                 val response = RetrofitClient.chatApi.createRoom(
                     CreateChatRoomRequest(
-                        recipientId = recipientId
+                        recipientId = recipientId,
+                        postType = postType,
+                        postId = postId,
                     )
                 )
 
@@ -286,6 +271,8 @@ class ChatViewModel : ViewModel() {
     fun clearMessages() {
         messages = emptyList()
     }
+
+    fun roomFor(roomId: Long): ChatRoomResponse? = rooms.firstOrNull { it.id == roomId }
 
 
     private var stompClient: ChatStompClient? = null
@@ -347,6 +334,12 @@ class ChatViewModel : ViewModel() {
                     if (generation != connectionGeneration) return@launch
 
                     applyReadReceipt(receipt)
+                }
+            },
+
+            onRoomListChanged = {
+                viewModelScope.launch(Dispatchers.Main.immediate) {
+                    if (generation == connectionGeneration) loadRooms()
                 }
             },
 
@@ -538,46 +531,6 @@ class ChatViewModel : ViewModel() {
             } else {
                 message
             }
-        }
-    }
-
-    private suspend fun loadLatestMessageForRoom(
-        room: ChatRoomResponse,
-    ): ChatRoomResponse {
-
-        return try {
-
-            val response =
-                RetrofitClient.chatApi.getMessages(
-                    roomId = room.id,
-                    size = 1,
-                )
-
-            val latest =
-                if (
-                    response.isSuccessful &&
-                    response.body()?.success == true
-                ) {
-                    response.body()
-                        ?.data
-                        ?.firstOrNull()
-                } else {
-                    null
-                }
-
-            if (latest == null) {
-                room
-            } else {
-                room.copy(
-                    lastMessage = latest.content,
-                    lastMessageAt = latest.createdAt,
-                    lastMessageSenderId = latest.senderId,
-                )
-            }
-
-        } catch (_: Exception) {
-
-            room
         }
     }
 
