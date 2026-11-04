@@ -7,16 +7,13 @@ import com.ku.lostandfound.network.TokenManager
 
 class FindersFirebaseMessagingService : FirebaseMessagingService() {
 
-    override fun onRegistered(installationId: String) {
-        super.onRegistered(installationId)
+    override fun onNewToken(token: String) {
+        super.onNewToken(token)
 
-        PushDeviceManager.onFirebaseRegistered(
+        PushDeviceManager.onFcmTokenUpdated(
             context = applicationContext,
-            installationId = installationId,
+            fcmToken = token,
         )
-
-        // 테스트용: 확인 후 삭제
-        Log.d("FindersFCM", "TEST_FID=$installationId")
     }
 
     override fun onMessageReceived(
@@ -54,6 +51,7 @@ class FindersFirebaseMessagingService : FirebaseMessagingService() {
             title = title,
             body = body,
             target = target,
+            notificationType = remoteMessage.data["type"],
         )
     }
 }

@@ -68,7 +68,7 @@ sealed interface NotificationTarget {
                     id?.let { Chat(it) }
                 }
 
-                "POST" -> {
+                "POST", "COMMENT", "MATCH" -> {
                     val id = postId?.toLongOrNull()
                         ?.takeIf { it > 0L }
 

@@ -50,6 +50,10 @@ import com.ku.lostandfound.ui.found.viewmodel.FoundItemViewModel
 import com.ku.lostandfound.ui.location.screen.LocationPickerScreen
 import com.ku.lostandfound.ui.login.screen.LoginScreen
 import com.ku.lostandfound.ui.login.viewmodel.LoginViewModel
+import com.ku.lostandfound.ui.passwordreset.screen.PasswordResetEmailScreen
+import com.ku.lostandfound.ui.passwordreset.screen.PasswordResetCodeScreen
+import com.ku.lostandfound.ui.passwordreset.screen.PasswordResetPasswordScreen
+import com.ku.lostandfound.ui.passwordreset.viewmodel.PasswordResetViewModel
 import com.ku.lostandfound.ui.lost.screen.LostBoardScreen
 import com.ku.lostandfound.ui.lost.viewmodel.LostItemViewModel
 import com.ku.lostandfound.ui.post.screen.MatchCandidateUiModel
@@ -89,6 +93,7 @@ fun MainNavGraph(
     val writeViewModel = remember { PostWriteViewModel() }
     val loginViewModel = viewModel<LoginViewModel>()
     val signupViewModel = viewModel<SignupViewmodel>()
+    val passwordResetViewModel = viewModel<PasswordResetViewModel>()
     val userViewModel = viewModel<UserViewModel>()
     val lostItemViewModel = viewModel<LostItemViewModel>()
     val foundItemViewModel = viewModel<FoundItemViewModel>()
@@ -325,10 +330,42 @@ fun MainNavGraph(
                         popUpTo(Route.Login.route) { inclusive = true }
                     }
                 },
+                onNavigateToPasswordReset = {
+                    passwordResetViewModel.restart()
+                    navController.navigate(Route.PasswordResetEmail.route)
+                },
                 onNavigateToSignUp = {
                     loginViewModel.resetUiState()
                     navController.navigate(Route.SignupName.route)
                 }
+            )
+        }
+        composable(route = Route.PasswordResetEmail.route) {
+            PasswordResetEmailScreen(
+                vm = passwordResetViewModel,
+                next = { navController.navigate(Route.PasswordResetCode.route) },
+                back = { passwordResetViewModel.clearSensitive(); navController.popBackStack() },
+            )
+        }
+        composable(route = Route.PasswordResetCode.route) {
+            PasswordResetCodeScreen(
+                vm = passwordResetViewModel,
+                next = { navController.navigate(Route.PasswordResetPassword.route) },
+                back = { passwordResetViewModel.returnToEmail(); navController.popBackStack() },
+            )
+        }
+        composable(route = Route.PasswordResetPassword.route) {
+            PasswordResetPasswordScreen(
+                vm = passwordResetViewModel,
+                done = {
+                    loginViewModel.resetUiState()
+                    navController.navigate(Route.Login.route) {
+                        popUpTo(Route.PasswordResetEmail.route) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
+                back = { navController.popBackStack() },
+                restart = { navController.navigate(Route.PasswordResetEmail.route) { popUpTo(Route.PasswordResetEmail.route) { inclusive = true } } },
             )
         }
         composable(route = Route.SignupName.route) {

@@ -7,6 +7,9 @@ sealed class Route(val route: String) {
     object SignupFinish : Route(route = "SignupFinish")
     object SignupName : Route(route = "SignupName")
     object SignupPw : Route(route = "SignupPw")
+    object PasswordResetEmail : Route(route = "passwordReset/email")
+    object PasswordResetCode : Route(route = "passwordReset/code")
+    object PasswordResetPassword : Route(route = "passwordReset/password")
 
     object Found : Route(route = "found")
     object Lost : Route(route = "lost")

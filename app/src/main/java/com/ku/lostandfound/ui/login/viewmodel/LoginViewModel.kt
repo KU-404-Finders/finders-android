@@ -132,6 +132,12 @@ class LoginViewModel : ViewModel() {
     fun withdraw(onFinished: () -> Unit) {
         viewModelScope.launch {
             try {
+                // 탈퇴 전에 현재 기기의 푸시 토큰도 서버에서 해제한다.
+                // 실패해도 탈퇴 API는 진행하며, 서버는 탈퇴 처리 시 남은 토큰도 삭제해야 한다.
+                withTimeoutOrNull(4000L.milliseconds) {
+                    PushDeviceManager.unregisterBeforeLogout()
+                }
+
                 val response = RetrofitClient.authApi.withdraw(bearerTokenOrThrow())
                 if (response.isSuccessful) {
                     val body = response.body()

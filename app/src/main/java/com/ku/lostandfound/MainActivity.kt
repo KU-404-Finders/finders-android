@@ -29,7 +29,6 @@ import com.ku.lostandfound.ui.navigation.Route
 import com.ku.lostandfound.ui.navigation.navigateToMainTab
 import com.ku.lostandfound.ui.theme.KUfindersTheme
 import android.content.Intent
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.ku.lostandfound.notification.NotificationTarget
@@ -67,18 +66,18 @@ class MainActivity : ComponentActivity() {
 
         enableEdgeToEdge()
 
-        // 앱 실행 시 Firebase 기기 등록 상태 동기화
-        FirebaseMessaging.getInstance().register()
+        // 앱 시작 시 FCM 토큰을 얻어 로그인 후 서버 동기화에 사용할 수 있게 저장한다.
+        FirebaseMessaging.getInstance().token
             .addOnCompleteListener { task ->
                 if (task.isSuccessful) {
-                    Log.d(
-                        "FindersFCM",
-                        "Firebase 기기 등록 요청 성공"
+                    PushDeviceManager.onFcmTokenUpdated(
+                        context = applicationContext,
+                        fcmToken = task.result
                     )
                 } else {
                     Log.w(
                         "FindersFCM",
-                        "Firebase 기기 등록 요청 실패",
+                        "FCM 토큰 조회 실패",
                         task.exception
                     )
                 }

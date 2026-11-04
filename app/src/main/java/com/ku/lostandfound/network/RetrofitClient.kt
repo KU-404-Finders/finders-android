@@ -28,7 +28,8 @@ object RetrofitClient {
         val isAuthRequest = path.endsWith("/api/v1/auth/login") ||
                 path.endsWith("/api/v1/auth/join") ||
                 path.endsWith("/api/v1/auth/reissue") ||
-                path.endsWith("/api/v1/auth/email/send")
+                path.endsWith("/api/v1/auth/email/send") ||
+                path.startsWith("/api/v1/auth/password-reset/")
         val isPublicLostItemRequest = method == "GET" && path.startsWith("/api/v1/lost-items")
         val isPublicFoundItemRequest = method == "GET" && path.startsWith("/api/v1/found-items")
 
@@ -74,6 +75,7 @@ object RetrofitClient {
 
     val signupApi: SignupApiService = retrofit.create(SignupApiService::class.java)
     val authApi: AuthApiService = retrofit.create(AuthApiService::class.java)
+    val passwordResetApi: PasswordResetApiService = retrofit.create(PasswordResetApiService::class.java)
     val userApi: UserApiService = retrofit.create(UserApiService::class.java)
     val lostItemApi: LostItemApiService = retrofit.create(LostItemApiService::class.java)
     val foundItemApi: FoundItemApiService = retrofit.create(FoundItemApiService::class.java)
