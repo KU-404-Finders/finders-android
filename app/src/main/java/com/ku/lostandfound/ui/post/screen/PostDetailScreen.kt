@@ -39,6 +39,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,6 +65,8 @@ import com.ku.lostandfound.data.IndoorPlace
 import com.ku.lostandfound.data.LostLocationSelection
 import com.ku.lostandfound.data.PostStatus
 import com.ku.lostandfound.data.PostType
+import com.ku.lostandfound.network.CreateReportRequest
+import com.ku.lostandfound.network.RetrofitClient
 import com.ku.lostandfound.ui.component.BackTitleBar
 import com.ku.lostandfound.ui.component.CampusMapCanvas
 import com.ku.lostandfound.ui.component.PostStatusBadge
@@ -71,6 +74,7 @@ import com.ku.lostandfound.ui.component.PostTypeBadge
 import com.ku.lostandfound.ui.component.noRippleClickable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import java.io.ByteArrayInputStream
 import java.net.URL
 
@@ -102,6 +106,7 @@ fun PostDetailScreen(
     referencePaths: List<CampusPath> = emptyList(),
     onBackClick: () -> Unit,
     onChatClick: () -> Unit = {},
+    onUserBlocked: (Long) -> Unit = {},
     showOwnerActions: Boolean = false,
     onToggleResolvedClick: (BoardPost) -> Unit = {},
     onEditClick: (BoardPost) -> Unit = {},
@@ -120,6 +125,7 @@ fun PostDetailScreen(
     onMatchCandidateClick: (MatchCandidateUiModel) -> Unit = {},
     showSimilarityScores: Boolean = false,
 ) {
+    val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     var showResolveConfirmDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
@@ -138,6 +144,8 @@ fun PostDetailScreen(
     var blockCompleted by remember {
         mutableStateOf(false)
     }
+    var safetyError by remember { mutableStateOf<String?>(null) }
+    var safetyRequestInFlight by remember { mutableStateOf(false) }
 
     if (showResolveConfirmDialog) {
         AlertDialog(
@@ -195,13 +203,25 @@ fun PostDetailScreen(
                 showReportDialog = false
             },
 
-            onReport = { reason ->
-
-                // 나중에 여기서 신고 API 호출
-                println("신고 사유: $reason")
-
-                showReportDialog = false
-                reportCompleted = true
+            onReport = { reasonIndex ->
+                val postId = post.id.toLongOrNull()
+                if (postId == null || showOwnerActions || safetyRequestInFlight) {
+                    safetyError = "신고할 게시글 정보를 확인할 수 없습니다."
+                } else {
+                    safetyRequestInFlight = true
+                    scope.launch {
+                        try {
+                            val response = RetrofitClient.moderationApi.report(
+                                CreateReportRequest(post.type.name, postId, reportReasonCode(reasonIndex))
+                            )
+                            if (response.isSuccessful && response.body()?.success == true) {
+                                showReportDialog = false
+                                reportCompleted = true
+                            } else safetyError = "신고 접수에 실패했습니다."
+                        } catch (_: Exception) { safetyError = "서버와 연결할 수 없습니다." }
+                        finally { safetyRequestInFlight = false }
+                    }
+                }
             }
         )
     }
@@ -215,13 +235,32 @@ fun PostDetailScreen(
             },
 
             onBlock = {
-
-                // 나중에 여기서 차단 API 호출
-                println("차단 사용자: ${post.authorName}")
-
-                showBlockDialog = false
-                blockCompleted = true
+                val userId = post.authorUserId
+                if (userId == null || userId == currentUserId || safetyRequestInFlight) {
+                    safetyError = "차단할 사용자를 확인할 수 없습니다."
+                } else {
+                    safetyRequestInFlight = true
+                    scope.launch {
+                        try {
+                            val response = RetrofitClient.moderationApi.block(userId)
+                            if (response.isSuccessful && response.body()?.success == true) {
+                                showBlockDialog = false
+                                blockCompleted = true
+                                onUserBlocked(userId)
+                            } else safetyError = "사용자 차단에 실패했습니다."
+                        } catch (_: Exception) { safetyError = "서버와 연결할 수 없습니다." }
+                        finally { safetyRequestInFlight = false }
+                    }
+                }
             }
+        )
+    }
+
+    safetyError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { safetyError = null },
+            title = { Text("요청 실패") }, text = { Text(message) },
+            confirmButton = { TextButton(onClick = { safetyError = null }) { Text("확인") } },
         )
     }
 
@@ -1257,10 +1296,18 @@ private fun CommentInputBar(
     }
 }
 
+private fun reportReasonCode(index: Int): String = when (index) {
+    0 -> "SPAM_ADVERTISEMENT"
+    1 -> "INAPPROPRIATE_CONTENT"
+    2 -> "FALSE_INFORMATION"
+    3 -> "UNRELATED_CONTENT"
+    else -> "OTHER"
+}
+
 @Composable
 private fun ReportPostDialog(
     onDismiss: () -> Unit,
-    onReport: (String) -> Unit,
+    onReport: (Int) -> Unit,
 ) {
     val reasons = listOf(
         "스팸 또는 광고성 게시글",
@@ -1349,7 +1396,7 @@ private fun ReportPostDialog(
             TextButton(
                 onClick = {
                     selectedReason?.let { reason ->
-                        onReport(reason)
+                        onReport(reasons.indexOf(reason))
                     }
                 },
                 enabled = selectedReason != null,

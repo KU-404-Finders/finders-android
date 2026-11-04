@@ -8,7 +8,7 @@ import retrofit2.http.Path
 
 data class PushDeviceRequest(
     val platform: String = "ANDROID",
-    val fcmToken: String,
+    val installationId: String,
 )
 
 interface PushDeviceApiService {
@@ -20,8 +20,8 @@ interface PushDeviceApiService {
     ): Response<Unit>
 
     // 로그아웃 시 현재 기기 등록 해제
-    @DELETE("api/v1/users/me/push-devices/{fcmToken}")
+    @DELETE("api/v1/users/me/push-devices/{installationId}")
     suspend fun unregisterDevice(
-        @Path("fcmToken") fcmToken: String,
+        @Path("installationId") installationId: String,
     ): Response<Unit>
 }

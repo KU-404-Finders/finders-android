@@ -12,6 +12,7 @@ class ChatStompClient(
     private val onConnected: () -> Unit,
     private val onMessage: (ChatMessageResponse) -> Unit,
     private val onReadReceipt: (ChatReadReceipt) -> Unit,
+    private val onRoomListChanged: () -> Unit,
     private val onError: (String) -> Unit,
     private val onDisconnected: () -> Unit,
 ) {
@@ -144,8 +145,13 @@ class ChatStompClient(
                             "id:room-$roomId-read\n" +
                             "destination:/topic/chat/rooms/$roomId/read\n\n\u0000"
                 )
+                val roomListSubscribed = webSocket.send(
+                    "SUBSCRIBE\n" +
+                            "id:chat-room-list\n" +
+                            "destination:/user/queue/chat-rooms\n\n\u0000"
+                )
 
-                if (roomSubscribed && readSubscribed && errorsSubscribed) {
+                if (roomSubscribed && readSubscribed && errorsSubscribed && roomListSubscribed) {
                     onConnected()
                 } else {
                     onError("채팅방 구독에 실패했습니다.")
@@ -175,6 +181,11 @@ class ChatStompClient(
                     }
                 } else if (destination == "/user/queue/chat-errors") {
                     onError("메시지 전송이 거부되었습니다.")
+                }
+                else if (destination == "/user/queue/chat-rooms") {
+                    // Server emits an invalidation event (ROOM_LIST_CHANGED), so REST remains
+                    // the source of truth for ordering, visibility and latest-message fields.
+                    if (body.contains("ROOM_LIST_CHANGED")) onRoomListChanged()
                 }
                 else if (destination == "/topic/chat/rooms/$roomId/read") {
                     try {
