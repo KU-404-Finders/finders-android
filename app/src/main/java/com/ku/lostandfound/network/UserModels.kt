@@ -14,6 +14,8 @@ data class UserMeData(
     val foundItemCount: Int = 0,
     val lostItemCount: Int = 0,
     val role: String? = null,
+    val admin: Boolean = false,
+    val suspended: Boolean = false,
 )
 
 data class MyLostItemsResponse(

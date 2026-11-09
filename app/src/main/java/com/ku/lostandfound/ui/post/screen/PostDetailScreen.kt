@@ -124,6 +124,10 @@ fun PostDetailScreen(
     onUpdateComment: (BoardComment, String) -> Unit = { _, _ -> },
     onMatchCandidateClick: (MatchCandidateUiModel) -> Unit = {},
     showSimilarityScores: Boolean = false,
+    onBlockUserRequest: (
+        Long,
+        (Boolean) -> Unit
+    ) -> Unit = { _, onFinished -> onFinished(false) },
 ) {
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
@@ -146,7 +150,20 @@ fun PostDetailScreen(
     }
     var safetyError by remember { mutableStateOf<String?>(null) }
     var safetyRequestInFlight by remember { mutableStateOf(false) }
+    var blockedUserIdForNavigation by remember {
+        mutableStateOf<Long?>(null)
+    }
 
+    val finishBlockDialog: () -> Unit = {
+        blockCompleted = false
+
+        val blockedId = blockedUserIdForNavigation
+        blockedUserIdForNavigation = null
+
+        if (blockedId != null) {
+            onUserBlocked(blockedId)
+        }
+    }
     if (showResolveConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showResolveConfirmDialog = false },
@@ -203,23 +220,45 @@ fun PostDetailScreen(
                 showReportDialog = false
             },
 
-            onReport = { reasonIndex ->
+            onReport = onReport@{ reasonIndex ->
+                if (safetyRequestInFlight) return@onReport
+
                 val postId = post.id.toLongOrNull()
-                if (postId == null || showOwnerActions || safetyRequestInFlight) {
-                    safetyError = "신고할 게시글 정보를 확인할 수 없습니다."
+
+                if (postId == null || showOwnerActions) {
+                    safetyError =
+                        "신고할 게시글 정보를 확인할 수 없습니다."
                 } else {
+                    safetyError = null
                     safetyRequestInFlight = true
+
                     scope.launch {
                         try {
-                            val response = RetrofitClient.moderationApi.report(
-                                CreateReportRequest(post.type.name, postId, reportReasonCode(reasonIndex))
-                            )
-                            if (response.isSuccessful && response.body()?.success == true) {
+                            val response =
+                                RetrofitClient.moderationApi.report(
+                                    CreateReportRequest(
+                                        post.type.name,
+                                        postId,
+                                        reportReasonCode(reasonIndex)
+                                    )
+                                )
+
+                            if (
+                                response.isSuccessful &&
+                                response.body()?.success == true
+                            ) {
                                 showReportDialog = false
                                 reportCompleted = true
-                            } else safetyError = "신고 접수에 실패했습니다."
-                        } catch (_: Exception) { safetyError = "서버와 연결할 수 없습니다." }
-                        finally { safetyRequestInFlight = false }
+                            } else {
+                                safetyError = "신고 접수에 실패했습니다."
+                            }
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            safetyError = "서버와 연결할 수 없습니다."
+                        } finally {
+                            safetyRequestInFlight = false
+                        }
                     }
                 }
             }
@@ -233,23 +272,33 @@ fun PostDetailScreen(
             onDismiss = {
                 showBlockDialog = false
             },
+            onBlock = onBlock@{
+                if (safetyRequestInFlight) return@onBlock
 
-            onBlock = {
                 val userId = post.authorUserId
-                if (userId == null || userId == currentUserId || safetyRequestInFlight) {
-                    safetyError = "차단할 사용자를 확인할 수 없습니다."
+
+                if (
+                    userId == null ||
+                    currentUserId == null ||
+                    userId == currentUserId
+                ) {
+                    safetyError =
+                        "차단할 사용자를 확인할 수 없습니다."
                 } else {
+                    safetyError = null
                     safetyRequestInFlight = true
-                    scope.launch {
-                        try {
-                            val response = RetrofitClient.moderationApi.block(userId)
-                            if (response.isSuccessful && response.body()?.success == true) {
-                                showBlockDialog = false
-                                blockCompleted = true
-                                onUserBlocked(userId)
-                            } else safetyError = "사용자 차단에 실패했습니다."
-                        } catch (_: Exception) { safetyError = "서버와 연결할 수 없습니다." }
-                        finally { safetyRequestInFlight = false }
+
+                    onBlockUserRequest(userId) { success ->
+                        safetyRequestInFlight = false
+
+                        if (success) {
+                            showBlockDialog = false
+                            blockedUserIdForNavigation = userId
+                            blockCompleted = true
+                        } else {
+                            safetyError =
+                                "사용자 차단에 실패했습니다."
+                        }
                     }
                 }
             }

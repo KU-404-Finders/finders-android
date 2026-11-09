@@ -76,6 +76,7 @@ object RetrofitClient {
     val foundItemApi: FoundItemApiService = retrofit.create(FoundItemApiService::class.java)
     val chatApi: ChatApiService = retrofit.create(ChatApiService::class.java)
     val moderationApi: ModerationApiService = retrofit.create(ModerationApiService::class.java)
+    val adminApi: AdminApiService = retrofit.create(AdminApiService::class.java)
 
     val pushDeviceApi: PushDeviceApiService =
         retrofit.create(PushDeviceApiService::class.java)

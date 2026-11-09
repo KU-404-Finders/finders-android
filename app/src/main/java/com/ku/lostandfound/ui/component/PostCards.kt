@@ -50,18 +50,31 @@ private val Danger = Color(0xFFFF5D7A)
 private val LightDanger = Color(0xFFFFECEF)
 private val TextGray = Color(0xFF8A8A8A)
 private val FieldGray = Color(0xFFF4F4F4)
+private val FoundBlue = Color(0xFF246FB5)
+private val LightFoundBlue = Color(0xFFE6F2FB)
 
 @Composable
-fun PostTypeBadge(type: PostType, modifier: Modifier = Modifier) {
+fun PostTypeBadge(
+    type: PostType,
+    modifier: Modifier = Modifier
+) {
     val isFound = type == PostType.FOUND
+
     Text(
         text = if (isFound) "습득" else "분실",
-        color = if (isFound) DeepGreen else Danger,
+        color = if (isFound) FoundBlue else Danger,
         fontWeight = FontWeight.Bold,
         fontSize = 11.sp,
         modifier = modifier
-            .background(if (isFound) LightGreen else LightDanger, RoundedCornerShape(5.dp))
-            .padding(horizontal = 8.dp, vertical = 5.dp),
+            .background(
+                if (isFound) LightFoundBlue
+                else LightDanger,
+                RoundedCornerShape(5.dp)
+            )
+            .padding(
+                horizontal = 8.dp,
+                vertical = 5.dp
+            )
     )
 }
 

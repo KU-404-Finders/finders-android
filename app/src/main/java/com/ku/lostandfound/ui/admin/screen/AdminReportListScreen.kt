@@ -75,6 +75,8 @@ internal val sampleAdminReports = listOf(
 @Composable
 fun AdminReportListScreen(
     reports: List<AdminReportUiModel>,
+    isLoading: Boolean = false,
+    errorMessage: String? = null,
     onBackClick: () -> Unit,
     onReportClick: (String) -> Unit,
 ) {
@@ -113,6 +115,8 @@ fun AdminReportListScreen(
                     fontSize = 13.sp,
                     color = TextGray,
                 )
+                if (isLoading) Text("신고 목록을 불러오는 중입니다.", fontSize = 13.sp, color = TextGray)
+                if (errorMessage != null) Text(errorMessage, fontSize = 13.sp, color = PendingRed)
             }
 
             items(

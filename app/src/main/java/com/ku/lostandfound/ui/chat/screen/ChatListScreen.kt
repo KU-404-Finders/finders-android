@@ -1,36 +1,38 @@
+
 package com.ku.lostandfound.ui.chat.screen
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChatBubble
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ku.lostandfound.network.ChatRoomResponse
+import com.ku.lostandfound.ui.chat.ChatTimeFormatter
 import com.ku.lostandfound.ui.component.BackTitleBar
 import com.ku.lostandfound.ui.component.noRippleClickable
 
 private val DeepGreen = Color(0xFF1B6425)
-private val ScreenGray = Color(0xFFF4F4F4)
-private val TextGray = Color(0xFF8A8A8A)
+private val LostPink = Color(0xFFEF5B80)
+private val LostPinkLight = Color(0xFFFFEDF1)
+private val FoundBlue = Color(0xFF246FB5)
+private val FoundBlueLight = Color(0xFFE6F2FB)
+private val TextGray = Color(0xFF929292)
 
 @Composable
 fun ChatListScreen(
@@ -39,76 +41,71 @@ fun ChatListScreen(
     errorMessage: String?,
     onBackClick: () -> Unit,
     onRoomClick: (Long) -> Unit,
+    authorInfoByRoomId: Map<Long, Pair<Long, String>> = emptyMap(),
+    currentUserId: Long? = null,
+    currentUserName: String? = null,
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(ScreenGray)
+            .background(Color.White)
     ) {
         BackTitleBar(
             title = "채팅",
-            onBackClick = onBackClick,
+            onBackClick = onBackClick
         )
 
         when {
-            isLoading -> {
+            isLoading && rooms.isEmpty() -> {
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.White),
-                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(
-                        color = DeepGreen
-                    )
+                    CircularProgressIndicator(color = DeepGreen)
                 }
             }
 
-            errorMessage != null -> {
+            errorMessage != null && rooms.isEmpty() -> {
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.White),
-                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = errorMessage,
-                        color = Color(0xFFD32F2F),
-                        fontSize = 14.sp,
+                        color = Color(0xFFD32F2F)
                     )
                 }
             }
 
             rooms.isEmpty() -> {
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.White),
-                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "아직 참여 중인 채팅방이 없습니다.",
-                        color = TextGray,
-                        fontSize = 14.sp,
+                        color = TextGray
                     )
                 }
             }
 
             else -> {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.White),
-                ) {
+                LazyColumn(Modifier.fillMaxSize()) {
                     items(
                         items = rooms,
-                        key = { it.id },
+                        key = { it.id }
                     ) { room ->
                         ChatRoomItem(
                             room = room,
-                            onClick = {
-                                onRoomClick(room.id)
-                            }
+                            authorInfo = authorInfoByRoomId[room.id],
+                            currentUserId = currentUserId,
+                            currentUserName = currentUserName,
+                            onClick = { onRoomClick(room.id) }
+                        )
+
+                        HorizontalDivider(
+                            thickness = 0.5.dp,
+                            color = Color(0xFFEEEEEE)
                         )
                     }
                 }
@@ -120,79 +117,175 @@ fun ChatListScreen(
 @Composable
 private fun ChatRoomItem(
     room: ChatRoomResponse,
+    authorInfo: Pair<Long, String>?,
+    currentUserId: Long?,
+    currentUserName: String?,
     onClick: () -> Unit,
 ) {
+    val type = room.postType?.uppercase()
+
+    val iconColor = when (type) {
+        "LOST" -> LostPink
+        "FOUND" -> FoundBlue
+        else -> Color(0xFF999999)
+    }
+
+    val iconBackground = when (type) {
+        "LOST" -> LostPinkLight
+        "FOUND" -> FoundBlueLight
+        else -> Color(0xFFEEEEEE)
+    }
+
+    val typeLabel = when (type) {
+        "LOST" -> "분실물"
+        "FOUND" -> "습득물"
+        else -> null
+    }
+
+    val title = room.postTitle
+        ?.takeIf { it.isNotBlank() }
+        ?: room.roomName?.takeIf { it.isNotBlank() }
+        ?: "이전 채팅"
+
+    val senderName = when {
+        room.lastMessageSenderId == null -> null
+
+        currentUserId != null &&
+                room.lastMessageSenderId == currentUserId ->
+            currentUserName?.takeIf { it.isNotBlank() }
+
+        authorInfo != null &&
+                room.lastMessageSenderId == authorInfo.first ->
+            authorInfo.second
+
+        else -> null
+    }
+
+    val snippet = room.lastMessage
+        ?.takeIf { it.isNotBlank() }
+        ?: "아직 메시지가 없습니다."
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(Color.White)
             .noRippleClickable(onClick)
-            .padding(horizontal = 18.dp, vertical = 16.dp),
+            .padding(
+                horizontal = 16.dp,
+                vertical = 16.dp
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Card(
-            modifier = Modifier.size(62.dp),
-            shape = RoundedCornerShape(10.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = Color(0xFFEDEDED)
-            ),
+        Box(
+            modifier = Modifier
+                .size(54.dp)
+                .background(
+                    iconBackground,
+                    CircleShape
+                ),
+            contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
+            val image = when (type) {
+                "LOST" -> Icons.Default.Search
+                "FOUND" -> Icons.Default.CheckCircle
+                else -> Icons.Default.ChatBubble
+            }
+
+            Icon(
+                imageVector = image,
+                contentDescription = null,
+                tint = iconColor,
+                modifier = Modifier.size(27.dp)
+            )
+        }
+
+        Spacer(Modifier.width(12.dp))
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement =
+                Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = title,
+                color = Color(0xFF242424),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement =
+                    Arrangement.spacedBy(6.dp)
             ) {
+                if (typeLabel != null) {
+                    Text(
+                        text = typeLabel,
+                        color = iconColor,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .background(
+                                iconBackground,
+                                CircleShape
+                            )
+                            .padding(
+                                horizontal = 7.dp,
+                                vertical = 3.dp
+                            )
+                    )
+                }
+
                 Text(
-                    text = "채팅",
-                    color = TextGray,
-                    fontSize = 11.sp,
+                    text = if (senderName.isNullOrBlank()) {
+                        snippet
+                    } else {
+                        "$senderName  $snippet"
+                    },
+                    color = Color(0xFF777777),
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
 
-        Spacer(
-            modifier = Modifier.size(12.dp)
-        )
+        Spacer(Modifier.width(10.dp))
 
         Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(5.dp),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement =
+                Arrangement.spacedBy(8.dp)
         ) {
             Text(
-                text = room.roomName
-                    ?.takeIf { it.isNotBlank() }
-                    ?: room.postTitle
-                    ?.takeIf { it.isNotBlank() }
-                    ?: "상대방",
-                color = Color(0xFF222222),
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
+                text = ChatTimeFormatter.formatListTime(
+                    room.lastMessageAt ?: room.createdAt
+                ),
+                color = TextGray,
+                fontSize = 11.sp
             )
 
-            Text(
-                text = room.lastMessage
-                    ?.takeIf { it.isNotBlank() }
-                    ?: "아직 메시지가 없습니다.",
-                color = Color(0xFF555555),
-                fontSize = 13.sp,
-            )
-        }
-
-        Text(
-            text = (room.lastMessageAt ?: room.createdAt)
-                .substringAfter("T", "")
-                .take(5),
-            color = TextGray,
-            fontSize = 11.sp,
-        )
-
-        room.unreadMessageCount?.takeIf { it > 0 }?.let { count ->
-            Text(
-                text = count.toString(),
-                modifier = Modifier.padding(start = 6.dp),
-                color = DeepGreen,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-            )
+            room.unreadMessageCount
+                ?.takeIf { it > 0 }
+                ?.let { count ->
+                    Text(
+                        text = count.toString(),
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .background(
+                                DeepGreen,
+                                CircleShape
+                            )
+                            .padding(
+                                horizontal = 7.dp,
+                                vertical = 2.dp
+                            )
+                    )
+                }
         }
     }
 }

@@ -20,6 +20,11 @@ interface ChatApiService {
         @Query("page") page: Int = 0,
     ): Response<ApiResponse<List<ChatRoomResponse>>>
 
+    @GET("api/v1/chat/rooms/{roomId}")
+    suspend fun getRoom(
+        @Path("roomId") roomId: Long,
+    ): Response<ApiResponse<ChatRoomResponse>>
+
     @GET("api/v1/chat/rooms/{roomId}/messages")
     suspend fun getMessages(
         @Path("roomId") roomId: Long,

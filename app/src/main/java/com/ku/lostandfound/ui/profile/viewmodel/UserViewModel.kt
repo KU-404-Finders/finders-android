@@ -1,3 +1,4 @@
+
 package com.ku.lostandfound.ui.profile.viewmodel
 
 import androidx.compose.runtime.getValue
@@ -62,11 +63,28 @@ class UserViewModel : ViewModel() {
     }
 
     suspend fun loadMeNow(): UserMeData? {
+        android.util.Log.d(
+            "KUFindersChat",
+            "loadMeNow 함수 실행됨"
+        )
+
         uiState = UserUiState.Loading
         return try {
             val response = RetrofitClient.userApi.getMe()
+
+            android.util.Log.d(
+                "KUFindersChat",
+                "getMe HTTP=${response.code()}"
+            )
             if (response.isSuccessful) {
                 val body = response.body()
+                android.util.Log.d(
+                    "KUFindersChat",
+                    "getMe HTTP=${response.code()}, " +
+                            "success=${body?.success}, " +
+                            "hasData=${body?.data != null}, " +
+                            "myId=${body?.data?.id}"
+                )
                 if (body?.success == true && body.data != null) {
                     me = body.data
                     uiState = UserUiState.Idle
@@ -82,8 +100,17 @@ class UserViewModel : ViewModel() {
                 null
             }
         } catch (e: Exception) {
+            android.util.Log.e(
+                "KUFindersChat",
+                "loadMeNow 오류: ${e.javaClass.simpleName}: ${e.message}",
+                e
+            )
+
             NetworkLog.exception("loadMe", e)
-            uiState = UserUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
+
+            uiState = UserUiState.Error(
+                "서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요."
+            )
             null
         }
     }
@@ -182,6 +209,22 @@ class UserViewModel : ViewModel() {
         myPostCountState = MyPostsUiState.Idle
         myLostItemsState = MyPostsUiState.Idle
         myFoundItemsState = MyPostsUiState.Idle
+    }
+
+    /** Keeps a block request alive when the detail composable leaves composition. */
+    fun blockUser(userId: Long, onFinished: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val success = try {
+                val response = RetrofitClient.moderationApi.block(userId)
+                response.isSuccessful && response.body()?.success == true
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                NetworkLog.exception("blockUser", e)
+                false
+            }
+            onFinished(success)
+        }
     }
 
     private fun parseErrorMessage(errorBody: String?): String {

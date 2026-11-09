@@ -15,11 +15,11 @@ import com.ku.lostandfound.network.NetworkLog
 import com.ku.lostandfound.network.RetrofitClient
 import com.ku.lostandfound.network.TokenManager
 import com.ku.lostandfound.network.httpErrorMessage
+import com.ku.lostandfound.ui.chat.ChatTimeFormatter
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 sealed class ChatUiState {
     object Idle : ChatUiState()
@@ -35,6 +35,18 @@ class ChatViewModel : ViewModel() {
     var rooms by mutableStateOf<List<ChatRoomResponse>>(emptyList())
         private set
 
+    private var roomCache by mutableStateOf<
+            Map<Long, ChatRoomResponse>
+            >(emptyMap())
+
+    var authorInfoByRoomId by mutableStateOf<
+            Map<Long, Pair<Long, String>>
+            >(emptyMap())
+        private set
+
+
+    private val authorRequestsInFlight = mutableSetOf<Long>()
+    private var roomListRequestId = 0
     var messages by mutableStateOf<List<ChatMessageResponse>>(emptyList())
         private set
 
@@ -42,6 +54,7 @@ class ChatViewModel : ViewModel() {
         private set
 
     private var lastMarkedReadMessageId: Long? = null
+
     // 사용자별 마지막 읽은 메시지 ID
     private var confirmedReadMessageId = 0L
     private var readRequestJob: Job? = null
@@ -52,12 +65,19 @@ class ChatViewModel : ViewModel() {
 
     private var messageLoadRequestId = 0
 
+
     fun loadRooms() {
+        val requestId = ++roomListRequestId
+
         viewModelScope.launch {
             uiState = ChatUiState.Loading
 
             try {
                 val response = RetrofitClient.chatApi.getRooms()
+
+                if (requestId != roomListRequestId) {
+                    return@launch
+                }
 
                 if (response.isSuccessful) {
                     val body = response.body()
@@ -65,21 +85,26 @@ class ChatViewModel : ViewModel() {
                     if (body?.success == true) {
                         val baseRooms = body.data.orEmpty()
 
-                        // RoomView already contains the latest-message fields.  Empty rooms are
-                        // hidden locally without issuing one history request per room.
-                        rooms = baseRooms.filter { it.lastMessage != null }.sortedByDescending { room ->
+                        roomCache = roomCache +
+                                baseRooms.associateBy { it.id }
 
-                            room.lastMessageAt
-                                ?: room.createdAt
-                        }
+                        rooms = baseRooms.sortedWith(Comparator { first, second ->
+                            ChatTimeFormatter.compareNewest(
+                                second.lastMessageAt ?: second.createdAt,
+                                first.lastMessageAt ?: first.createdAt,
+                            )
+                        })
+
                         uiState = ChatUiState.Idle
                     } else {
                         uiState = ChatUiState.Error(
-                            body?.message ?: "채팅방 목록을 불러오지 못했습니다."
+                            body?.message
+                                ?: "채팅방 목록을 불러오지 못했습니다."
                         )
                     }
                 } else {
-                    val errorBody = response.errorBody()?.string()
+                    val errorBody =
+                        response.errorBody()?.string()
 
                     NetworkLog.httpError(
                         "loadChatRooms",
@@ -94,7 +119,13 @@ class ChatViewModel : ViewModel() {
                         )
                     )
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (requestId != roomListRequestId) {
+                    return@launch
+                }
+
                 NetworkLog.exception("loadChatRooms", e)
 
                 uiState = ChatUiState.Error(
@@ -103,6 +134,7 @@ class ChatViewModel : ViewModel() {
             }
         }
     }
+
 
     fun loadMessages(
         roomId: Long,
@@ -220,12 +252,23 @@ class ChatViewModel : ViewModel() {
             uiState = ChatUiState.Loading
 
             try {
+                android.util.Log.d(
+                    "KUFindersChat",
+                    "createRoom recipientId=$recipientId, " +
+                            "postType=$postType, postId=$postId"
+                )
+
                 val response = RetrofitClient.chatApi.createRoom(
                     CreateChatRoomRequest(
                         recipientId = recipientId,
                         postType = postType,
                         postId = postId,
                     )
+                )
+                android.util.Log.d(
+                    "KUFindersChat",
+                    "createRoom HTTP=${response.code()}, " +
+                            "success=${response.body()?.success}"
                 )
 
                 if (response.isSuccessful) {
@@ -235,8 +278,23 @@ class ChatViewModel : ViewModel() {
                         body?.success == true &&
                         body.data != null
                     ) {
+                        val createdRoom = body.data
+
+                        roomCache = roomCache +
+                                (createdRoom.id to createdRoom)
+
+                        rooms = (
+                                rooms.filterNot { it.id == createdRoom.id } +
+                                        createdRoom
+                                ).sortedWith(Comparator { first, second ->
+                                ChatTimeFormatter.compareNewest(
+                                    second.lastMessageAt ?: second.createdAt,
+                                    first.lastMessageAt ?: first.createdAt,
+                                )
+                            })
+
                         uiState = ChatUiState.Idle
-                        onSuccess(body.data)
+                        onSuccess(createdRoom)
                     } else {
                         uiState = ChatUiState.Error(
                             body?.message ?: "채팅방 생성에 실패했습니다."
@@ -272,7 +330,107 @@ class ChatViewModel : ViewModel() {
         messages = emptyList()
     }
 
-    fun roomFor(roomId: Long): ChatRoomResponse? = rooms.firstOrNull { it.id == roomId }
+
+    fun roomFor(roomId: Long): ChatRoomResponse? {
+        return rooms.firstOrNull { it.id == roomId }
+            ?: roomCache[roomId]
+    }
+
+    fun loadPostAuthorForRoom(room: ChatRoomResponse) {
+        val postId = room.postId ?: return
+        val postType = room.postType?.uppercase() ?: return
+
+        if (authorInfoByRoomId.containsKey(room.id)) return
+        if (!authorRequestsInFlight.add(room.id)) return
+
+        viewModelScope.launch {
+            try {
+                when (postType) {
+                    "LOST" -> {
+                        val response =
+                            RetrofitClient.lostItemApi
+                                .getLostItemDetail(postId)
+
+                        val detail = response.body()
+                            ?.takeIf {
+                                response.isSuccessful && it.success
+                            }?.data
+
+                        if (detail != null) {
+                            savePostAuthor(
+                                room = room,
+                                authorId = detail.userId,
+                                authorName = detail.userName
+                                    ?.takeIf { it.isNotBlank() }
+                                    ?: detail.authorName,
+                                postTitle = detail.title
+                            )
+                        }
+                    }
+
+                    "FOUND" -> {
+                        val response =
+                            RetrofitClient.foundItemApi
+                                .getFoundItemDetail(postId)
+
+                        val detail = response.body()
+                            ?.takeIf {
+                                response.isSuccessful && it.success
+                            }?.data
+
+                        if (detail != null) {
+                            savePostAuthor(
+                                room = room,
+                                authorId = detail.userId,
+                                authorName = detail.userName
+                                    ?.takeIf { it.isNotBlank() }
+                                    ?: detail.authorName,
+                                postTitle = detail.title
+                            )
+                        }
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                NetworkLog.exception(
+                    "loadChatPostAuthor",
+                    e
+                )
+            } finally {
+                authorRequestsInFlight.remove(room.id)
+            }
+        }
+    }
+
+    private fun savePostAuthor(
+        room: ChatRoomResponse,
+        authorId: Long,
+        authorName: String?,
+        postTitle: String,
+    ) {
+        if (!authorName.isNullOrBlank()) {
+            authorInfoByRoomId = authorInfoByRoomId +
+                    (room.id to (authorId to authorName))
+        }
+
+        if (room.postTitle.isNullOrBlank()) {
+            roomCache = roomCache +
+                    (room.id to room.copy(postTitle = postTitle))
+
+            rooms = rooms.map { item ->
+                if (
+                    item.id == room.id &&
+                    item.postTitle.isNullOrBlank()
+                ) {
+                    item.copy(postTitle = postTitle)
+                } else {
+                    item
+                }
+            }
+        }
+    }
+
 
 
     private var stompClient: ChatStompClient? = null
