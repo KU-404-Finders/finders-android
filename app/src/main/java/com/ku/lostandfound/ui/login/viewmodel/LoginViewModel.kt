@@ -9,7 +9,7 @@ import com.google.gson.Gson
 import com.ku.lostandfound.network.AuthErrorResponse
 import com.ku.lostandfound.network.LoginRequest
 import com.ku.lostandfound.network.NetworkLog
-import com.ku.lostandfound.network.RefreshTokenRequest
+import com.ku.lostandfound.network.RefreshSessionResult
 import com.ku.lostandfound.network.RetrofitClient
 import com.ku.lostandfound.network.TokenManager
 import com.ku.lostandfound.network.httpErrorMessage
@@ -43,8 +43,7 @@ class LoginViewModel : ViewModel() {
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true && body.data != null) {
-                        TokenManager.accessToken = body.data.accessToken
-                        TokenManager.refreshToken = body.data.refreshToken
+                        TokenManager.saveTokens(body.data.accessToken, body.data.refreshToken)
 
                         // 로그인된 사용자와 Firebase 기기 연결
                         PushDeviceManager.onLoginSucceeded()
@@ -71,35 +70,15 @@ class LoginViewModel : ViewModel() {
     }
 
     fun refreshToken() {
-        val storedRefreshToken = TokenManager.refreshToken ?: return
         viewModelScope.launch {
-            try {
-                val response = RetrofitClient.authApi.refreshToken(
-                    RefreshTokenRequest(refreshToken = storedRefreshToken)
-                )
-                if (response.isSuccessful) {
-                    val body = response.body()
-                    if (body?.success == true && body.data != null) {
-                        TokenManager.accessToken = body.data.accessToken
-                        TokenManager.refreshToken = body.data.refreshToken
-                    } else {
-                        TokenManager.clear()
-                        uiState = LoginUiState.Error(body?.message ?: "토큰 재발급에 실패했습니다.")
-                    }
-                } else {
-                    TokenManager.clear()
-                    val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("refreshToken", response.code(), errorBody)
-                    uiState = LoginUiState.Error(
-                        httpErrorMessage(
-                            response.code(),
-                            parseErrorMessage(errorBody)
-                        )
-                    )
+            when (RetrofitClient.refreshSession()) {
+                RefreshSessionResult.Success -> Unit
+                RefreshSessionResult.InvalidSession -> {
+                    uiState = LoginUiState.Error("로그인이 만료되었습니다. 다시 로그인해주세요.")
                 }
-            } catch (e: Exception) {
-                NetworkLog.exception("refreshToken", e)
-                uiState = LoginUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
+                RefreshSessionResult.RetryableFailure -> {
+                    uiState = LoginUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
+                }
             }
         }
     }

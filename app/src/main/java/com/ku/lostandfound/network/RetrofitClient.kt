@@ -10,6 +10,12 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
+sealed interface RefreshSessionResult {
+    data object Success : RefreshSessionResult
+    data object InvalidSession : RefreshSessionResult
+    data object RetryableFailure : RefreshSessionResult
+}
+
 object RetrofitClient {
     private const val BASE_URL = "https://finders.hyungyu.dev/"
 
@@ -42,9 +48,13 @@ object RetrofitClient {
             originalRequest
         }
         val response = chain.proceed(request)
-        if (response.code == 403 && response.peekBody(2048).string().contains("\"timestamp\"")) {
+        if (isAuthenticationFailure(response)) {
             val newAccessToken = synchronized(this) {
-                refreshTokensBlocking()
+                // Another request may already have refreshed this exact token while this
+                // request waited for the lock.
+                TokenManager.accessToken
+                    ?.takeIf { it != token }
+                    ?: refreshTokensBlocking()
             }
             if (newAccessToken != null) {
                 response.close()
@@ -81,6 +91,35 @@ object RetrofitClient {
     val pushDeviceApi: PushDeviceApiService =
         retrofit.create(PushDeviceApiService::class.java)
 
+    /** Used during app start only after an expired access token was detected. */
+    suspend fun refreshSession(): RefreshSessionResult {
+        val refreshToken = TokenManager.refreshToken ?: return RefreshSessionResult.InvalidSession
+        return try {
+            val response = authApi.refreshToken(RefreshTokenRequest(refreshToken))
+            if (!response.isSuccessful) {
+                if (response.code() == 401 || response.code() == 403) {
+                    TokenManager.expireSession()
+                    RefreshSessionResult.InvalidSession
+                } else {
+                    RefreshSessionResult.RetryableFailure
+                }
+            } else {
+                val body = response.body()
+                val tokens = body?.data
+                if (body?.success == true && tokens != null) {
+                    TokenManager.saveTokens(tokens.accessToken, tokens.refreshToken)
+                    RefreshSessionResult.Success
+                } else {
+                    TokenManager.expireSession()
+                    RefreshSessionResult.InvalidSession
+                }
+            }
+        } catch (e: Exception) {
+            NetworkLog.exception("refreshSession", e)
+            RefreshSessionResult.RetryableFailure
+        }
+    }
+
     private fun refreshTokensBlocking(): String? {
         val refreshToken = TokenManager.refreshToken ?: return null
         return try {
@@ -96,25 +135,32 @@ object RetrofitClient {
                 .execute()
             response.use {
                 if (!it.isSuccessful) {
-                    TokenManager.clear()
+                    if (it.code == 401 || it.code == 403) {
+                        TokenManager.expireSession()
+                    }
                     return null
                 }
                 val body = it.body?.string().orEmpty()
                 val parsed = Gson().fromJson(body, RefreshTokenResponse::class.java)
                 val tokens = parsed.data
                 if (parsed.success && tokens != null) {
-                    TokenManager.accessToken = tokens.accessToken
-                    TokenManager.refreshToken = tokens.refreshToken
+                    TokenManager.saveTokens(tokens.accessToken, tokens.refreshToken)
                     tokens.accessToken
                 } else {
-                    TokenManager.clear()
+                    TokenManager.expireSession()
                     null
                 }
             }
         } catch (e: Exception) {
             NetworkLog.exception("refreshTokensBlocking", e)
-            TokenManager.clear()
             null
         }
+    }
+
+    private fun isAuthenticationFailure(response: okhttp3.Response): Boolean {
+        // Spring Security uses this shape for an invalid/expired credential. Other 403s are
+        // authorization failures and must be returned to the caller without ending the session.
+        return response.code == 403 &&
+                response.peekBody(2048).string().contains("\"timestamp\"")
     }
 }

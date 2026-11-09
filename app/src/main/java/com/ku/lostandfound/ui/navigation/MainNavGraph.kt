@@ -3,7 +3,10 @@ package com.ku.lostandfound.ui.navigation
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -16,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
@@ -35,6 +39,8 @@ import com.ku.lostandfound.data.PostType
 import com.ku.lostandfound.network.MyFoundItemData
 import com.ku.lostandfound.network.MyLostItemData
 import com.ku.lostandfound.network.TokenManager
+import com.ku.lostandfound.network.RefreshSessionResult
+import com.ku.lostandfound.network.RetrofitClient
 import com.ku.lostandfound.network.UserMeData
 import com.ku.lostandfound.ui.admin.screen.AdminDashboardScreen
 import com.ku.lostandfound.ui.admin.screen.AdminAuditLogScreen
@@ -82,6 +88,15 @@ import kotlinx.coroutines.launch
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 
+private const val SESSION_EXPIRED_MESSAGE = "로그인이 만료되었습니다. 다시 로그인해주세요."
+
+@Composable
+private fun SessionCheckingScreen(modifier: Modifier = Modifier) {
+    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator()
+    }
+}
+
 @Composable
 fun MainNavGraph(
     navController: NavHostController,
@@ -120,11 +135,32 @@ fun MainNavGraph(
     var lastAppliedFoundListVersion by remember { mutableIntStateOf(0) }
     var lastAppliedLostListVersion by remember { mutableIntStateOf(0) }
 
-    val startDestination = remember {
-        if (TokenManager.isLoggedIn()) Route.Found.route else Route.Login.route
+    val chatViewModel = viewModel<ChatViewModel>()
+    var startDestination by remember { mutableStateOf<String?>(null) }
+    var loginMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        startDestination = when {
+            TokenManager.accessToken.isNullOrBlank() -> Route.Login.route
+            !TokenManager.isAccessTokenExpired() -> Route.Found.route
+            else -> when (RetrofitClient.refreshSession()) {
+                RefreshSessionResult.Success -> Route.Found.route
+                RefreshSessionResult.InvalidSession -> {
+                    loginMessage = SESSION_EXPIRED_MESSAGE
+                    Route.Login.route
+                }
+                // Keep credentials on transient failures but never expose a private screen
+                // before a successful verification. The user can sign in again and retry.
+                RefreshSessionResult.RetryableFailure -> Route.Login.route
+            }
+        }
     }
 
-    val chatViewModel = viewModel<ChatViewModel>()
+    val verifiedStartDestination = startDestination
+    if (verifiedStartDestination == null) {
+        SessionCheckingScreen(modifier = modifier.padding(padding))
+        return
+    }
 
     LaunchedEffect(chatViewModel.uiState) {
         val state = chatViewModel.uiState
@@ -285,10 +321,30 @@ fun MainNavGraph(
 
     fun navigateToLoginClearingBackStack() {
         navController.navigate(Route.Login.route) {
-            popUpTo(navController.graph.startDestinationId) {
+            // The runtime start destination can be Login while it is no longer in the back
+            // stack after a successful login. Clearing the root graph guarantees protected
+            // destinations cannot be reached with Back.
+            popUpTo(navController.graph.id) {
                 inclusive = true
             }
             launchSingleTop = true
+        }
+    }
+
+    fun clearAuthenticatedUiState() {
+        userViewModel.clearSession()
+        chatViewModel.disconnectRoom()
+        postCommentViewModel.clear()
+        writeViewModel.reset()
+        posts = emptyList()
+        commentsByPostId = emptyMap()
+    }
+
+    LaunchedEffect(Unit) {
+        TokenManager.sessionExpired.collect {
+            clearAuthenticatedUiState()
+            loginMessage = SESSION_EXPIRED_MESSAGE
+            navigateToLoginClearingBackStack()
         }
     }
 
@@ -332,13 +388,15 @@ fun MainNavGraph(
 
     NavHost(
         navController = navController,
-        startDestination = startDestination,
+        startDestination = verifiedStartDestination,
         modifier = modifier.padding(padding),
     ) {
         composable(route = Route.Login.route) {
             LoginScreen(
                 viewModel = loginViewModel,
+                sessionMessage = loginMessage,
                 onLoginSuccess = {
+                    loginMessage = null
                     userViewModel.loadMe()
                     navController.navigate(Route.Found.route) {
                         popUpTo(Route.Login.route) { inclusive = true }
@@ -777,9 +835,7 @@ fun MainNavGraph(
                 onMyFoundPostsClick = { navController.navigate(Route.MyFoundPosts.route) },
                 onLogoutClick = {
                     loginViewModel.logout {
-                        userViewModel.clearSession()
-                        postCommentViewModel.clear()
-                        posts = emptyList()
+                        clearAuthenticatedUiState()
                         navigateToLoginClearingBackStack()
                     }
                 },
@@ -789,9 +845,7 @@ fun MainNavGraph(
                     }
                 },
                 onWithdrawCompleteConfirm = {
-                    userViewModel.clearSession()
-                    postCommentViewModel.clear()
-                    posts = emptyList()
+                    clearAuthenticatedUiState()
                     navigateToLoginClearingBackStack()
                 },
                 onHomeClick = { navigateMainTab(Route.Found.route) },

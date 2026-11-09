@@ -55,6 +55,7 @@ import com.ku.lostandfound.ui.login.viewmodel.LoginViewModel
 @Composable
 fun LoginScreen(
     viewModel: LoginViewModel,
+    sessionMessage: String? = null,
     onLoginSuccess: () -> Unit = {},
     onNavigateToSignUp: () -> Unit = {},
     onNavigateToPasswordReset: () -> Unit = {},
@@ -66,7 +67,7 @@ fun LoginScreen(
 
     val uiState = viewModel.uiState
     val isLoading = uiState is LoginUiState.Loading
-    val errorMessage = (uiState as? LoginUiState.Error)?.message
+    val errorMessage = (uiState as? LoginUiState.Error)?.message ?: sessionMessage
 
     val isLoginEnabled = emailPrefix.isNotBlank() && password.isNotBlank() && !isLoading
 
