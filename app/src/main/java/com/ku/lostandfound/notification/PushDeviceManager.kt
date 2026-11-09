@@ -18,11 +18,8 @@ object PushDeviceManager {
 
     private const val TAG = "FindersFCM"
 
-    // 서버 API가 준비되고 계약이 일치하면 true로 변경
-    private const val SERVER_SYNC_ENABLED = false
-
-    private const val PREFS_NAME = "fcm_registration"
-    private const val KEY_FCM_TOKEN = "fcm_token"
+    private const val PREFS_NAME = "push_registration"
+    private const val KEY_INSTALLATION_ID = "installation_id"
 
     private var appContext: Context? = null
 
@@ -34,64 +31,70 @@ object PushDeviceManager {
 
     @Volatile
     private var sessionClosed = false
+    private var registeredAccessToken: String? = null
 
     // 앱 실행 시 초기화
     fun init(context: Context) {
         appContext = context.applicationContext
     }
 
-    // FCM 토큰을 새로 받거나 갱신했을 때 호출
-    fun onFcmTokenUpdated(
+    // FCM 등록 완료 시 SDK가 제공하는 FID만 서버에 동기화한다.
+    fun onRegistered(
         context: Context,
-        fcmToken: String,
+        installationId: String,
     ) {
-        if (fcmToken.isBlank()) return
+        if (installationId.isBlank()) return
 
         init(context)
         TokenManager.init(context.applicationContext)
 
-        context.getSharedPreferences(
+        val preferences = context.getSharedPreferences(
             PREFS_NAME,
             Context.MODE_PRIVATE
-        ).edit()
-            .putString(KEY_FCM_TOKEN, fcmToken)
+        )
+        // A new FID must bypass the previous same-session success marker.
+        if (preferences.getString(KEY_INSTALLATION_ID, null) != installationId) {
+            registeredAccessToken = null
+        }
+        preferences.edit()
+            .putString(KEY_INSTALLATION_ID, installationId)
             .apply()
 
-        Log.d(TAG, "FCM 토큰 저장 완료")
+        Log.d(TAG, "FCM installation ID 저장 완료")
 
         // 로그인된 상태라면 서버에 동기화
         syncIfLoggedIn()
     }
 
-    private fun getFcmToken(): String? {
+    private fun getInstallationId(): String? {
         val context = appContext ?: return null
 
         return context.getSharedPreferences(
             PREFS_NAME,
             Context.MODE_PRIVATE
-        ).getString(KEY_FCM_TOKEN, null)
+        ).getString(KEY_INSTALLATION_ID, null)
             ?.takeIf { it.isNotBlank() }
     }
 
     // 로그인 성공 후 호출
     fun onLoginSucceeded() {
         sessionClosed = false
+        registeredAccessToken = null
         syncIfLoggedIn()
     }
 
     // 서버에 현재 기기 등록
     fun syncIfLoggedIn() {
-        if (!SERVER_SYNC_ENABLED || sessionClosed) return
-
-        val fcmToken = getFcmToken() ?: return
-
-        if (TokenManager.accessToken.isNullOrBlank()) return
+        if (sessionClosed) return
+        val installationId = getInstallationId() ?: return
+        val accessToken = TokenManager.accessToken ?: return
+        if (registeredAccessToken == accessToken) return
 
         scope.launch {
             requestMutex.withLock {
                 if (
                     sessionClosed ||
-                    TokenManager.accessToken.isNullOrBlank()
+                    TokenManager.accessToken != accessToken
                 ) {
                     return@withLock
                 }
@@ -100,11 +103,12 @@ object PushDeviceManager {
                     val response =
                         RetrofitClient.pushDeviceApi.registerDevice(
                             PushDeviceRequest(
-                                fcmToken = fcmToken
+                                installationId = installationId
                             )
                         )
 
                     if (response.isSuccessful) {
+                        registeredAccessToken = accessToken
                         Log.d(TAG, "서버 기기 등록 성공")
                     } else {
                         Log.w(
@@ -126,9 +130,7 @@ object PushDeviceManager {
     suspend fun unregisterBeforeLogout() {
         sessionClosed = true
 
-        if (!SERVER_SYNC_ENABLED) return
-
-        val fcmToken = getFcmToken() ?: return
+        val installationId = getInstallationId() ?: return
 
         if (TokenManager.accessToken.isNullOrBlank()) return
 
@@ -137,10 +139,11 @@ object PushDeviceManager {
                 try {
                     val response =
                         RetrofitClient.pushDeviceApi.unregisterDevice(
-                            fcmToken = fcmToken
+                            installationId = installationId
                         )
 
                     if (response.isSuccessful) {
+                        registeredAccessToken = null
                         Log.d(TAG, "서버 기기 등록 해제 성공")
                     } else {
                         Log.w(

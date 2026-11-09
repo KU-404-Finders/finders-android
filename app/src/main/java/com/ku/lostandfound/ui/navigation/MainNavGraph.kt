@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import com.ku.lostandfound.ui.admin.screen.AdminReportUiModel
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,7 +39,6 @@ import com.ku.lostandfound.network.UserMeData
 import com.ku.lostandfound.ui.admin.screen.AdminDashboardScreen
 import com.ku.lostandfound.ui.admin.screen.AdminReportDetailScreen
 import com.ku.lostandfound.ui.admin.screen.AdminReportListScreen
-import com.ku.lostandfound.ui.admin.screen.sampleAdminReports
 import com.ku.lostandfound.ui.board.screen.HomeScreen
 import com.ku.lostandfound.ui.chat.screen.ChatListScreen
 import com.ku.lostandfound.ui.chat.screen.ChatRoomScreen
@@ -107,8 +107,10 @@ fun MainNavGraph(
     var buildings by remember { mutableStateOf<List<CampusBuilding>>(emptyList()) }
     var referencePaths by remember { mutableStateOf<List<CampusPath>>(emptyList()) }
     var posts by remember { mutableStateOf<List<BoardPost>>(emptyList()) }
+    // The server has no administrator report-management API. Never display local samples as
+    // operational reports or allow a fake completion state.
     var adminReports by remember {
-        mutableStateOf(sampleAdminReports)
+        mutableStateOf<List<AdminReportUiModel>>(emptyList())
     }
     var commentsByPostId by remember {
         mutableStateOf<Map<String, List<BoardComment>>>(emptyMap())
@@ -601,6 +603,10 @@ fun MainNavGraph(
                 ?.getLong(Route.ChatRoom.ARG_ROOM_ID)
                 ?: return@composable
 
+            LaunchedEffect(roomId) {
+                if (chatViewModel.roomFor(roomId) == null) chatViewModel.loadRooms()
+            }
+
             DisposableEffect(roomId) {
                 chatViewModel.connectRoom(roomId)
 
@@ -678,6 +684,8 @@ fun MainNavGraph(
 
             ChatRoomScreen(
                 roomId = roomId,
+                roomTitle = chatViewModel.roomFor(roomId)?.roomName
+                    ?: chatViewModel.roomFor(roomId)?.postTitle,
                 messages = chatViewModel.messages,
                 currentUserId = currentUserId,
                 isLoading = chatState is ChatUiState.Loading,
@@ -1117,11 +1125,21 @@ fun MainNavGraph(
                                 ).show()
                             }
 
+                            post.id.toLongOrNull() == null -> {
+                                Toast.makeText(
+                                    context,
+                                    "게시글 정보를 확인할 수 없습니다.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+
                             chatViewModel.uiState is ChatUiState.Loading -> Unit
 
                             else -> {
                                 chatViewModel.createRoom(
                                     recipientId = recipientId,
+                                    postType = post.type.name,
+                                    postId = post.id.toLong(),
                                     onSuccess = { room ->
                                         navController.navigate(
                                             Route.ChatRoom.create(room.id)
@@ -1130,6 +1148,15 @@ fun MainNavGraph(
                                 )
                             }
                         }
+                    },
+                    onUserBlocked = { blockedUserId ->
+                        // Do not retain a successfully blocked author's cached posts. Refreshing
+                        // the boards obtains the server-side visibility filter as well.
+                        posts = posts.filterNot { it.authorUserId == blockedUserId }
+                        lostItemViewModel.loadLostItems()
+                        foundItemViewModel.loadFoundItems()
+                        chatViewModel.loadRooms()
+                        navController.popBackStack()
                     },
                     showOwnerActions = (currentUserId != null && post.authorUserId == currentUserId) ||
                             (post.authorEmail.isNotBlank() && post.authorEmail == currentUserEmail) ||

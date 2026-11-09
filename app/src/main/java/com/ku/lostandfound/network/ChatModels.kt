@@ -2,6 +2,8 @@ package com.ku.lostandfound.network
 
 data class CreateChatRoomRequest(
     val recipientId: Long,
+    val postType: String? = null,
+    val postId: Long? = null,
 )
 
 data class ChatRoomResponse(
@@ -14,11 +16,14 @@ data class ChatRoomResponse(
     val postId: Long? = null,
     val postType: String? = null,
     val postTitle: String? = null,
+    val roomName: String? = null,
+    val lastMessageId: Long? = null,
 
     // 현재는 Android에서 최신 메시지를 조회해서 채움
     val lastMessage: String? = null,
     val lastMessageAt: String? = null,
     val lastMessageSenderId: Long? = null,
+    val unreadMessageCount: Int? = null,
 )
 
 data class ChatMessageResponse(
