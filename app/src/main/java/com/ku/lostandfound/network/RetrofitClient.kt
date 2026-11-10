@@ -38,45 +38,73 @@ object RetrofitClient {
 
     private val authInterceptor = okhttp3.Interceptor { chain ->
         val originalRequest = chain.request()
-        val token = TokenManager.accessToken
         val sessionGeneration = TokenManager.sessionGeneration()
+        val token = TokenManager.accessToken
         val path = originalRequest.url.encodedPath
-        val method = originalRequest.method
-        val isAuthRequest = path.endsWith("/api/v1/auth/login") ||
-                path.endsWith("/api/v1/auth/join") ||
-                path.endsWith("/api/v1/auth/reissue") ||
-                path.endsWith("/api/v1/auth/email/send") ||
-                path.startsWith("/api/v1/auth/password-reset/")
-        val request = if (
-            token != null &&
-            originalRequest.header("Authorization") == null &&
-            !isAuthRequest
-        ) {
+
+        val isAuthRequest =
+            path.endsWith("/api/v1/auth/login") ||
+                    path.endsWith("/api/v1/auth/join") ||
+                    path.endsWith("/api/v1/auth/reissue") ||
+                    path.endsWith("/api/v1/auth/email/send") ||
+                    path.startsWith("/api/v1/auth/password-reset/")
+
+        // 이 인터셉터가 인증 헤더를 추가한 요청만 자동 갱신 대상
+        val shouldAttachToken =
+            !token.isNullOrBlank() &&
+                    originalRequest.header("Authorization") == null &&
+                    !isAuthRequest
+
+        val request = if (shouldAttachToken) {
             originalRequest.newBuilder()
-                .addHeader("Authorization", "Bearer $token")
+                .header("Authorization", "Bearer $token")
                 .build()
         } else {
             originalRequest
         }
+
         val response = chain.proceed(request)
-        if (isAuthenticationFailure(response)) {
-            val newAccessToken = if (!TokenManager.isCurrentSession(sessionGeneration, token)) {
-                null
-            } else {
-                // Share both success and failure with requests that encountered the same
-                // expired credential while a reissue is already in progress.
-                TokenManager.accessToken
-                    ?.takeIf { it != token && TokenManager.isCurrentSession(sessionGeneration) }
-                    ?: refreshTokensCoalesced(sessionGeneration, token)
+
+        if (
+            shouldAttachToken &&
+            isAuthenticationFailure(response) &&
+            TokenManager.isCurrentSession(sessionGeneration)
+        ) {
+            val currentToken = TokenManager.accessToken
+
+            val newAccessToken = when {
+                currentToken.isNullOrBlank() -> null
+
+                // 다른 요청이 이미 토큰을 갱신한 경우 재사용
+                currentToken != token -> currentToken
+
+                // 아직 같은 토큰이라면 갱신 요청 공유
+                else -> refreshTokensCoalesced(
+                    sessionGeneration,
+                    token
+                )
             }
-            if (newAccessToken != null) {
+
+            if (
+                !newAccessToken.isNullOrBlank() &&
+                TokenManager.isCurrentSession(
+                    sessionGeneration,
+                    newAccessToken
+                )
+            ) {
                 response.close()
-                val retryRequest = originalRequest.newBuilder()
-                    .header("Authorization", "Bearer $newAccessToken")
+
+                val retryRequest = request.newBuilder()
+                    .header(
+                        "Authorization",
+                        "Bearer $newAccessToken"
+                    )
                     .build()
+
                 return@Interceptor chain.proceed(retryRequest)
             }
         }
+
         response
     }
 

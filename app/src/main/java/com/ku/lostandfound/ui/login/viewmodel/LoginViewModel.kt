@@ -28,8 +28,11 @@ sealed class LoginUiState {
 class LoginViewModel : ViewModel() {
     var uiState by mutableStateOf<LoginUiState>(LoginUiState.Idle)
         private set
+    private var loginAttemptId = 0L
 
     fun login(emailPrefix: String, password: String) {
+        val attemptId = ++loginAttemptId
+
         viewModelScope.launch {
             val sessionGeneration = TokenManager.sessionGeneration()
             uiState = LoginUiState.Loading
@@ -49,6 +52,9 @@ class LoginViewModel : ViewModel() {
                                 body.data.accessToken,
                                 body.data.refreshToken,
                             )) {
+                            if (attemptId == loginAttemptId) {
+                                uiState = LoginUiState.Idle
+                            }
                             return@launch
                         }
 

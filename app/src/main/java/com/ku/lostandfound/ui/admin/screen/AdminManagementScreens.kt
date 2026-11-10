@@ -1,5 +1,8 @@
 package com.ku.lostandfound.ui.admin.screen
 
+import androidx.compose.ui.Alignment
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -42,8 +45,9 @@ import com.ku.lostandfound.ui.chat.ChatTimeFormatter
 
 private val ManagementBackground = Color(0xFFF5F5F5)
 private val ManagementGreen = Color(0xFF1B6425)
-private val ManagementRed = Color(0xFFD32F2F)
-private val ManagementGray = Color(0xFF777777)
+private val ManagementRed = Color(0xFFC43C3C)
+private val ManagementGray = Color(0xFF5E7063)
+private val ManagementText = Color(0xFF202A22)
 
 @Composable
 fun AdminUserListScreen(
@@ -55,21 +59,68 @@ fun AdminUserListScreen(
     onUserClick: (Long) -> Unit,
 ) {
     var keyword by remember { mutableStateOf("") }
+
     AdminListLayout("사용자 관리", isLoading, errorMessage, onBackClick) {
         item {
-            Row {
-                OutlinedTextField(keyword, { keyword = it }, label = { Text("이름 또는 이메일") }, modifier = Modifier.weight(1f))
-                Spacer(Modifier.width(8.dp))
-                Button(onClick = { onSearch(keyword) }, modifier = Modifier.padding(top = 8.dp)) { Text("검색") }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                OutlinedTextField(
+                    value = keyword,
+                    onValueChange = { keyword = it },
+                    modifier = Modifier.weight(1f),
+                    label = { Text("이름 또는 이메일") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ManagementGreen,
+                        unfocusedBorderColor = Color(0xFFA9BDAD),
+                        focusedLabelColor = ManagementGreen,
+                        unfocusedLabelColor = ManagementGray,
+                        cursorColor = ManagementGreen,
+                        focusedTextColor = ManagementText,
+                        unfocusedTextColor = ManagementText,
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White,
+                    ),
+                )
+                Button(
+                    onClick = { onSearch(keyword.trim()) },
+                    modifier = Modifier.height(56.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ManagementGreen,
+                        contentColor = Color.White,
+                    ),
+                ) {
+                    Text("검색", fontWeight = FontWeight.SemiBold)
+                }
             }
         }
-        if (!isLoading && users.isEmpty()) item { EmptyText("조회된 사용자가 없습니다.") }
+        if (!isLoading && users.isEmpty()) {
+            item { EmptyText("조회된 사용자가 없습니다.") }
+        }
         items(users, key = { it.id }) { user ->
-            Card(Modifier.fillMaxWidth().clickable { onUserClick(user.id) }, colors = CardDefaults.cardColors(containerColor = Color.White)) {
-                Column(Modifier.padding(16.dp)) {
-                    Text(user.name, fontWeight = FontWeight.Bold)
-                    Text(user.email, fontSize = 13.sp, color = ManagementGray)
-                    Text(if (user.suspended) "이용 제한" else user.role, color = if (user.suspended) ManagementRed else ManagementGreen, fontSize = 12.sp)
+            Card(
+                modifier = Modifier.fillMaxWidth().clickable { onUserClick(user.id) },
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Text(user.name, color = ManagementText, fontWeight = FontWeight.Bold)
+                    Text(user.email, color = ManagementGray, fontSize = 13.sp)
+                    Text(
+                        text = if (user.suspended) "이용 제한" else user.role,
+                        color = if (user.suspended) ManagementRed else ManagementGreen,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp,
+                    )
                 }
             }
         }
@@ -85,40 +136,104 @@ fun AdminUserDetailScreen(
     onSuspensionChange: (Boolean) -> Unit,
 ) {
     var showConfirm by remember(user?.id, user?.suspended) { mutableStateOf(false) }
+
     Column(Modifier.fillMaxSize().background(ManagementBackground)) {
         BackTitleBar("사용자 상세", onBackClick)
-        if (isLoading) EmptyText("사용자 정보를 불러오는 중입니다.")
-        else if (errorMessage != null) EmptyText(errorMessage, ManagementRed)
-        else if (user == null) EmptyText("사용자 정보를 찾을 수 없습니다.")
-        else Column(
-            Modifier
-                .fillMaxSize()
-                .padding(20.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(user.name, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Detail("이메일", user.email)
-            Detail("권한", user.role)
-            Detail("상태", if (user.suspended) "이용 제한" else "정상")
-            user.suspensionReason?.let { Detail("사유", it) }
-            Detail("가입일", ChatTimeFormatter.formatListTime(user.createdAt))
-            if (user.role != "ADMIN") {
-                Button(
-                    onClick = { showConfirm = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = if (user.suspended) ManagementGreen else ManagementRed),
+        if (isLoading) {
+            EmptyText("사용자 정보를 불러오는 중입니다.")
+        } else if (errorMessage != null) {
+            EmptyText(errorMessage, ManagementRed)
+        } else if (user == null) {
+            EmptyText("사용자 정보를 찾을 수 없습니다.")
+        } else {
+            Column(
+                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Card(
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text(if (user.suspended) "이용 제한 해제" else "이용 제한") }
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(user.name, color = ManagementText, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Detail("이메일", user.email)
+                        Detail("권한", user.role)
+                        Detail("상태", if (user.suspended) "이용 제한" else "정상")
+                        user.suspensionReason?.let { Detail("사유", it) }
+                        Detail("가입일", ChatTimeFormatter.formatListTime(user.createdAt))
+                    }
+                }
+
+                if (user.role != "ADMIN") {
+                    Button(
+                        onClick = { showConfirm = true },
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (user.suspended) ManagementGreen else ManagementRed,
+                            contentColor = Color.White,
+                        ),
+                    ) {
+                        Text(
+                            text = if (user.suspended) "이용 제한 해제" else "이용 제한",
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
             }
         }
     }
-    if (showConfirm && user != null) AlertDialog(
-        onDismissRequest = { showConfirm = false },
-        title = { Text(if (user.suspended) "이용 제한 해제" else "이용 제한") },
-        text = { Text("서버에 사용자 상태 변경을 요청합니다.") },
-        confirmButton = { TextButton(onClick = { showConfirm = false; onSuspensionChange(!user.suspended) }) { Text("확인") } },
-        dismissButton = { TextButton(onClick = { showConfirm = false }) { Text("취소") } },
-    )
+
+    if (showConfirm && user != null) {
+        val isRelease = user.suspended
+        val accent = if (isRelease) ManagementGreen else ManagementRed
+        AlertDialog(
+            onDismissRequest = { showConfirm = false },
+            title = {
+                Text(
+                    text = if (isRelease) "이용 제한 해제" else "이용 제한",
+                    color = ManagementText,
+                    fontWeight = FontWeight.Bold,
+                )
+            },
+            text = {
+                Text(
+                    text = if (isRelease) {
+                        "${user.name}님의 이용 제한을 해제하시겠습니까?"
+                    } else {
+                        "${user.name}님의 서비스 이용을 제한하시겠습니까?"
+                    },
+                    color = ManagementGray,
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showConfirm = false
+                        onSuspensionChange(!user.suspended)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Color.White),
+                    shape = RoundedCornerShape(10.dp),
+                ) {
+                    Text(if (isRelease) "해제하기" else "제한하기")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirm = false }) {
+                    Text("취소", color = ManagementGray)
+                }
+            },
+            shape = RoundedCornerShape(20.dp),
+            containerColor = Color.White,
+            titleContentColor = ManagementText,
+            textContentColor = ManagementGray,
+        )
+    }
 }
 
 @Composable
@@ -134,10 +249,58 @@ fun AdminPostListScreen(
     var selectedForDeletion by remember { mutableStateOf<AdminPost?>(null) }
     AdminListLayout("게시글 관리", isLoading, errorMessage, onBackClick) {
         item {
-            Row {
-                TextButton(onClick = { onTypeChange("FOUND") }) { Text("습득물") }
-                TextButton(onClick = { onTypeChange("LOST") }) { Text("분실물") }
-                Text(if (postType == "FOUND") "습득물 목록" else "분실물 목록", modifier = Modifier.padding(top = 12.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        color = Color(0xFFE7F2E9),
+                        shape = RoundedCornerShape(14.dp)
+                    )
+                    .padding(5.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                listOf(
+                    "FOUND" to "습득물",
+                    "LOST" to "분실물"
+                ).forEach { (type, label) ->
+
+                    val isSelected = postType == type
+
+                    Button(
+                        onClick = {
+                            if (!isSelected) {
+                                onTypeChange(type)
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isSelected) {
+                                ManagementGreen
+                            } else {
+                                Color.Transparent
+                            },
+                            contentColor = if (isSelected) {
+                                Color.White
+                            } else {
+                                ManagementGreen
+                            }
+                        ),
+                        elevation = ButtonDefaults.buttonElevation(
+                            defaultElevation = 0.dp,
+                            pressedElevation = 0.dp
+                        )
+                    ) {
+                        Text(
+                            text = label,
+                            fontWeight = if (isSelected) {
+                                FontWeight.Bold
+                            } else {
+                                FontWeight.Medium
+                            }
+                        )
+                    }
+                }
             }
         }
         if (!isLoading && posts.isEmpty()) item { EmptyText("조회된 게시글이 없습니다.") }
@@ -152,12 +315,36 @@ fun AdminPostListScreen(
             }
         }
     }
-    selectedForDeletion?.let { post -> AlertDialog(
-        onDismissRequest = { selectedForDeletion = null }, title = { Text("게시글 삭제") },
-        text = { Text("삭제하면 이미지·댓글·매칭도 서버에서 정리됩니다.") },
-        confirmButton = { TextButton(onClick = { selectedForDeletion = null; onDelete(post) }) { Text("삭제", color = ManagementRed) } },
-        dismissButton = { TextButton(onClick = { selectedForDeletion = null }) { Text("취소") } },
-    ) }
+    selectedForDeletion?.let { post ->
+        AlertDialog(
+            onDismissRequest = { selectedForDeletion = null },
+            title = { Text("게시글 삭제", color = ManagementText, fontWeight = FontWeight.Bold) },
+            text = { Text("삭제하면 이미지·댓글·매칭도 서버에서 정리됩니다.", color = ManagementGray) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        selectedForDeletion = null
+                        onDelete(post)
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = ManagementRed, contentColor = Color.White),
+                ) {
+                    Text("삭제하기")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { selectedForDeletion = null }) {
+                    Text("취소", color = ManagementGray)
+                }
+            },
+            shape = RoundedCornerShape(20.dp),
+            containerColor = Color.White,
+            titleContentColor = ManagementText,
+            textContentColor = ManagementGray,
+        )
+    }
+
+
 }
 
 @Composable
@@ -190,4 +377,10 @@ private fun AdminListLayout(title: String, loading: Boolean, error: String?, onB
 }
 
 @Composable private fun EmptyText(text: String, color: Color = ManagementGray) = Text(text, color = color, modifier = Modifier.padding(8.dp))
-@Composable private fun Detail(label: String, value: String) = Row { Text("$label: ", color = ManagementGray); Text(value) }
+@Composable
+private fun Detail(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("$label:", modifier = Modifier.width(62.dp), color = ManagementGray, fontSize = 13.sp)
+        Text(value, modifier = Modifier.weight(1f), color = ManagementText, fontSize = 13.sp)
+    }
+}
