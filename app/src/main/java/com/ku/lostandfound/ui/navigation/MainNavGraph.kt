@@ -9,6 +9,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -441,6 +444,11 @@ fun MainNavGraph(
         navController = navController,
         startDestination = verifiedStartDestination,
         modifier = modifier.padding(padding),
+        enterTransition = { fadeIn(animationSpec = tween(180)) },
+        exitTransition = { fadeOut(animationSpec = tween(180)) },
+        popEnterTransition = { fadeIn(animationSpec = tween(180)) },
+        popExitTransition = { fadeOut(animationSpec = tween(180)) },
+        sizeTransform = { null },
     ) {
         composable(route = Route.Login.route) {
             LoginScreen(
@@ -449,20 +457,30 @@ fun MainNavGraph(
                 canRetrySession = canRetrySession,
                 onRetrySession = {
                     loginViewModel.refreshToken {
+                        clearAuthenticatedUiState()
+
                         canRetrySession = false
                         loginMessage = null
                         userViewModel.loadMe()
+
                         navController.navigate(Route.Found.route) {
-                            popUpTo(Route.Login.route) { inclusive = true }
+                            popUpTo(Route.Login.route) {
+                                inclusive = true
+                            }
                         }
                     }
                 },
                 onLoginSuccess = {
+                    clearAuthenticatedUiState()
+
                     loginMessage = null
                     canRetrySession = false
                     userViewModel.loadMe()
+
                     navController.navigate(Route.Found.route) {
-                        popUpTo(Route.Login.route) { inclusive = true }
+                        popUpTo(Route.Login.route) {
+                            inclusive = true
+                        }
                     }
                 },
                 onNavigateToPasswordReset = {

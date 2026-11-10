@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.ku.lostandfound"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.ku.lostandfound"

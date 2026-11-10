@@ -1,5 +1,6 @@
 package com.ku.lostandfound
 
+import androidx.core.view.WindowCompat
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -70,6 +71,10 @@ class MainActivity : ComponentActivity() {
         FindersNotificationHelper.createChannel(applicationContext)
 
         enableEdgeToEdge()
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = true
+            isAppearanceLightNavigationBars = true
+        }
 
         // FID 기반 FCM 등록을 시작한다. 성공 FID는 onRegistered에서만 서버에 전달한다.
         FirebaseMessaging.getInstance().register()
