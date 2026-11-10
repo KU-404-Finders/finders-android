@@ -87,12 +87,19 @@ import com.ku.lostandfound.viewmodel.PostWriteViewModel
 import kotlinx.coroutines.launch
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Color
 
 private const val SESSION_EXPIRED_MESSAGE = "로그인이 만료되었습니다. 다시 로그인해주세요."
 
 @Composable
 private fun SessionCheckingScreen(modifier: Modifier = Modifier) {
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.White),
+        contentAlignment = Alignment.Center
+    ) {
         CircularProgressIndicator()
     }
 }
@@ -102,6 +109,7 @@ fun MainNavGraph(
     navController: NavHostController,
     modifier: Modifier = Modifier,
     padding: PaddingValues,
+    isFreshLaunch: Boolean,
 ) {
     val context = LocalContext.current
     val displayPreferences = remember(context.applicationContext) {
@@ -136,7 +144,23 @@ fun MainNavGraph(
     var lastAppliedLostListVersion by remember { mutableIntStateOf(0) }
 
     val chatViewModel = viewModel<ChatViewModel>()
-    var startDestination by remember { mutableStateOf<String?>(null) }
+    var startDestination by remember(isFreshLaunch) {
+        mutableStateOf<String?>(
+            if (isFreshLaunch) {
+                when {
+                    TokenManager.accessToken.isNullOrBlank() ->
+                        Route.Login.route
+
+                    !TokenManager.isAccessTokenExpired() ->
+                        Route.Found.route
+
+                    else -> null
+                }
+            } else {
+                null
+            }
+        )
+    }
     var loginMessage by remember { mutableStateOf<String?>(null) }
     var canRetrySession by remember { mutableStateOf(false) }
     // A restored NavController can still contain protected destinations even when the
@@ -146,7 +170,7 @@ fun MainNavGraph(
     LaunchedEffect(Unit) {
         startDestination = when {
             TokenManager.accessToken.isNullOrBlank() -> {
-                clearRestoredAuthenticatedStack = true
+                clearRestoredAuthenticatedStack = !isFreshLaunch
                 Route.Login.route
             }
             !TokenManager.isAccessTokenExpired() -> Route.Found.route

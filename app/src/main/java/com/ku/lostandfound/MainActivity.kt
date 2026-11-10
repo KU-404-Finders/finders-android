@@ -8,6 +8,7 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.WindowInsets
@@ -18,7 +19,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.core.content.edit
-import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.google.firebase.messaging.FirebaseMessaging
@@ -34,6 +34,7 @@ import android.content.Intent
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.ku.lostandfound.notification.NotificationTarget
+import androidx.compose.ui.graphics.Color
 
 @OptIn(ExperimentalLayoutApi::class)
 class MainActivity : ComponentActivity() {
@@ -56,8 +57,6 @@ class MainActivity : ComponentActivity() {
             by mutableStateOf<NotificationTarget?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // The system splash stays visible only until Compose draws its first frame. No fixed
-        // delay is used; MainNavGraph continues to own asynchronous session verification.
         installSplashScreen()
         super.onCreate(savedInstanceState)
 
@@ -213,6 +212,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 Scaffold(
+                    containerColor = Color.White,
                     contentWindowInsets = WindowInsets.safeDrawing,
                     bottomBar = {
                         if (currentRoute in mainRoutes && !isImeVisible) {
@@ -228,6 +228,7 @@ class MainActivity : ComponentActivity() {
                     MainNavGraph(
                         navController = navController,
                         padding = innerPadding,
+                        isFreshLaunch = savedInstanceState == null,
                     )
                 }
             }
