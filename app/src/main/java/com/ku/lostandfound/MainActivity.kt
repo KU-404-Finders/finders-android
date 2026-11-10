@@ -5,18 +5,20 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.core.content.edit
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.google.firebase.messaging.FirebaseMessaging
@@ -33,6 +35,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.ku.lostandfound.notification.NotificationTarget
 
+@OptIn(ExperimentalLayoutApi::class)
 class MainActivity : ComponentActivity() {
 
     private val notificationPermissionLauncher =
@@ -53,6 +56,9 @@ class MainActivity : ComponentActivity() {
             by mutableStateOf<NotificationTarget?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // The system splash stays visible only until Compose draws its first frame. No fixed
+        // delay is used; MainNavGraph continues to own asynchronous session verification.
+        installSplashScreen()
         super.onCreate(savedInstanceState)
 
         if (savedInstanceState == null) {
@@ -78,10 +84,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-        window.setSoftInputMode(
-            WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
-        )
-
         setContent {
             KUfindersTheme {
                 val navController = rememberNavController()
@@ -91,6 +93,7 @@ class MainActivity : ComponentActivity() {
 
                 val currentRoute =
                     backStackEntry?.destination?.route
+                val isImeVisible = WindowInsets.isImeVisible
 
                 val mainRoutes = setOf(
                     Route.Lost.route,
@@ -212,7 +215,7 @@ class MainActivity : ComponentActivity() {
                 Scaffold(
                     contentWindowInsets = WindowInsets.safeDrawing,
                     bottomBar = {
-                        if (currentRoute in mainRoutes) {
+                        if (currentRoute in mainRoutes && !isImeVisible) {
                             AppBottomBar(
                                 currentRoute = currentRoute.orEmpty(),
                                 onTabClick = { targetRoute ->

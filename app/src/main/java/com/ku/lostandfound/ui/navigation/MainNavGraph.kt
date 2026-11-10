@@ -138,20 +138,33 @@ fun MainNavGraph(
     val chatViewModel = viewModel<ChatViewModel>()
     var startDestination by remember { mutableStateOf<String?>(null) }
     var loginMessage by remember { mutableStateOf<String?>(null) }
+    var canRetrySession by remember { mutableStateOf(false) }
+    // A restored NavController can still contain protected destinations even when the
+    // newly verified start destination is Login.
+    var clearRestoredAuthenticatedStack by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         startDestination = when {
-            TokenManager.accessToken.isNullOrBlank() -> Route.Login.route
+            TokenManager.accessToken.isNullOrBlank() -> {
+                clearRestoredAuthenticatedStack = true
+                Route.Login.route
+            }
             !TokenManager.isAccessTokenExpired() -> Route.Found.route
             else -> when (RetrofitClient.refreshSession()) {
                 RefreshSessionResult.Success -> Route.Found.route
                 RefreshSessionResult.InvalidSession -> {
                     loginMessage = SESSION_EXPIRED_MESSAGE
+                    clearRestoredAuthenticatedStack = true
                     Route.Login.route
                 }
                 // Keep credentials on transient failures but never expose a private screen
                 // before a successful verification. The user can sign in again and retry.
-                RefreshSessionResult.RetryableFailure -> Route.Login.route
+                RefreshSessionResult.RetryableFailure -> {
+                    loginMessage = "네트워크 오류로 세션을 확인하지 못했습니다. 다시 시도해주세요."
+                    canRetrySession = true
+                    clearRestoredAuthenticatedStack = true
+                    Route.Login.route
+                }
             }
         }
     }
@@ -333,7 +346,8 @@ fun MainNavGraph(
 
     fun clearAuthenticatedUiState() {
         userViewModel.clearSession()
-        chatViewModel.disconnectRoom()
+        chatViewModel.clearSession()
+        adminViewModel.clearSession()
         postCommentViewModel.clear()
         writeViewModel.reset()
         posts = emptyList()
@@ -341,7 +355,10 @@ fun MainNavGraph(
     }
 
     LaunchedEffect(Unit) {
-        TokenManager.sessionExpired.collect {
+        TokenManager.sessionExpired.collect { expiredGeneration ->
+            // A replayed event can outlive a configuration change. Do not let it end a
+            // newer session created after the expiry was reported.
+            if (!TokenManager.isCurrentSession(expiredGeneration)) return@collect
             clearAuthenticatedUiState()
             loginMessage = SESSION_EXPIRED_MESSAGE
             navigateToLoginClearingBackStack()
@@ -386,6 +403,16 @@ fun MainNavGraph(
         )
     }
 
+    LaunchedEffect(verifiedStartDestination, clearRestoredAuthenticatedStack) {
+        if (
+            clearRestoredAuthenticatedStack &&
+            verifiedStartDestination == Route.Login.route
+        ) {
+            navigateToLoginClearingBackStack()
+            clearRestoredAuthenticatedStack = false
+        }
+    }
+
     NavHost(
         navController = navController,
         startDestination = verifiedStartDestination,
@@ -395,8 +422,20 @@ fun MainNavGraph(
             LoginScreen(
                 viewModel = loginViewModel,
                 sessionMessage = loginMessage,
+                canRetrySession = canRetrySession,
+                onRetrySession = {
+                    loginViewModel.refreshToken {
+                        canRetrySession = false
+                        loginMessage = null
+                        userViewModel.loadMe()
+                        navController.navigate(Route.Found.route) {
+                            popUpTo(Route.Login.route) { inclusive = true }
+                        }
+                    }
+                },
                 onLoginSuccess = {
                     loginMessage = null
+                    canRetrySession = false
                     userViewModel.loadMe()
                     navController.navigate(Route.Found.route) {
                         popUpTo(Route.Login.route) { inclusive = true }
@@ -1462,7 +1501,14 @@ fun MainNavGraph(
                 errorMessage = (adminViewModel.uiState as? AdminUiState.Error)?.message,
                 onBackClick = { navController.popBackStack() },
                 onTypeChange = { adminPostType = it },
-                onDelete = { adminViewModel.deletePost(it) {} },
+                onDelete = { deleted ->
+                    adminViewModel.deletePost(deleted) {
+                        val deletedType = runCatching { PostType.valueOf(deleted.postType) }.getOrNull()
+                        if (deletedType != null) {
+                            posts = posts.filterNot { it.type == deletedType && it.id == deleted.id.toString() }
+                        }
+                    }
+                },
             )
         }
 
@@ -1530,6 +1576,8 @@ fun MainNavGraph(
 
             AdminReportDetailScreen(
                 report = report,
+                isLoading = adminViewModel.uiState is AdminUiState.Loading,
+                errorMessage = (adminViewModel.uiState as? AdminUiState.Error)?.message,
 
                 onBackClick = {
                     navController.popBackStack()

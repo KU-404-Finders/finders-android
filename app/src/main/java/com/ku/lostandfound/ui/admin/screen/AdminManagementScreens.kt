@@ -2,6 +2,8 @@ package com.ku.lostandfound.ui.admin.screen
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -88,7 +90,13 @@ fun AdminUserDetailScreen(
         if (isLoading) EmptyText("사용자 정보를 불러오는 중입니다.")
         else if (errorMessage != null) EmptyText(errorMessage, ManagementRed)
         else if (user == null) EmptyText("사용자 정보를 찾을 수 없습니다.")
-        else Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        else Column(
+            Modifier
+                .fillMaxSize()
+                .padding(20.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             Text(user.name, fontSize = 20.sp, fontWeight = FontWeight.Bold)
             Detail("이메일", user.email)
             Detail("권한", user.role)

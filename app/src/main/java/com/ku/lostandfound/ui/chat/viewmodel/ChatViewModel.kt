@@ -28,6 +28,7 @@ sealed class ChatUiState {
 }
 
 class ChatViewModel : ViewModel() {
+    private var cacheGeneration = 0L
 
     var uiState by mutableStateOf<ChatUiState>(ChatUiState.Idle)
         private set
@@ -68,6 +69,8 @@ class ChatViewModel : ViewModel() {
 
     fun loadRooms() {
         val requestId = ++roomListRequestId
+        val requestGeneration = cacheGeneration
+        val sessionGeneration = TokenManager.sessionGeneration()
 
         viewModelScope.launch {
             uiState = ChatUiState.Loading
@@ -75,7 +78,7 @@ class ChatViewModel : ViewModel() {
             try {
                 val response = RetrofitClient.chatApi.getRooms()
 
-                if (requestId != roomListRequestId) {
+                if (!isCurrentRequest(requestGeneration, sessionGeneration) || requestId != roomListRequestId) {
                     return@launch
                 }
 
@@ -122,7 +125,7 @@ class ChatViewModel : ViewModel() {
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (requestId != roomListRequestId) {
+                if (!isCurrentRequest(requestGeneration, sessionGeneration) || requestId != roomListRequestId) {
                     return@launch
                 }
 
@@ -144,6 +147,8 @@ class ChatViewModel : ViewModel() {
 
         val session = connectionGeneration
         val requestId = ++messageLoadRequestId
+        val requestGeneration = cacheGeneration
+        val sessionGeneration = TokenManager.sessionGeneration()
 
         viewModelScope.launch {
             messageUiState = ChatUiState.Loading
@@ -156,6 +161,7 @@ class ChatViewModel : ViewModel() {
 
                 // 이전 채팅방의 응답이 뒤늦게 도착하면 무시
                 if (
+                    !isCurrentRequest(requestGeneration, sessionGeneration) ||
                     activeRoomId != roomId ||
                     session != connectionGeneration ||
                     requestId != messageLoadRequestId
@@ -196,6 +202,7 @@ class ChatViewModel : ViewModel() {
                 throw e
             } catch (e: Exception) {
                 if (
+                    !isCurrentRequest(requestGeneration, sessionGeneration) ||
                     activeRoomId != roomId ||
                     session != connectionGeneration ||
                     requestId != messageLoadRequestId
@@ -248,6 +255,8 @@ class ChatViewModel : ViewModel() {
         postId: Long,
         onSuccess: (ChatRoomResponse) -> Unit,
     ) {
+        val requestGeneration = cacheGeneration
+        val sessionGeneration = TokenManager.sessionGeneration()
         viewModelScope.launch {
             uiState = ChatUiState.Loading
 
@@ -265,6 +274,7 @@ class ChatViewModel : ViewModel() {
                         postId = postId,
                     )
                 )
+                if (!isCurrentRequest(requestGeneration, sessionGeneration)) return@launch
                 android.util.Log.d(
                     "KUFindersChat",
                     "createRoom HTTP=${response.code()}, " +
@@ -317,6 +327,7 @@ class ChatViewModel : ViewModel() {
                     )
                 }
             } catch (e: Exception) {
+                if (!isCurrentRequest(requestGeneration, sessionGeneration)) return@launch
                 NetworkLog.exception("createChatRoom", e)
 
                 uiState = ChatUiState.Error(
@@ -328,6 +339,20 @@ class ChatViewModel : ViewModel() {
 
     fun clearMessages() {
         messages = emptyList()
+    }
+
+    fun clearSession() {
+        cacheGeneration++
+        roomListRequestId++
+        messageLoadRequestId++
+        authorRequestsInFlight.clear()
+        rooms = emptyList()
+        roomCache = emptyMap()
+        authorInfoByRoomId = emptyMap()
+        messages = emptyList()
+        uiState = ChatUiState.Idle
+        messageUiState = ChatUiState.Idle
+        disconnectRoom()
     }
 
 
@@ -342,6 +367,8 @@ class ChatViewModel : ViewModel() {
 
         if (authorInfoByRoomId.containsKey(room.id)) return
         if (!authorRequestsInFlight.add(room.id)) return
+        val requestGeneration = cacheGeneration
+        val sessionGeneration = TokenManager.sessionGeneration()
 
         viewModelScope.launch {
             try {
@@ -357,6 +384,7 @@ class ChatViewModel : ViewModel() {
                             }?.data
 
                         if (detail != null) {
+                            if (!isCurrentRequest(requestGeneration, sessionGeneration)) return@launch
                             savePostAuthor(
                                 room = room,
                                 authorId = detail.userId,
@@ -379,6 +407,7 @@ class ChatViewModel : ViewModel() {
                             }?.data
 
                         if (detail != null) {
+                            if (!isCurrentRequest(requestGeneration, sessionGeneration)) return@launch
                             savePostAuthor(
                                 room = room,
                                 authorId = detail.userId,
@@ -430,6 +459,9 @@ class ChatViewModel : ViewModel() {
             }
         }
     }
+
+    private fun isCurrentRequest(requestGeneration: Long, sessionGeneration: Long): Boolean =
+        cacheGeneration == requestGeneration && TokenManager.isCurrentSession(sessionGeneration)
 
 
 

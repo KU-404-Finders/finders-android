@@ -12,7 +12,11 @@ object TokenManager {
 
     private var prefs: SharedPreferences? = null
     private var expirationReported = false
-    private val _sessionExpired = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    /** Changes whenever credentials are discarded or a new login is accepted. */
+    private val sessionGeneration = SessionGeneration()
+    // replay keeps an expiry observed while the navigation host is being recreated.
+    // The emitted generation lets a later login ignore this stale event safely.
+    private val _sessionExpired = MutableSharedFlow<Long>(replay = 1, extraBufferCapacity = 1)
     val sessionExpired = _sessionExpired.asSharedFlow()
 
     fun init(context: Context) {
@@ -31,18 +35,45 @@ object TokenManager {
             prefs?.edit()?.putString(KEY_REFRESH_TOKEN, value)?.apply()
         }
 
+    @Synchronized
     fun clear() {
+        sessionGeneration.advance()
         prefs?.edit()?.clear()?.apply()
         expirationReported = false
     }
 
-    fun saveTokens(accessToken: String, refreshToken: String) {
+    /** Accepts a completed login only when it belongs to the session that started it. */
+    @Synchronized
+    fun saveNewSessionTokens(expectedGeneration: Long, accessToken: String, refreshToken: String): Boolean {
+        if (!sessionGeneration.isCurrent(expectedGeneration)) return false
+        sessionGeneration.advance()
         prefs?.edit()
             ?.putString(KEY_ACCESS_TOKEN, accessToken)
             ?.putString(KEY_REFRESH_TOKEN, refreshToken)
             ?.apply()
         expirationReported = false
+        return true
     }
+
+    /** Accepts a refresh result only while its original authenticated session is still active. */
+    @Synchronized
+    fun saveRefreshedTokens(expectedGeneration: Long, accessToken: String, refreshToken: String): Boolean {
+        if (!sessionGeneration.isCurrent(expectedGeneration) || this.accessToken.isNullOrBlank()) return false
+        prefs?.edit()
+            ?.putString(KEY_ACCESS_TOKEN, accessToken)
+            ?.putString(KEY_REFRESH_TOKEN, refreshToken)
+            ?.apply()
+        expirationReported = false
+        return true
+    }
+
+    @Synchronized
+    fun sessionGeneration(): Long = sessionGeneration.capture()
+
+    @Synchronized
+    fun isCurrentSession(expectedGeneration: Long, expectedAccessToken: String? = null): Boolean =
+        sessionGeneration.isCurrent(expectedGeneration) &&
+                (expectedAccessToken == null || accessToken == expectedAccessToken)
 
     /**
      * Clears only confirmed-invalid credentials and notifies the UI once. Network failures must
@@ -50,10 +81,11 @@ object TokenManager {
      */
     @Synchronized
     fun expireSession() {
+        val expiredGeneration = sessionGeneration.advance()
         prefs?.edit()?.clear()?.apply()
         if (!expirationReported) {
             expirationReported = true
-            _sessionExpired.tryEmit(Unit)
+            _sessionExpired.tryEmit(expiredGeneration)
         }
     }
 

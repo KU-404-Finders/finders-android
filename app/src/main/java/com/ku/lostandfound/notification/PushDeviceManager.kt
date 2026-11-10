@@ -8,6 +8,7 @@ import com.ku.lostandfound.network.TokenManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
@@ -33,6 +34,8 @@ object PushDeviceManager {
     )
 
     private val requestMutex = Mutex()
+    @Volatile
+    private var registrationJob: Job? = null
 
     @Volatile
     private var sessionClosed = false
@@ -60,6 +63,7 @@ object PushDeviceManager {
         // A new FID must bypass the previous same-session success marker.
         if (preferences.getString(KEY_INSTALLATION_ID, null) != installationId) {
             registeredKey = null
+            registrationJob?.cancel()
         }
         preferences.edit {
             putString(KEY_INSTALLATION_ID, installationId)
@@ -85,6 +89,7 @@ object PushDeviceManager {
     fun onLoginSucceeded() {
         sessionClosed = false
         registeredKey = null
+        registrationJob?.cancel()
         syncIfLoggedIn()
     }
 
@@ -96,7 +101,8 @@ object PushDeviceManager {
         val key = installationId to accessToken
         if (registeredKey == key) return
 
-        scope.launch {
+        registrationJob?.cancel()
+        registrationJob = scope.launch {
             requestMutex.withLock {
                 if (
                     sessionClosed ||
@@ -138,14 +144,16 @@ object PushDeviceManager {
     }
 
     // 로그아웃 전에 서버 등록 해제
-    suspend fun unregisterBeforeLogout() {
+    suspend fun unregisterBeforeLogout(authorization: String) {
         sessionClosed = true
+        // A registration retry may be waiting under requestMutex. Cancelling it releases the
+        // mutex immediately so the bounded unregistration attempt gets its own time budget.
+        registrationJob?.cancel()
+        registrationJob = null
 
         if (!SERVER_SYNC_ENABLED) return
 
         val installationId = getInstallationId() ?: return
-
-        if (TokenManager.accessToken.isNullOrBlank()) return
 
         withContext(Dispatchers.IO) {
             requestMutex.withLock {
@@ -153,6 +161,7 @@ object PushDeviceManager {
                     val attempt = index + 1
                     val retryable = try {
                         val response = RetrofitClient.pushDeviceApi.unregisterDevice(
+                            authorization = authorization,
                             installationId = installationId
                         )
 

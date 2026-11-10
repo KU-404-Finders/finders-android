@@ -1,5 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.KUfinders" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.KUfinders" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#FFFBF7</item>
+        <item name="android:colorAccent">#1B6425</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">#FFFBF7</item>
+    </style>
+
+    <style name="Theme.KUfinders.Starting" parent="Theme.SplashScreen">
+        <!-- Covers the brief pre-Splash window as well as the system splash. -->
+        <item name="android:windowBackground">#FFFBF7</item>
+        <item name="android:statusBarColor">#FFFBF7</item>
+        <item name="android:navigationBarColor">#FFFBF7</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="windowSplashScreenBackground">#FFFBF7</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="postSplashScreenTheme">@style/Theme.KUfinders</item>
+    </style>
 </resources>

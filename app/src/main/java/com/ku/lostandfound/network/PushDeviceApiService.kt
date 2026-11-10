@@ -3,6 +3,7 @@ package com.ku.lostandfound.network
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.DELETE
+import retrofit2.http.Header
 import retrofit2.http.PUT
 import retrofit2.http.Path
 
@@ -22,6 +23,7 @@ interface PushDeviceApiService {
     // 로그아웃 시 현재 기기 등록 해제
     @DELETE("api/v1/users/me/push-devices/{installationId}")
     suspend fun unregisterDevice(
+        @Header("Authorization") authorization: String,
         @Path("installationId") installationId: String,
     ): Response<Unit>
 }

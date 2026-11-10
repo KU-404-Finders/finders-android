@@ -39,9 +39,25 @@ private val DangerRed = Color(0xFFD32F2F)
 @Composable
 fun AdminReportDetailScreen(
     report: AdminReportUiModel?,
+    isLoading: Boolean = false,
+    errorMessage: String? = null,
     onBackClick: () -> Unit,
     onActionConfirmed: (String) -> Unit,
 ) {
+
+    if (report == null && (isLoading || errorMessage != null)) {
+        Column(
+            modifier = Modifier.fillMaxSize().background(ScreenGray)
+        ) {
+            BackTitleBar(title = "신고 상세", onBackClick = onBackClick)
+            Text(
+                text = errorMessage ?: "신고 정보를 불러오는 중입니다.",
+                modifier = Modifier.padding(20.dp),
+                color = if (errorMessage != null) DangerRed else TextGray,
+            )
+        }
+        return
+    }
 
     if (report == null) {
         Column(

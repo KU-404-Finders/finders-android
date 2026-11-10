@@ -31,6 +31,7 @@ class LoginViewModel : ViewModel() {
 
     fun login(emailPrefix: String, password: String) {
         viewModelScope.launch {
+            val sessionGeneration = TokenManager.sessionGeneration()
             uiState = LoginUiState.Loading
 
             try {
@@ -43,7 +44,13 @@ class LoginViewModel : ViewModel() {
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true && body.data != null) {
-                        TokenManager.saveTokens(body.data.accessToken, body.data.refreshToken)
+                        if (!TokenManager.saveNewSessionTokens(
+                                sessionGeneration,
+                                body.data.accessToken,
+                                body.data.refreshToken,
+                            )) {
+                            return@launch
+                        }
 
                         // 로그인된 사용자와 Firebase 기기 연결
                         PushDeviceManager.onLoginSucceeded()
@@ -69,10 +76,14 @@ class LoginViewModel : ViewModel() {
         }
     }
 
-    fun refreshToken() {
+    fun refreshToken(onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
+            uiState = LoginUiState.Loading
             when (RetrofitClient.refreshSession()) {
-                RefreshSessionResult.Success -> Unit
+                RefreshSessionResult.Success -> {
+                    uiState = LoginUiState.Idle
+                    onSuccess()
+                }
                 RefreshSessionResult.InvalidSession -> {
                     uiState = LoginUiState.Error("로그인이 만료되었습니다. 다시 로그인해주세요.")
                 }
@@ -85,25 +96,26 @@ class LoginViewModel : ViewModel() {
 
     fun logout(onFinished: () -> Unit) {
         viewModelScope.launch {
+            // Invalidate before any suspend call so an in-flight refresh cannot restore this
+            // session while server-side device cleanup is still running.
+            val authorization = TokenManager.accessToken?.let { "Bearer $it" }
+            TokenManager.clear()
+            uiState = LoginUiState.Idle
+            onFinished()
+
             try {
-                // JWT를 삭제하기 전에 기기 등록 해제
-                // 서버 오류로 로그아웃이 지나치게 지연되지 않도록 제한
-                withTimeoutOrNull(4000L.milliseconds) {
-                    PushDeviceManager.unregisterBeforeLogout()
+                // The captured header permits best-effort server cleanup after the local
+                // session has been invalidated.
+                if (authorization != null) {
+                    withTimeoutOrNull(4000L.milliseconds) {
+                        PushDeviceManager.unregisterBeforeLogout(authorization)
+                    }
+                    RetrofitClient.authApi.logout(authorization)
                 }
-
-                RetrofitClient.authApi.logout(
-                    bearerTokenOrThrow()
-                )
-
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 NetworkLog.exception("logout", e)
-            } finally {
-                TokenManager.clear()
-                uiState = LoginUiState.Idle
-                onFinished()
             }
         }
     }
@@ -114,7 +126,7 @@ class LoginViewModel : ViewModel() {
                 // 탈퇴 전에 현재 기기의 푸시 토큰도 서버에서 해제한다.
                 // 실패해도 탈퇴 API는 진행하며, 서버는 탈퇴 처리 시 남은 토큰도 삭제해야 한다.
                 withTimeoutOrNull(4000L.milliseconds) {
-                    PushDeviceManager.unregisterBeforeLogout()
+                    PushDeviceManager.unregisterBeforeLogout(bearerTokenOrThrow())
                 }
 
                 val response = RetrofitClient.authApi.withdraw(bearerTokenOrThrow())

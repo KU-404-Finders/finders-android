@@ -167,6 +167,7 @@ fun ChatRoomScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .imePadding()
                 .background(Color.White)
                 .padding(
                     horizontal = 16.dp,

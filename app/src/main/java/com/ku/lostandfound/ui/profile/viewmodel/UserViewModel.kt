@@ -12,6 +12,7 @@ import com.ku.lostandfound.network.MyFoundItemData
 import com.ku.lostandfound.network.MyLostItemData
 import com.ku.lostandfound.network.NetworkLog
 import com.ku.lostandfound.network.RetrofitClient
+import com.ku.lostandfound.network.TokenManager
 import com.ku.lostandfound.network.UserMeData
 import com.ku.lostandfound.network.httpErrorMessage
 import kotlinx.coroutines.launch
@@ -29,6 +30,7 @@ sealed class MyPostsUiState {
 }
 
 class UserViewModel : ViewModel() {
+    private var cacheGeneration = 0L
     var uiState by mutableStateOf<UserUiState>(UserUiState.Idle)
         private set
 
@@ -63,6 +65,8 @@ class UserViewModel : ViewModel() {
     }
 
     suspend fun loadMeNow(): UserMeData? {
+        val requestGeneration = cacheGeneration
+        val sessionGeneration = TokenManager.sessionGeneration()
         android.util.Log.d(
             "KUFindersChat",
             "loadMeNow 함수 실행됨"
@@ -71,6 +75,7 @@ class UserViewModel : ViewModel() {
         uiState = UserUiState.Loading
         return try {
             val response = RetrofitClient.userApi.getMe()
+            if (!isCurrentRequest(requestGeneration, sessionGeneration)) return null
 
             android.util.Log.d(
                 "KUFindersChat",
@@ -100,6 +105,7 @@ class UserViewModel : ViewModel() {
                 null
             }
         } catch (e: Exception) {
+            if (!isCurrentRequest(requestGeneration, sessionGeneration)) return null
             android.util.Log.e(
                 "KUFindersChat",
                 "loadMeNow 오류: ${e.javaClass.simpleName}: ${e.message}",
@@ -117,10 +123,13 @@ class UserViewModel : ViewModel() {
 
     fun loadMyPostCounts() {
         viewModelScope.launch {
+            val requestGeneration = cacheGeneration
+            val sessionGeneration = TokenManager.sessionGeneration()
             myPostCountState = MyPostsUiState.Loading
             try {
                 val lostResponse = RetrofitClient.userApi.getMyLostItems()
                 val foundResponse = RetrofitClient.userApi.getMyFoundItems()
+                if (!isCurrentRequest(requestGeneration, sessionGeneration)) return@launch
 
                 if (lostResponse.isSuccessful && foundResponse.isSuccessful) {
                     val lostBody = lostResponse.body()
@@ -141,6 +150,7 @@ class UserViewModel : ViewModel() {
                     myPostCountState = MyPostsUiState.Error(authAwareMessage(response.code(), parseErrorMessage(errorBody)))
                 }
             } catch (e: Exception) {
+                if (!isCurrentRequest(requestGeneration, sessionGeneration)) return@launch
                 NetworkLog.exception("loadMyPostCounts", e)
                 myPostCountState = MyPostsUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
             }
@@ -149,9 +159,12 @@ class UserViewModel : ViewModel() {
 
     fun loadMyLostItems() {
         viewModelScope.launch {
+            val requestGeneration = cacheGeneration
+            val sessionGeneration = TokenManager.sessionGeneration()
             myLostItemsState = MyPostsUiState.Loading
             try {
                 val response = RetrofitClient.userApi.getMyLostItems()
+                if (!isCurrentRequest(requestGeneration, sessionGeneration)) return@launch
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true) {
@@ -167,6 +180,7 @@ class UserViewModel : ViewModel() {
                     myLostItemsState = MyPostsUiState.Error(authAwareMessage(response.code(), parseErrorMessage(errorBody)))
                 }
             } catch (e: Exception) {
+                if (!isCurrentRequest(requestGeneration, sessionGeneration)) return@launch
                 NetworkLog.exception("loadMyLostItems", e)
                 myLostItemsState = MyPostsUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
             }
@@ -175,9 +189,12 @@ class UserViewModel : ViewModel() {
 
     fun loadMyFoundItems() {
         viewModelScope.launch {
+            val requestGeneration = cacheGeneration
+            val sessionGeneration = TokenManager.sessionGeneration()
             myFoundItemsState = MyPostsUiState.Loading
             try {
                 val response = RetrofitClient.userApi.getMyFoundItems()
+                if (!isCurrentRequest(requestGeneration, sessionGeneration)) return@launch
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true) {
@@ -193,6 +210,7 @@ class UserViewModel : ViewModel() {
                     myFoundItemsState = MyPostsUiState.Error(authAwareMessage(response.code(), parseErrorMessage(errorBody)))
                 }
             } catch (e: Exception) {
+                if (!isCurrentRequest(requestGeneration, sessionGeneration)) return@launch
                 NetworkLog.exception("loadMyFoundItems", e)
                 myFoundItemsState = MyPostsUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
             }
@@ -200,6 +218,7 @@ class UserViewModel : ViewModel() {
     }
 
     fun clearSession() {
+        cacheGeneration++
         me = null
         myLostCount = null
         myFoundCount = null
@@ -214,6 +233,8 @@ class UserViewModel : ViewModel() {
     /** Keeps a block request alive when the detail composable leaves composition. */
     fun blockUser(userId: Long, onFinished: (Boolean) -> Unit) {
         viewModelScope.launch {
+            val requestGeneration = cacheGeneration
+            val sessionGeneration = TokenManager.sessionGeneration()
             val success = try {
                 val response = RetrofitClient.moderationApi.block(userId)
                 response.isSuccessful && response.body()?.success == true
@@ -223,7 +244,7 @@ class UserViewModel : ViewModel() {
                 NetworkLog.exception("blockUser", e)
                 false
             }
-            onFinished(success)
+            if (isCurrentRequest(requestGeneration, sessionGeneration)) onFinished(success)
         }
     }
 
@@ -243,4 +264,7 @@ class UserViewModel : ViewModel() {
             httpErrorMessage(code, fallback)
         }
     }
+
+    private fun isCurrentRequest(requestGeneration: Long, sessionGeneration: Long): Boolean =
+        cacheGeneration == requestGeneration && TokenManager.isCurrentSession(sessionGeneration)
 }

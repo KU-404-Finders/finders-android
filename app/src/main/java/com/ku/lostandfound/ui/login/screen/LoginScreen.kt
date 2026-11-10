@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Email
@@ -39,10 +40,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -56,6 +60,8 @@ import com.ku.lostandfound.ui.login.viewmodel.LoginViewModel
 fun LoginScreen(
     viewModel: LoginViewModel,
     sessionMessage: String? = null,
+    canRetrySession: Boolean = false,
+    onRetrySession: () -> Unit = {},
     onLoginSuccess: () -> Unit = {},
     onNavigateToSignUp: () -> Unit = {},
     onNavigateToPasswordReset: () -> Unit = {},
@@ -64,6 +70,7 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
+    val passwordFocusRequester = remember { FocusRequester() }
 
     val uiState = viewModel.uiState
     val isLoading = uiState is LoginUiState.Loading
@@ -133,6 +140,13 @@ fun LoginScreen(
                     )
                 },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Email,
+                    imeAction = ImeAction.Next,
+                ),
+                keyboardActions = KeyboardActions(
+                    onNext = { passwordFocusRequester.requestFocus() },
+                ),
                 isError = errorMessage != null,
                 shape = RoundedCornerShape(8.dp),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -182,7 +196,16 @@ fun LoginScreen(
                 },
                 singleLine = true,
                 visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Password,
+                    imeAction = ImeAction.Done,
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = {
+                        focusManager.clearFocus()
+                        if (isLoginEnabled) viewModel.login(emailPrefix, password)
+                    },
+                ),
                 isError = errorMessage != null,
                 shape = RoundedCornerShape(8.dp),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -192,7 +215,9 @@ fun LoginScreen(
                     unfocusedTextColor = Color.Black,
                     errorBorderColor = Color.Red
                 ),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(passwordFocusRequester)
             )
         }
 
@@ -207,6 +232,22 @@ fun LoginScreen(
             )
         } else {
             Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        if (canRetrySession) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(
+                onClick = onRetrySession,
+                enabled = !isLoading,
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF4A6741),
+                    disabledContainerColor = Color(0xFFD9D9D9),
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("저장된 세션 다시 시도")
+            }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
