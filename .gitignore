@@ -25,3 +25,5 @@ local.properties
 # Local release build outputs
 app/release/
 .idea/inspectionProfiles/
+# Local Gradle / Codex build logs
+/*.log
