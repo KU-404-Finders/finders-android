@@ -31,6 +31,11 @@ class PostCommentViewModel : ViewModel() {
     var commentsByPostId by mutableStateOf<Map<String, List<BoardComment>>>(emptyMap())
         private set
 
+    var isAddingComment by mutableStateOf(false)
+        private set
+
+    private val deletingCommentIds = mutableSetOf<Long>()
+
     fun loadComments(postId: Long, postType: PostType) {
         viewModelScope.launch {
             loadCommentsNow(postId, postType)
@@ -66,8 +71,15 @@ class PostCommentViewModel : ViewModel() {
             }
     }
 
-    fun addComment(postId: Long, postType: PostType, content: String) {
-        if (content.isBlank()) return
+    fun addComment(
+        postId: Long,
+        postType: PostType,
+        content: String,
+        onSuccess: (BoardComment) -> Unit = {},
+        onFailure: (String) -> Unit = {},
+    ) {
+        if (content.isBlank() || isAddingComment) return
+        isAddingComment = true
         viewModelScope.launch {
             try {
                 val authorization = bearerTokenOrThrow()
@@ -89,24 +101,40 @@ class PostCommentViewModel : ViewModel() {
                     if (body?.success == true && body.data != null) {
                         val postKey = postKey(postId, postType)
                         val current = commentsByPostId[postKey].orEmpty()
-                        commentsByPostId = commentsByPostId + (postKey to (current + body.data.toBoardComment(postKey)))
+                        val createdComment = body.data.toBoardComment(postKey)
+                        commentsByPostId = commentsByPostId + (postKey to (current + createdComment))
                         uiState = PostCommentUiState.Idle
+                        onSuccess(createdComment)
                     } else {
-                        uiState = PostCommentUiState.Error(body?.message ?: "댓글 등록에 실패했습니다.")
+                        val message = body?.message ?: "댓글 등록에 실패했습니다."
+                        uiState = PostCommentUiState.Error(message)
+                        onFailure(message)
                     }
                 } else {
                     val errorBody = response.errorBody()?.string()
                     NetworkLog.httpError("addComment", response.code(), errorBody)
-                    uiState = PostCommentUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
+                    val message = httpErrorMessage(response.code(), parseErrorMessage(errorBody))
+                    uiState = PostCommentUiState.Error(message)
+                    onFailure(message)
                 }
             } catch (e: Exception) {
                 NetworkLog.exception("addComment", e)
-                uiState = PostCommentUiState.Error(e.message ?: "서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
+                val message = e.message ?: "서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요."
+                uiState = PostCommentUiState.Error(message)
+                onFailure(message)
+            } finally {
+                isAddingComment = false
             }
         }
     }
 
-    fun deleteComment(postId: Long, postType: PostType, commentId: Long) {
+    fun deleteComment(
+        postId: Long,
+        postType: PostType,
+        commentId: Long,
+        onFailure: (String) -> Unit = {},
+    ) {
+        if (!deletingCommentIds.add(commentId)) return
         viewModelScope.launch {
             try {
                 val authorization = bearerTokenOrThrow()
@@ -131,16 +159,24 @@ class PostCommentViewModel : ViewModel() {
                             )
                         uiState = PostCommentUiState.Idle
                     } else {
-                        uiState = PostCommentUiState.Error(body?.message ?: "댓글 삭제에 실패했습니다.")
+                        val message = body?.message ?: "댓글 삭제에 실패했습니다."
+                        uiState = PostCommentUiState.Error(message)
+                        onFailure(message)
                     }
                 } else {
                     val errorBody = response.errorBody()?.string()
                     NetworkLog.httpError("deleteComment", response.code(), errorBody)
-                    uiState = PostCommentUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
+                    val message = httpErrorMessage(response.code(), parseErrorMessage(errorBody))
+                    uiState = PostCommentUiState.Error(message)
+                    onFailure(message)
                 }
             } catch (e: Exception) {
                 NetworkLog.exception("deleteComment", e)
-                uiState = PostCommentUiState.Error(e.message ?: "서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
+                val message = e.message ?: "서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요."
+                uiState = PostCommentUiState.Error(message)
+                onFailure(message)
+            } finally {
+                deletingCommentIds.remove(commentId)
             }
         }
     }
@@ -220,6 +256,8 @@ class PostCommentViewModel : ViewModel() {
     fun clear() {
         commentsByPostId = emptyMap()
         uiState = PostCommentUiState.Idle
+        isAddingComment = false
+        deletingCommentIds.clear()
     }
 
     private fun postKey(postId: Long, postType: PostType): String = "${postType.name}:$postId"

@@ -18,6 +18,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,6 +66,10 @@ fun HomeScreen(
     onLostTabClick: () -> Unit,
     onProfileClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
+    isLoading: Boolean = false,
+    errorMessage: String? = null,
+    emptyMessage: String? = null,
+    onRetryClick: (() -> Unit)? = null,
 ) {
     Column(
         modifier = Modifier
@@ -146,6 +153,32 @@ fun HomeScreen(
                     )
                 }
             }
+
+            when {
+                isLoading -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.Center),
+                        color = DeepGreen,
+                    )
+                }
+
+                errorMessage != null -> {
+                    BoardStateMessage(
+                        message = errorMessage,
+                        actionLabel = "다시 시도",
+                        onActionClick = onRetryClick,
+                        modifier = Modifier.align(Alignment.Center),
+                    )
+                }
+
+                posts.isEmpty() && emptyMessage != null -> {
+                    BoardStateMessage(
+                        message = emptyMessage,
+                        modifier = Modifier.align(Alignment.Center),
+                    )
+                }
+            }
+
             FloatingActionButton(
                 onClick = onAddClick,
                 modifier = Modifier
@@ -160,6 +193,38 @@ fun HomeScreen(
                 )
             }
 
+        }
+    }
+}
+
+@Composable
+private fun BoardStateMessage(
+    message: String,
+    modifier: Modifier = Modifier,
+    actionLabel: String? = null,
+    onActionClick: (() -> Unit)? = null,
+) {
+    Column(
+        modifier = modifier.padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = message,
+            color = Color(0xFF666666),
+            fontSize = 14.sp,
+            textAlign = TextAlign.Center,
+        )
+        if (actionLabel != null && onActionClick != null) {
+            Button(
+                onClick = onActionClick,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = DeepGreen,
+                    contentColor = Color.White,
+                ),
+            ) {
+                Text(actionLabel, fontSize = 13.sp)
+            }
         }
     }
 }

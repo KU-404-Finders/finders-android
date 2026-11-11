@@ -26,6 +26,9 @@ fun FoundBoardScreen(
     onProfileClick: () -> Unit,
     onSearchClick: () -> Unit = {},
     onBuildingSelected: (CampusBuilding?) -> Unit = {},
+    isLoading: Boolean = false,
+    errorMessage: String? = null,
+    onRetryClick: () -> Unit = {},
 ) {
     var selectedBuilding by remember { mutableStateOf<CampusBuilding?>(null) }
     val foundPosts = posts.filter { it.type == PostType.FOUND }
@@ -63,5 +66,9 @@ fun FoundBoardScreen(
         onLostTabClick = onLostTabClick,
         onProfileClick = onProfileClick,
         onSearchClick = onSearchClick,
+        isLoading = isLoading,
+        errorMessage = errorMessage,
+        emptyMessage = "표시할 습득물 게시글이 없습니다.",
+        onRetryClick = onRetryClick,
     )
 }

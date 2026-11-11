@@ -2,30 +2,31 @@ package com.ku.lostandfound.ui.navigation
 
 import android.util.Log
 import android.widget.Toast
+import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.core.tween
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import com.ku.lostandfound.ui.admin.screen.AdminReportUiModel
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -43,15 +44,16 @@ import com.ku.lostandfound.data.PostStatus
 import com.ku.lostandfound.data.PostType
 import com.ku.lostandfound.network.MyFoundItemData
 import com.ku.lostandfound.network.MyLostItemData
-import com.ku.lostandfound.network.TokenManager
 import com.ku.lostandfound.network.RefreshSessionResult
 import com.ku.lostandfound.network.RetrofitClient
+import com.ku.lostandfound.network.TokenManager
 import com.ku.lostandfound.network.UserMeData
-import com.ku.lostandfound.ui.admin.screen.AdminDashboardScreen
 import com.ku.lostandfound.ui.admin.screen.AdminAuditLogScreen
+import com.ku.lostandfound.ui.admin.screen.AdminDashboardScreen
 import com.ku.lostandfound.ui.admin.screen.AdminPostListScreen
 import com.ku.lostandfound.ui.admin.screen.AdminReportDetailScreen
 import com.ku.lostandfound.ui.admin.screen.AdminReportListScreen
+import com.ku.lostandfound.ui.admin.screen.AdminReportUiModel
 import com.ku.lostandfound.ui.admin.screen.AdminUserDetailScreen
 import com.ku.lostandfound.ui.admin.screen.AdminUserListScreen
 import com.ku.lostandfound.ui.admin.viewmodel.AdminUiState
@@ -63,16 +65,17 @@ import com.ku.lostandfound.ui.chat.viewmodel.ChatUiState
 import com.ku.lostandfound.ui.chat.viewmodel.ChatViewModel
 import com.ku.lostandfound.ui.found.screen.FoundBoardScreen
 import com.ku.lostandfound.ui.found.viewmodel.FoundItemMatchUiState
+import com.ku.lostandfound.ui.found.viewmodel.FoundItemUiState
 import com.ku.lostandfound.ui.found.viewmodel.FoundItemViewModel
 import com.ku.lostandfound.ui.location.screen.LocationPickerScreen
 import com.ku.lostandfound.ui.login.screen.LoginScreen
 import com.ku.lostandfound.ui.login.viewmodel.LoginViewModel
-import com.ku.lostandfound.ui.passwordreset.screen.PasswordResetEmailScreen
-import com.ku.lostandfound.ui.passwordreset.screen.PasswordResetCodeScreen
-import com.ku.lostandfound.ui.passwordreset.screen.PasswordResetPasswordScreen
-import com.ku.lostandfound.ui.passwordreset.viewmodel.PasswordResetViewModel
 import com.ku.lostandfound.ui.lost.screen.LostBoardScreen
 import com.ku.lostandfound.ui.lost.viewmodel.LostItemViewModel
+import com.ku.lostandfound.ui.passwordreset.screen.PasswordResetCodeScreen
+import com.ku.lostandfound.ui.passwordreset.screen.PasswordResetEmailScreen
+import com.ku.lostandfound.ui.passwordreset.screen.PasswordResetPasswordScreen
+import com.ku.lostandfound.ui.passwordreset.viewmodel.PasswordResetViewModel
 import com.ku.lostandfound.ui.post.screen.MatchCandidateUiModel
 import com.ku.lostandfound.ui.post.screen.PostDetailScreen
 import com.ku.lostandfound.ui.post.screen.PostWriteScreen
@@ -90,11 +93,6 @@ import com.ku.lostandfound.ui.signup.screen.SignupPwScreen
 import com.ku.lostandfound.ui.signup.viewmodel.SignupViewmodel
 import com.ku.lostandfound.viewmodel.PostWriteViewModel
 import kotlinx.coroutines.launch
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.compose.foundation.background
-import androidx.compose.ui.graphics.Color
-import androidx.compose.animation.EnterTransition
 
 private const val SESSION_EXPIRED_MESSAGE = "로그인이 만료되었습니다. 다시 로그인해주세요."
 
@@ -179,6 +177,7 @@ fun MainNavGraph(
                 clearRestoredAuthenticatedStack = !isFreshLaunch
                 Route.Login.route
             }
+
             !TokenManager.isAccessTokenExpired() -> Route.Found.route
             else -> when (RetrofitClient.refreshSession()) {
                 RefreshSessionResult.Success -> Route.Found.route
@@ -453,6 +452,8 @@ fun MainNavGraph(
         exitTransition = { ExitTransition.None },
         popEnterTransition = { EnterTransition.None },
         popExitTransition = { ExitTransition.None },
+        predictivePopEnterTransition = { EnterTransition.None },
+        predictivePopExitTransition = { ExitTransition.None },
         sizeTransform = { null },
     ) {
         composable(route = Route.Login.route) {
@@ -523,7 +524,13 @@ fun MainNavGraph(
                     }
                 },
                 back = { navController.popBackStack() },
-                restart = { navController.navigate(Route.PasswordResetEmail.route) { popUpTo(Route.PasswordResetEmail.route) { inclusive = true } } },
+                restart = {
+                    navController.navigate(Route.PasswordResetEmail.route) {
+                        popUpTo(Route.PasswordResetEmail.route) {
+                            inclusive = true
+                        }
+                    }
+                },
             )
         }
         composable(route = Route.SignupName.route) {
@@ -620,6 +627,9 @@ fun MainNavGraph(
                             foundItemViewModel.loadFoundItemsByBuilding(building.name)
                         }
                     },
+                    isLoading = foundItemViewModel.uiState is FoundItemUiState.Loading,
+                    errorMessage = (foundItemViewModel.uiState as? FoundItemUiState.Error)?.message,
+                    onRetryClick = { foundItemViewModel.retryFoundItems() },
                 )
             }
         }
@@ -1407,13 +1417,25 @@ fun MainNavGraph(
                     currentUserName = currentUserName,
                     currentUserEmail = currentUserEmail,
                     currentUserId = currentUserId,
-                    onAddComment = { content ->
+                    onAddComment = { content, onSuccess ->
                         if (numericItemId != null) {
-                            postCommentViewModel.addComment(numericItemId, post.type, content)
+                            postCommentViewModel.addComment(
+                                postId = numericItemId,
+                                postType = post.type,
+                                content = content,
+                                onSuccess = { createdComment ->
+                                    onSuccess(createdComment.id)
+                                },
+                                onFailure = { message ->
+                                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                                },
+                            )
                         } else {
                             addComment(post.id, content)
+                            onSuccess(commentsByPostId[post.id].orEmpty().last().id)
                         }
                     },
+                    isCommentSubmitting = postCommentViewModel.isAddingComment,
                     matchCandidates = matchCandidates,
                     isDetailLoading = isDetailLoading,
                     isMatchLoading = isMatchLoading,
@@ -1422,7 +1444,14 @@ fun MainNavGraph(
                         val itemId = post.id.toLongOrNull()
                         val commentId = comment.id.toLongOrNull()
                         if (itemId != null && commentId != null) {
-                            postCommentViewModel.deleteComment(itemId, post.type, commentId)
+                            postCommentViewModel.deleteComment(
+                                postId = itemId,
+                                postType = post.type,
+                                commentId = commentId,
+                                onFailure = { message ->
+                                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                                },
+                            )
                         } else {
                             deleteLocalComment(post.id, comment.id)
                         }
@@ -1519,11 +1548,15 @@ fun MainNavGraph(
 
         composable(
             route = Route.AdminUserDetail.route,
-            arguments = listOf(navArgument(Route.AdminUserDetail.ARG_USER_ID) { type = NavType.LongType }),
+            arguments = listOf(navArgument(Route.AdminUserDetail.ARG_USER_ID) {
+                type = NavType.LongType
+            }),
         ) { entry ->
             val userId = entry.arguments?.getLong(Route.AdminUserDetail.ARG_USER_ID)
             LaunchedEffect(userId, userViewModel.me?.role) {
-                if (userViewModel.me?.role == "ADMIN" && userId != null) adminViewModel.loadUser(userId)
+                if (userViewModel.me?.role == "ADMIN" && userId != null) adminViewModel.loadUser(
+                    userId
+                )
                 else navController.popBackStack()
             }
             AdminUserDetailScreen(
@@ -1531,7 +1564,12 @@ fun MainNavGraph(
                 isLoading = adminViewModel.uiState is AdminUiState.Loading,
                 errorMessage = (adminViewModel.uiState as? AdminUiState.Error)?.message,
                 onBackClick = { navController.popBackStack() },
-                onSuspensionChange = { suspended -> if (userId != null) adminViewModel.setUserSuspension(userId, suspended) {} },
+                onSuspensionChange = { suspended ->
+                    if (userId != null) adminViewModel.setUserSuspension(
+                        userId,
+                        suspended
+                    ) {}
+                },
             )
         }
 
@@ -1550,9 +1588,11 @@ fun MainNavGraph(
                 onTypeChange = { adminPostType = it },
                 onDelete = { deleted ->
                     adminViewModel.deletePost(deleted) {
-                        val deletedType = runCatching { PostType.valueOf(deleted.postType) }.getOrNull()
+                        val deletedType =
+                            runCatching { PostType.valueOf(deleted.postType) }.getOrNull()
                         if (deletedType != null) {
-                            posts = posts.filterNot { it.type == deletedType && it.id == deleted.id.toString() }
+                            posts =
+                                posts.filterNot { it.type == deletedType && it.id == deleted.id.toString() }
                         }
                     }
                 },

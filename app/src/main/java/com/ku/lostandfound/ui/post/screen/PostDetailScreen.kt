@@ -25,6 +25,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -116,7 +118,8 @@ fun PostDetailScreen(
     currentUserName: String = "김건국",
     currentUserEmail: String = "konkuk26@konkuk.ac.kr",
     currentUserId: Long? = null,
-    onAddComment: (String) -> Unit = {},
+    onAddComment: (String, (String) -> Unit) -> Unit = { _, _ -> },
+    isCommentSubmitting: Boolean = false,
     matchCandidates: List<MatchCandidateUiModel> = emptyList(),
     isDetailLoading: Boolean = false,
     isMatchLoading: Boolean = false,
@@ -134,6 +137,10 @@ fun PostDetailScreen(
     val focusManager = LocalFocusManager.current
     var showResolveConfirmDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var commentPendingDeletion by remember(post.id) {
+        mutableStateOf<BoardComment?>(null)
+    }
+    var commentToRevealId by remember(post.id) { mutableStateOf<String?>(null) }
     var showReportDialog by remember {
         mutableStateOf(false)
     }
@@ -212,6 +219,30 @@ fun PostDetailScreen(
                 showDeleteConfirmDialog = false
                 onDeleteClick(post)
             },
+        )
+    }
+
+    commentPendingDeletion?.let { comment ->
+        AlertDialog(
+            onDismissRequest = { commentPendingDeletion = null },
+            title = { Text("댓글을 삭제할까요?", fontWeight = FontWeight.Bold) },
+            text = { Text("삭제한 댓글은 복구할 수 없습니다.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        commentPendingDeletion = null
+                        onDeleteComment(comment)
+                    }
+                ) {
+                    Text("삭제", color = Color(0xFFD32F2F))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { commentPendingDeletion = null }) {
+                    Text("취소", color = TextGray)
+                }
+            },
+            containerColor = Color.White,
         )
     }
 
@@ -561,7 +592,8 @@ fun PostDetailScreen(
                 currentUserName = currentUserName,
                 currentUserEmail = currentUserEmail,
                 isLoading = isCommentsLoading,
-                onDeleteComment = onDeleteComment,
+                commentToRevealId = commentToRevealId,
+                onDeleteComment = { commentPendingDeletion = it },
                 onUpdateComment = onUpdateComment,
             )
 
@@ -570,7 +602,13 @@ fun PostDetailScreen(
 
         CommentInputBar(
             currentUserName = currentUserName,
-            onSubmit = onAddComment
+            isSubmitting = isCommentSubmitting,
+            onSubmit = { content, onSuccess ->
+                onAddComment(content) { commentId ->
+                    commentToRevealId = commentId
+                    onSuccess()
+                }
+            },
         )
     }
 }
@@ -982,6 +1020,7 @@ private fun CommentSection(
     currentUserName: String,
     currentUserEmail: String,
     isLoading: Boolean,
+    commentToRevealId: String?,
     onDeleteComment: (BoardComment) -> Unit,
     onUpdateComment: (BoardComment, String) -> Unit,
 ) {
@@ -1018,6 +1057,7 @@ private fun CommentSection(
                     )
                     CommentItem(
                         comment = comment,
+                        shouldBringIntoView = comment.id == commentToRevealId,
                         isPostAuthor = postAuthorUserId != null && comment.authorUserId == postAuthorUserId,
                         canManage = canManage,
                         onDeleteClick = { onDeleteComment(comment) },
@@ -1032,6 +1072,7 @@ private fun CommentSection(
 @Composable
 private fun CommentItem(
     comment: BoardComment,
+    shouldBringIntoView: Boolean,
     isPostAuthor: Boolean,
     canManage: Boolean,
     onDeleteClick: () -> Unit,
@@ -1039,9 +1080,18 @@ private fun CommentItem(
 ) {
     var isEditing by remember(comment.id) { mutableStateOf(false) }
     var editText by remember(comment.id, comment.content) { mutableStateOf(comment.content) }
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+
+    LaunchedEffect(shouldBringIntoView) {
+        if (shouldBringIntoView) {
+            bringIntoViewRequester.bringIntoView()
+        }
+    }
 
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .bringIntoViewRequester(bringIntoViewRequester),
         verticalAlignment = Alignment.Top
     ) {
         Box(
@@ -1277,9 +1327,11 @@ private fun LoadingRow(text: String) {
 @Composable
 private fun CommentInputBar(
     currentUserName: String,
-    onSubmit: (String) -> Unit,
+    isSubmitting: Boolean,
+    onSubmit: (String, () -> Unit) -> Unit,
 ) {
     var commentText by remember { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
 
     Row(
         modifier = Modifier
@@ -1292,6 +1344,7 @@ private fun CommentInputBar(
         TextField(
             value = commentText,
             onValueChange = { commentText = it },
+            enabled = !isSubmitting,
             placeholder = {
                 Text(
                     text = "댓글을 입력해보세요.",
@@ -1326,13 +1379,15 @@ private fun CommentInputBar(
                 .size(38.dp)
                 .clip(CircleShape)
                 .background(
-                    if (commentText.isBlank()) Color(0xFFB7CBB9) else DeepGreen
+                    if (commentText.isBlank() || isSubmitting) Color(0xFFB7CBB9) else DeepGreen
                 )
                 .noRippleClickable {
                     val text = commentText.trim()
-                    if (text.isNotBlank()) {
-                        onSubmit(text)
-                        commentText = ""
+                    if (text.isNotBlank() && !isSubmitting) {
+                        onSubmit(text) {
+                            commentText = ""
+                            focusManager.clearFocus()
+                        }
                     }
                 },
             contentAlignment = Alignment.Center
