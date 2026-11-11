@@ -13,11 +13,14 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.LocalOverscrollFactory
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.core.content.edit
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -37,7 +40,7 @@ import androidx.compose.runtime.setValue
 import com.ku.lostandfound.notification.NotificationTarget
 import androidx.compose.ui.graphics.Color
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 class MainActivity : ComponentActivity() {
 
     private val notificationPermissionLauncher =
@@ -90,6 +93,9 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             KUfindersTheme {
+                // Keep scroll ranges intact while suppressing visual bounce/glow on
+                // screens whose content does not exceed the viewport.
+                CompositionLocalProvider(LocalOverscrollFactory provides null) {
                 val navController = rememberNavController()
 
                 val backStackEntry by
@@ -235,6 +241,7 @@ class MainActivity : ComponentActivity() {
                         padding = innerPadding,
                         isFreshLaunch = savedInstanceState == null,
                     )
+                }
                 }
             }
         }

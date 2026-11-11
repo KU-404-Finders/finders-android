@@ -39,6 +39,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,10 +49,13 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.ImeAction
@@ -63,6 +67,7 @@ import com.ku.lostandfound.ui.component.GreenSegmentedSwitch
 import com.ku.lostandfound.viewmodel.PostWriteUiState
 import com.ku.lostandfound.viewmodel.PostWriteViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
 import java.net.URL
@@ -87,6 +92,9 @@ fun PostWriteScreen(
     val errorMessage = (uiState as? PostWriteUiState.Error)?.message
     val focusManager = LocalFocusManager.current
     val contentFocusRequester = remember { FocusRequester() }
+    val titleBringIntoViewRequester = remember { BringIntoViewRequester() }
+    val contentBringIntoViewRequester = remember { BringIntoViewRequester() }
+    val scope = rememberCoroutineScope()
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
@@ -106,8 +114,10 @@ fun PostWriteScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
                 .imePadding()
+                // The IME first reduces the viewport; the form then scrolls inside
+                // it, avoiding a keyboard-sized blank tail below the content.
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 26.dp)
         ) {
             GreenSegmentedSwitch(
@@ -137,6 +147,11 @@ fun PostWriteScreen(
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 keyboardActions = KeyboardActions(onNext = { contentFocusRequester.requestFocus() }),
+                modifier = Modifier
+                    .bringIntoViewRequester(titleBringIntoViewRequester),
+                onFocus = {
+                    scope.launch { titleBringIntoViewRequester.bringIntoView() }
+                },
             )
 
             Spacer(Modifier.height(20.dp))
@@ -167,7 +182,12 @@ fun PostWriteScreen(
                 placeholder = "ex )\n검은색 지갑을 공학관에서 잃어버렸습니다.\n바깥에 물결무늬가 있고, 오리 캐릭터가 달려있습니다.",
                 minHeight = 184.dp,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
-                modifier = Modifier.focusRequester(contentFocusRequester),
+                modifier = Modifier
+                    .focusRequester(contentFocusRequester)
+                    .bringIntoViewRequester(contentBringIntoViewRequester),
+                onFocus = {
+                    scope.launch { contentBringIntoViewRequester.bringIntoView() }
+                },
             )
 
             Spacer(Modifier.height(20.dp))
@@ -302,6 +322,7 @@ private fun SoftTextField(
     minHeight: androidx.compose.ui.unit.Dp = 52.dp,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
+    onFocus: (() -> Unit)? = null,
 ) {
     OutlinedTextField(
         value = value,
@@ -322,6 +343,9 @@ private fun SoftTextField(
         ),
         modifier = modifier
             .fillMaxWidth()
+            .onFocusChanged { state ->
+                if (state.isFocused) onFocus?.invoke()
+            }
             .height(minHeight),
     )
 }

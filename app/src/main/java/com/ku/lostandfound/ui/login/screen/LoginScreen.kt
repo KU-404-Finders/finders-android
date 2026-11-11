@@ -92,8 +92,10 @@ fun LoginScreen(
             .pointerInput(Unit) {
                 detectTapGestures(onTap = { focusManager.clearFocus() })
             }
-            .verticalScroll(rememberScrollState())
             .imePadding()
+            // Let the keyboard shrink the scroll viewport instead of adding an
+            // IME-sized tail below an otherwise short form.
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp)
             .padding(bottom = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,

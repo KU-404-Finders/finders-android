@@ -2,10 +2,12 @@ package com.ku.lostandfound.ui.navigation
 
 import android.util.Log
 import android.widget.Toast
+import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -92,6 +94,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.Color
+import androidx.compose.animation.EnterTransition
 
 private const val SESSION_EXPIRED_MESSAGE = "로그인이 만료되었습니다. 다시 로그인해주세요."
 
@@ -443,11 +446,13 @@ fun MainNavGraph(
     NavHost(
         navController = navController,
         startDestination = verifiedStartDestination,
-        modifier = modifier.padding(padding),
-        enterTransition = { fadeIn(animationSpec = tween(180)) },
-        exitTransition = { fadeOut(animationSpec = tween(180)) },
-        popEnterTransition = { fadeIn(animationSpec = tween(180)) },
-        popExitTransition = { fadeOut(animationSpec = tween(180)) },
+        modifier = modifier
+            .padding(padding)
+            .consumeWindowInsets(padding),
+        enterTransition = { EnterTransition.None },
+        exitTransition = { ExitTransition.None },
+        popEnterTransition = { EnterTransition.None },
+        popExitTransition = { ExitTransition.None },
         sizeTransform = { null },
     ) {
         composable(route = Route.Login.route) {
