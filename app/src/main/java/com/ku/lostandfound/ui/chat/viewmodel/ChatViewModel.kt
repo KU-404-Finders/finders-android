@@ -67,6 +67,7 @@ class ChatViewModel : ViewModel() {
     private val lastReadByUserId = mutableMapOf<Long, Long>()
 
     private var messageLoadRequestId = 0
+    private var roomActionRequestId = 0
 
 
     fun loadRooms() {
@@ -370,6 +371,30 @@ class ChatViewModel : ViewModel() {
     fun roomFor(roomId: Long): ChatRoomResponse? {
         return rooms.firstOrNull { it.id == roomId }
             ?: roomCache[roomId]
+    }
+
+    fun leaveRoom(roomId: Long, onFinished: (Boolean) -> Unit) {
+        val actionId = ++roomActionRequestId
+        val requestGeneration = cacheGeneration
+        val sessionGeneration = TokenManager.sessionGeneration()
+        viewModelScope.launch {
+            val success = try {
+                val response = RetrofitClient.chatApi.leaveRoom(roomId)
+                response.isSuccessful && response.body()?.success == true
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                NetworkLog.exception("leaveChatRoom", e)
+                false
+            }
+            if (actionId != roomActionRequestId || !isCurrentRequest(requestGeneration, sessionGeneration)) return@launch
+            if (success) {
+                rooms = rooms.filterNot { it.id == roomId }
+                roomCache = roomCache - roomId
+                pendingCreatedRoomIds.remove(roomId)
+            }
+            onFinished(success)
+        }
     }
 
     fun loadPostAuthorForRoom(room: ChatRoomResponse) {

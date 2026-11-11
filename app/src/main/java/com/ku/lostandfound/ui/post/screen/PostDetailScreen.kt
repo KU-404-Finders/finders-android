@@ -7,6 +7,7 @@ import android.media.ExifInterface
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,6 +51,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -58,6 +60,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.ku.lostandfound.data.BoardComment
 import com.ku.lostandfound.data.BoardPost
 import com.ku.lostandfound.data.CampusBoundary
@@ -749,7 +752,7 @@ private fun MatchCandidateCard(
 
 @Composable
 private fun CandidateThumbnail(imageUrl: String?) {
-    val imageBitmap = rememberPostImageBitmap(imageUrl)
+    val imageBitmap = rememberPostImageBitmap(imageUrl).bitmap
     Box(
         modifier = Modifier
             .size(54.dp)
@@ -777,7 +780,9 @@ private fun CandidateThumbnail(imageUrl: String?) {
 
 @Composable
 private fun PostImageBox(imageUri: String?) {
-    val imageBitmap = rememberPostImageBitmap(imageUri)
+    val imageState = rememberPostImageBitmap(imageUri)
+    val imageBitmap = imageState.bitmap
+    var showFullscreen by remember(imageUri) { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -792,8 +797,12 @@ private fun PostImageBox(imageUri: String?) {
                 bitmap = imageBitmap,
                 contentDescription = "게시글 사진",
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .noRippleClickable { showFullscreen = true },
             )
+        } else if (imageState.failed) {
+            Text(text = "사진을 불러오지 못했습니다.", color = Color.Gray)
         } else {
             Text(
                 text = if (imageUri == null) "사진 영역" else "사진을 불러오는 중입니다.",
@@ -801,17 +810,70 @@ private fun PostImageBox(imageUri: String?) {
             )
         }
     }
+    if (showFullscreen && imageBitmap != null) {
+        FullscreenPostImage(image = imageBitmap, onDismiss = { showFullscreen = false })
+    }
 }
 
 @Composable
-private fun rememberPostImageBitmap(imageUri: String?): ImageBitmap? {
+private fun FullscreenPostImage(image: ImageBitmap, onDismiss: () -> Unit) {
+    var scale by remember { mutableStateOf(1f) }
+    var offsetX by remember { mutableStateOf(0f) }
+    var offsetY by remember { mutableStateOf(0f) }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize().background(Color.Black),
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(
+                bitmap = image,
+                contentDescription = "확대된 게시글 사진",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        translationX = offsetX
+                        translationY = offsetY
+                    }
+                    .pointerInput(Unit) {
+                        detectTransformGestures { _, pan, zoomChange, _ ->
+                            val nextScale = (scale * zoomChange).coerceIn(1f, 4f)
+                            scale = nextScale
+                            if (nextScale == 1f) {
+                                offsetX = 0f
+                                offsetY = 0f
+                            } else {
+                                // A generous bound preserves panning while preventing the image
+                                // from being irretrievably dragged off-screen.
+                                offsetX = (offsetX + pan.x).coerceIn(-1200f, 1200f)
+                                offsetY = (offsetY + pan.y).coerceIn(-1200f, 1200f)
+                            }
+                        }
+                    }
+                    .pointerInput(Unit) { detectTapGestures(onTap = { onDismiss() }) },
+            )
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+            ) { Text("닫기", color = Color.White) }
+        }
+    }
+}
+
+@Composable
+private fun rememberPostImageBitmap(imageUri: String?): PostImageLoadState {
     val context = LocalContext.current
-    var bitmap by remember(imageUri) { mutableStateOf<ImageBitmap?>(null) }
+    var state by remember(imageUri) { mutableStateOf(PostImageLoadState()) }
 
     LaunchedEffect(imageUri) {
-        bitmap = null
+        state = PostImageLoadState(isLoading = !imageUri.isNullOrBlank())
         if (imageUri.isNullOrBlank()) return@LaunchedEffect
-        bitmap = withContext(Dispatchers.IO) {
+        val bitmap = withContext(Dispatchers.IO) {
             runCatching {
                 val sourceBytes =
                     if (imageUri.startsWith("http://") || imageUri.startsWith("https://")) {
@@ -825,10 +887,17 @@ private fun rememberPostImageBitmap(imageUri: String?): ImageBitmap? {
                 sourceBytes?.toOrientedImageBitmap()
             }.getOrNull()
         }
+        state = PostImageLoadState(bitmap = bitmap, failed = bitmap == null)
     }
 
-    return bitmap
+    return state
 }
+
+private data class PostImageLoadState(
+    val bitmap: ImageBitmap? = null,
+    val isLoading: Boolean = false,
+    val failed: Boolean = false,
+)
 
 private fun ByteArray.toOrientedImageBitmap(): ImageBitmap? {
     val decoded = BitmapFactory.decodeByteArray(this, 0, size) ?: return null

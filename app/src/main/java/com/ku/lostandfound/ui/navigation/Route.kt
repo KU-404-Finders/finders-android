@@ -19,6 +19,8 @@ sealed class Route(val route: String) {
     object MyFoundPosts : Route(route = "myPosts/found")
 
     object Search : Route(route = "search")
+    object Notifications : Route(route = "notifications")
+    object NotificationSettings : Route(route = "notificationSettings")
 
     object PostWrite : Route(route = "postWrite")
     object PostEdit : Route(route = "postEdit/{postId}") {

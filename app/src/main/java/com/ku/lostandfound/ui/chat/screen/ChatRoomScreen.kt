@@ -11,6 +11,15 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -26,7 +35,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ku.lostandfound.network.ChatMessageResponse
 import com.ku.lostandfound.ui.chat.ChatTimeFormatter
-import com.ku.lostandfound.ui.component.BackTitleBar
 import com.ku.lostandfound.ui.component.noRippleClickable
 
 private val DeepGreen = Color(0xFF1B6425)
@@ -48,6 +56,11 @@ fun ChatRoomScreen(
     onSendMessage: (String) -> Boolean,
     postAuthorId: Long? = null,
     postAuthorName: String? = null,
+    hasLinkedPost: Boolean = false,
+    canBlockUser: Boolean = false,
+    onViewPost: () -> Unit = {},
+    onBlockUser: () -> Unit = {},
+    onLeaveRoom: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
 
@@ -56,6 +69,9 @@ fun ChatRoomScreen(
     }
 
     val canSend = isConnected && messageText.isNotBlank()
+    var menuExpanded by remember(roomId) { mutableStateOf(false) }
+    var confirmBlock by remember(roomId) { mutableStateOf(false) }
+    var confirmLeave by remember(roomId) { mutableStateOf(false) }
 
     LaunchedEffect(roomId, messages.lastOrNull()?.id) {
         if (messages.isNotEmpty()) {
@@ -68,11 +84,40 @@ fun ChatRoomScreen(
             .fillMaxSize()
             .background(Color.White)
     ) {
-        BackTitleBar(
-            title = roomTitle?.takeIf { it.isNotBlank() }
-                ?: "채팅",
-            onBackClick = onBackClick,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBackClick) {
+                Icon(Icons.Default.ArrowBack, contentDescription = "뒤로가기", tint = DeepGreen)
+            }
+            Text(
+                text = roomTitle?.takeIf { it.isNotBlank() } ?: "채팅",
+                modifier = Modifier.weight(1f).noRippleClickable { if (hasLinkedPost) onViewPost() },
+                color = Color(0xFF222222), fontSize = 17.sp, fontWeight = FontWeight.Bold,
+            )
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "더보기", tint = DeepGreen)
+                }
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text("게시글 보기") },
+                        enabled = hasLinkedPost,
+                        onClick = { menuExpanded = false; onViewPost() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("사용자 차단") },
+                        enabled = canBlockUser,
+                        onClick = { menuExpanded = false; confirmBlock = true },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("채팅방 나가기") },
+                        onClick = { menuExpanded = false; confirmLeave = true },
+                    )
+                }
+            }
+        }
 
         // 기존 상단바 아래의 중복 제목은 제거함
 
@@ -236,8 +281,42 @@ fun ChatRoomScreen(
                 )
             }
         }
+
+        if (confirmBlock) {
+            ChatConfirmDialog(
+                title = "사용자를 차단할까요?",
+                message = "차단하면 해당 사용자의 게시글과 채팅을 볼 수 없습니다.",
+                confirmText = "차단",
+                onDismiss = { confirmBlock = false },
+                onConfirm = { confirmBlock = false; onBlockUser() },
+            )
+        }
+        if (confirmLeave) {
+            ChatConfirmDialog(
+                title = "채팅방을 나갈까요?",
+                message = "나간 뒤에는 이 채팅방의 대화를 볼 수 없습니다.",
+                confirmText = "나가기",
+                onDismiss = { confirmLeave = false },
+                onConfirm = { confirmLeave = false; onLeaveRoom() },
+            )
+        }
     }
 }
+
+@Composable
+private fun ChatConfirmDialog(
+    title: String,
+    message: String,
+    confirmText: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) = AlertDialog(
+    onDismissRequest = onDismiss,
+    title = { Text(title) },
+    text = { Text(message) },
+    dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } },
+    confirmButton = { TextButton(onClick = onConfirm) { Text(confirmText) } },
+)
 
 @Composable
 private fun ChatMessageBubble(

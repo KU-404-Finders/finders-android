@@ -14,7 +14,17 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -44,7 +54,9 @@ fun ChatListScreen(
     authorInfoByRoomId: Map<Long, Pair<Long, String>> = emptyMap(),
     currentUserId: Long? = null,
     currentUserName: String? = null,
+    onLeaveRoom: (Long) -> Unit = {},
 ) {
+    var leaveTargetId by remember { mutableStateOf<Long?>(null) }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -95,13 +107,18 @@ fun ChatListScreen(
                         items = rooms,
                         key = { it.id }
                     ) { room ->
-                        ChatRoomItem(
+                        SwipeToLeaveRoom(
                             room = room,
-                            authorInfo = authorInfoByRoomId[room.id],
-                            currentUserId = currentUserId,
-                            currentUserName = currentUserName,
-                            onClick = { onRoomClick(room.id) }
-                        )
+                            onRequestLeave = { leaveTargetId = it },
+                        ) {
+                            ChatRoomItem(
+                                room = room,
+                                authorInfo = authorInfoByRoomId[room.id],
+                                currentUserId = currentUserId,
+                                currentUserName = currentUserName,
+                                onClick = { onRoomClick(room.id) }
+                            )
+                        }
 
                         HorizontalDivider(
                             thickness = 0.5.dp,
@@ -112,6 +129,45 @@ fun ChatListScreen(
             }
         }
     }
+    leaveTargetId?.let { roomId ->
+        AlertDialog(
+            onDismissRequest = { leaveTargetId = null },
+            title = { Text("채팅방을 나갈까요?") },
+            text = { Text("나간 뒤에는 이 채팅방의 대화를 볼 수 없습니다.") },
+            dismissButton = { TextButton(onClick = { leaveTargetId = null }) { Text("취소") } },
+            confirmButton = {
+                TextButton(onClick = {
+                    leaveTargetId = null
+                    onLeaveRoom(roomId)
+                }) { Text("나가기") }
+            },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeToLeaveRoom(
+    room: ChatRoomResponse,
+    onRequestLeave: (Long) -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { target ->
+            if (target != SwipeToDismissBoxValue.Settled) onRequestLeave(room.id)
+            false // Keep the item until the membership API confirms success.
+        },
+    )
+    SwipeToDismissBox(
+        state = dismissState,
+        backgroundContent = {
+            Box(
+                modifier = Modifier.fillMaxSize().background(Color(0xFFB3261E)).padding(horizontal = 20.dp),
+                contentAlignment = Alignment.CenterEnd,
+            ) { Text("나가기", color = Color.White, fontWeight = FontWeight.Bold) }
+        },
+        content = { content() },
+    )
 }
 
 @Composable

@@ -56,6 +56,9 @@ class FoundItemViewModel : ViewModel() {
 
     private var hasLoadedFoundItemList = false
     private var lastLoadedBuildingName: String? = null
+    // A request for a previously selected building must never overwrite a newer
+    // whole-campus response (or vice versa).
+    private var listRequestId = 0
 
     var detailPost by mutableStateOf<BoardPost?>(null)
         private set
@@ -68,10 +71,12 @@ class FoundItemViewModel : ViewModel() {
             (!force && hasLoadedFoundItemList && lastLoadedBuildingName == buildingName)
         ) return
         selectedBuildingName = buildingName
+        val requestId = ++listRequestId
         viewModelScope.launch {
             uiState = FoundItemUiState.Loading
             try {
                 val response = RetrofitClient.foundItemApi.getFoundItems(buildingName)
+                if (requestId != listRequestId || selectedBuildingName != buildingName) return@launch
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true) {
@@ -100,10 +105,12 @@ class FoundItemViewModel : ViewModel() {
             (!force && hasLoadedFoundItemList && lastLoadedBuildingName == null)
         ) return
         selectedBuildingName = null
+        val requestId = ++listRequestId
         viewModelScope.launch {
             uiState = FoundItemUiState.Loading
             try {
                 val response = RetrofitClient.foundItemApi.getFoundItems()
+                if (requestId != listRequestId || selectedBuildingName != null) return@launch
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true) {
@@ -128,9 +135,9 @@ class FoundItemViewModel : ViewModel() {
     }
 
     fun clearBuildingFilter() {
+        listRequestId++
         selectedBuildingName = null
-        foundItems = emptyList()
-        uiState = FoundItemUiState.Idle
+        loadFoundItems(force = true)
     }
 
     fun retryFoundItems() {

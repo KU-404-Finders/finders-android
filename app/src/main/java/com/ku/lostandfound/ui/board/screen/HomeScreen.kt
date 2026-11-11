@@ -44,6 +44,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 
 private val DeepGreen = Color(0xFF1B6425)
 private val ScreenGray = Color(0xFFF4F4F4)
@@ -66,10 +69,14 @@ fun HomeScreen(
     onLostTabClick: () -> Unit,
     onProfileClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
+    onNotificationClick: () -> Unit = {},
+    notificationCount: Int = 0,
     isLoading: Boolean = false,
     errorMessage: String? = null,
     emptyMessage: String? = null,
     onRetryClick: (() -> Unit)? = null,
+    onRefresh: (() -> Unit)? = null,
+    listHeaderAction: (@Composable () -> Unit)? = null,
 ) {
     Column(
         modifier = Modifier
@@ -80,15 +87,17 @@ fun HomeScreen(
             title = title,
             onProfileClick = onProfileClick,
             onSearchClick = onSearchClick,
+            onNotificationClick = onNotificationClick,
+            notificationCount = notificationCount,
         )
 
         Box(
             modifier = Modifier.weight(1f)
         ) {
-            LazyColumn(
+            BoardList(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(vertical = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                isRefreshing = isLoading,
+                onRefresh = onRefresh,
             ) {
                 if (showCampusMap && boundary != null) {
                     item {
@@ -123,23 +132,18 @@ fun HomeScreen(
                                     Text("전체보기", color = DeepGreen, fontSize = 13.sp)
                                 }
                             }
-                        } else {
-                            Text(
-                                text = "📍 전체 구역 게시물",
-                                color = Color.Gray,
-                                fontSize = 13.sp,
+                            HorizontalDivider(
                                 modifier = Modifier.padding(horizontal = 20.dp),
+                                thickness = 0.5.dp,
+                                color = Color(0xFFE0E0E0),
                             )
+                        } else {
+                            ListHeading("전체 습득물", listHeaderAction)
                         }
                     }
                 } else {
                     item {
-                        Text(
-                            text = "전체 분실물 게시물",
-                            color = Color.Gray,
-                            fontSize = 13.sp,
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-                        )
+                        ListHeading("전체 분실물", listHeaderAction)
                     }
                 }
 
@@ -147,35 +151,30 @@ fun HomeScreen(
                     CompactPostCard(
                         post = post,
                         modifier = Modifier.padding(horizontal = 20.dp),
-                        showStatus = true,
+                        // Main boards contain only open posts; keep status badges for detail/history screens.
+                        showStatus = false,
                         showThumbnail = true,
                         onClick = { onPostClick(post) },
                     )
                 }
-            }
-
-            when {
-                isLoading -> {
-                    CircularProgressIndicator(
-                        modifier = Modifier.align(Alignment.Center),
-                        color = DeepGreen,
-                    )
-                }
-
-                errorMessage != null -> {
+                if (isLoading && posts.isEmpty()) {
+                    item { CircularProgressIndicator(Modifier.padding(vertical = 28.dp).size(28.dp), color = DeepGreen) }
+                } else if (errorMessage != null) {
+                    item {
                     BoardStateMessage(
                         message = errorMessage,
                         actionLabel = "다시 시도",
                         onActionClick = onRetryClick,
-                        modifier = Modifier.align(Alignment.Center),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 28.dp),
                     )
-                }
-
-                posts.isEmpty() && emptyMessage != null -> {
+                    }
+                } else if (posts.isEmpty() && emptyMessage != null) {
+                    item {
                     BoardStateMessage(
                         message = emptyMessage,
-                        modifier = Modifier.align(Alignment.Center),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 28.dp),
                     )
+                    }
                 }
             }
 
@@ -194,6 +193,47 @@ fun HomeScreen(
             }
 
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BoardList(
+    modifier: Modifier,
+    isRefreshing: Boolean,
+    onRefresh: (() -> Unit)?,
+    content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
+) {
+    val list: @Composable () -> Unit = {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            content = content,
+        )
+    }
+    if (onRefresh == null) list() else PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
+        modifier = modifier,
+    ) { list() }
+}
+
+@Composable
+private fun ListHeading(text: String, action: (@Composable () -> Unit)?) {
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(text = text, color = Color.Gray, fontSize = 13.sp, modifier = Modifier.weight(1f))
+            action?.invoke()
+        }
+        HorizontalDivider(
+            modifier = Modifier.padding(horizontal = 20.dp),
+            thickness = 0.5.dp,
+            color = Color(0xFFE0E0E0),
+        )
     }
 }
 

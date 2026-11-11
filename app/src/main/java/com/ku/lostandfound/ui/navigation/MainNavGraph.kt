@@ -72,6 +72,7 @@ import com.ku.lostandfound.ui.login.screen.LoginScreen
 import com.ku.lostandfound.ui.login.viewmodel.LoginViewModel
 import com.ku.lostandfound.ui.lost.screen.LostBoardScreen
 import com.ku.lostandfound.ui.lost.viewmodel.LostItemViewModel
+import com.ku.lostandfound.ui.lost.viewmodel.LostItemListUiState
 import com.ku.lostandfound.ui.passwordreset.screen.PasswordResetCodeScreen
 import com.ku.lostandfound.ui.passwordreset.screen.PasswordResetEmailScreen
 import com.ku.lostandfound.ui.passwordreset.screen.PasswordResetPasswordScreen
@@ -85,6 +86,9 @@ import com.ku.lostandfound.ui.profile.screen.MyPostsType
 import com.ku.lostandfound.ui.profile.screen.ProfileScreen
 import com.ku.lostandfound.ui.profile.viewmodel.UserViewModel
 import com.ku.lostandfound.ui.profile.viewmodel.UserUiState
+import com.ku.lostandfound.ui.notification.NotificationInboxScreen
+import com.ku.lostandfound.ui.notification.NotificationSettingsScreen
+import com.ku.lostandfound.ui.notification.NotificationViewModel
 import com.ku.lostandfound.ui.search.screen.SearchScreen
 import com.ku.lostandfound.ui.signup.screen.SignupCodeScreen
 import com.ku.lostandfound.ui.signup.screen.SignupEmailScreen
@@ -157,8 +161,10 @@ fun MainNavGraph(
     val lostItemViewModel = viewModel<LostItemViewModel>()
     val foundItemViewModel = viewModel<FoundItemViewModel>()
     val postCommentViewModel = viewModel<PostCommentViewModel>()
+    val notificationViewModel = viewModel<NotificationViewModel>()
 
     val currentUserId = userViewModel.me?.id
+    LaunchedEffect(currentUserId) { notificationViewModel.attachAccount(currentUserId); if (currentUserId != null) notificationViewModel.refreshUnreadCount() }
     val currentUserName = userViewModel.me?.name ?: signupViewModel.name
     val currentUserEmail = userViewModel.me?.email ?: signupViewModel.email
 
@@ -576,7 +582,8 @@ fun MainNavGraph(
         composable(route = Route.Found.route) {
             LaunchedEffect(Unit) {
                 if (foundItemViewModel.selectedBuildingName == null) {
-                    foundItemViewModel.loadFoundItems()
+                    // Re-entering the board should not retain an earlier empty snapshot.
+                    foundItemViewModel.loadFoundItems(force = true)
                 }
             }
             val b = boundary
@@ -620,9 +627,11 @@ fun MainNavGraph(
                     onLostTabClick = { navigateMainTab(Route.Lost.route) },
                     onProfileClick = { navigateMainTab(Route.Profile.route) },
                     onSearchClick = { navigateSingleTop(Route.Search.route) },
+                    onNotificationClick = { navController.navigate(Route.Notifications.route) },
+                    notificationCount = notificationViewModel.unreadCount,
                     onBuildingSelected = { building ->
                         if (building == null) {
-                            foundItemViewModel.loadFoundItems()
+                            foundItemViewModel.loadFoundItems(force = true)
                         } else {
                             foundItemViewModel.loadFoundItemsByBuilding(building.name)
                         }
@@ -630,6 +639,7 @@ fun MainNavGraph(
                     isLoading = foundItemViewModel.uiState is FoundItemUiState.Loading,
                     errorMessage = (foundItemViewModel.uiState as? FoundItemUiState.Error)?.message,
                     onRetryClick = { foundItemViewModel.retryFoundItems() },
+                    onRefresh = { foundItemViewModel.retryFoundItems() },
                 )
             }
         }
@@ -658,7 +668,13 @@ fun MainNavGraph(
                 onFoundTabClick = { navigateMainTab(Route.Found.route) },
                 onLostTabClick = { navigateMainTab(Route.Lost.route) },
                 onProfileClick = { navigateMainTab(Route.Profile.route) },
-                onSearchClick = { navigateSingleTop(Route.Search.route) }
+                onSearchClick = { navigateSingleTop(Route.Search.route) },
+                onNotificationClick = { navController.navigate(Route.Notifications.route) },
+                notificationCount = notificationViewModel.unreadCount,
+                isLoading = lostItemViewModel.uiState is LostItemListUiState.Loading,
+                errorMessage = (lostItemViewModel.uiState as? LostItemListUiState.Error)?.message,
+                onRetryClick = { lostItemViewModel.loadLostItems() },
+                onRefresh = { lostItemViewModel.loadLostItems() },
             )
         }
 
@@ -758,6 +774,7 @@ fun MainNavGraph(
                 authorInfoByRoomId = chatViewModel.authorInfoByRoomId,
                 currentUserId = currentUserId,
                 currentUserName = userViewModel.me?.name,
+                onLeaveRoom = { roomId -> chatViewModel.leaveRoom(roomId) {} },
             )
         }
 
@@ -869,6 +886,11 @@ fun MainNavGraph(
             val postAuthor = room?.let {
                 chatViewModel.authorInfoByRoomId[it.id]
             }
+            val otherUserId = room?.let { chatRoom ->
+                currentUserId?.let { userId ->
+                    if (chatRoom.creatorId == userId) chatRoom.recipientId else chatRoom.creatorId
+                }
+            }
             ChatRoomScreen(
                 roomId = roomId,
                 roomTitle = room?.postTitle
@@ -890,6 +912,29 @@ fun MainNavGraph(
                 },
                 postAuthorId = postAuthor?.first,
                 postAuthorName = postAuthor?.second,
+                hasLinkedPost = room?.postId != null && !room.postType.isNullOrBlank(),
+                canBlockUser = otherUserId != null,
+                onViewPost = {
+                    val postId = room?.postId ?: return@ChatRoomScreen
+                    val postType = room.postType?.uppercase() ?: return@ChatRoomScreen
+                    navController.navigate(Route.PostDetail.create(postId.toString(), postType))
+                },
+                onBlockUser = {
+                    val userId = otherUserId ?: return@ChatRoomScreen
+                    userViewModel.blockUser(userId) { success ->
+                        if (success && navController.currentDestination?.route == Route.ChatRoom.route) {
+                            chatViewModel.loadRooms()
+                            navController.popBackStack()
+                        }
+                    }
+                },
+                onLeaveRoom = {
+                    chatViewModel.leaveRoom(roomId) { success ->
+                        if (success && navController.currentDestination?.route == Route.ChatRoom.route) {
+                            navController.popBackStack()
+                        }
+                    }
+                },
                 onBackClick = {
                     navController.popBackStack()
                 }
@@ -898,6 +943,17 @@ fun MainNavGraph(
 
 
 
+
+        composable(route = Route.Notifications.route) {
+            NotificationInboxScreen(
+                vm = notificationViewModel,
+                onBack = { navController.popBackStack() },
+                onOpenRoom = { roomId -> navController.navigate(Route.ChatRoom.create(roomId)) },
+            )
+        }
+        composable(route = Route.NotificationSettings.route) {
+            NotificationSettingsScreen(vm = notificationViewModel, onBack = { navController.popBackStack() })
+        }
 
         composable(route = Route.Profile.route) {
             LaunchedEffect(Unit) {
@@ -961,6 +1017,7 @@ fun MainNavGraph(
                         Route.Admin.route
                     )
                 },
+                onNotificationSettingsClick = { navController.navigate(Route.NotificationSettings.route) },
             )
         }
 

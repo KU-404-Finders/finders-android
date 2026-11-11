@@ -25,10 +25,13 @@ fun FoundBoardScreen(
     onLostTabClick: () -> Unit,
     onProfileClick: () -> Unit,
     onSearchClick: () -> Unit = {},
+    onNotificationClick: () -> Unit = {},
+    notificationCount: Int = 0,
     onBuildingSelected: (CampusBuilding?) -> Unit = {},
     isLoading: Boolean = false,
     errorMessage: String? = null,
     onRetryClick: () -> Unit = {},
+    onRefresh: () -> Unit = {},
 ) {
     var selectedBuilding by remember { mutableStateOf<CampusBuilding?>(null) }
     val foundPosts = posts.filter { it.type == PostType.FOUND }
@@ -44,7 +47,7 @@ fun FoundBoardScreen(
     } ?: foundPosts
 
     HomeScreen(
-        title = "습득물 캠퍼스맵",
+        title = "습득물 게시판",
         selectedType = PostType.FOUND,
         posts = filteredPosts,
         boundary = boundary,
@@ -66,9 +69,12 @@ fun FoundBoardScreen(
         onLostTabClick = onLostTabClick,
         onProfileClick = onProfileClick,
         onSearchClick = onSearchClick,
+        onNotificationClick = onNotificationClick,
+        notificationCount = notificationCount,
         isLoading = isLoading,
         errorMessage = errorMessage,
         emptyMessage = "표시할 습득물 게시글이 없습니다.",
         onRetryClick = onRetryClick,
+        onRefresh = onRefresh,
     )
 }

@@ -77,6 +77,7 @@ fun ProfileScreen(
     onAdminClick: () -> Unit = {},
     showSimilarityScores: Boolean = false,
     onShowSimilarityScoresChange: (Boolean) -> Unit = {},
+    onNotificationSettingsClick: () -> Unit = {},
 ) {
     var showWithdrawConfirmDialog by remember { mutableStateOf(false) }
     var showWithdrawCompleteDialog by remember { mutableStateOf(false) }
@@ -116,6 +117,16 @@ fun ProfileScreen(
                     onFoundClick = onMyFoundPostsClick,
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+
+            item {
+                Card(
+                    shape = RoundedCornerShape(10.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    modifier = Modifier.fillMaxWidth().noRippleClickable(onNotificationSettingsClick),
+                ) {
+                    Text("알림 설정", modifier = Modifier.padding(16.dp), fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                }
             }
 
             item {
