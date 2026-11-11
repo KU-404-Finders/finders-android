@@ -9,7 +9,6 @@ import com.google.gson.Gson
 import com.ku.lostandfound.network.AuthErrorResponse
 import com.ku.lostandfound.network.LoginRequest
 import com.ku.lostandfound.network.NetworkLog
-import com.ku.lostandfound.network.RefreshSessionResult
 import com.ku.lostandfound.network.RetrofitClient
 import com.ku.lostandfound.network.TokenManager
 import com.ku.lostandfound.network.httpErrorMessage
@@ -78,24 +77,6 @@ class LoginViewModel : ViewModel() {
             } catch (e: Exception) {
                 NetworkLog.exception("login", e)
                 uiState = LoginUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
-            }
-        }
-    }
-
-    fun refreshToken(onSuccess: () -> Unit = {}) {
-        viewModelScope.launch {
-            uiState = LoginUiState.Loading
-            when (RetrofitClient.refreshSession()) {
-                RefreshSessionResult.Success -> {
-                    uiState = LoginUiState.Idle
-                    onSuccess()
-                }
-                RefreshSessionResult.InvalidSession -> {
-                    uiState = LoginUiState.Error("로그인이 만료되었습니다. 다시 로그인해주세요.")
-                }
-                RefreshSessionResult.RetryableFailure -> {
-                    uiState = LoginUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
-                }
             }
         }
     }

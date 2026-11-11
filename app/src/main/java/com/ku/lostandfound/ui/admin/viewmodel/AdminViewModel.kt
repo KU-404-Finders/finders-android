@@ -27,6 +27,7 @@ sealed class AdminUiState {
 
 class AdminViewModel : ViewModel() {
     private var cacheGeneration = 0L
+    private var usersRequestId = 0L
     var dashboard: AdminDashboard? by mutableStateOf(null)
         private set
     var reports: List<AdminReport> by mutableStateOf(emptyList())
@@ -102,9 +103,11 @@ class AdminViewModel : ViewModel() {
     fun loadUsers(keyword: String? = null) = viewModelScope.launch {
         val requestGeneration = cacheGeneration
         val sessionGeneration = TokenManager.sessionGeneration()
+        val requestId = ++usersRequestId
         uiState = AdminUiState.Loading
         call(
             requestGeneration, sessionGeneration,
+            isLatestRequest = { requestId == usersRequestId },
             request = { RetrofitClient.adminApi.users(keyword = keyword?.takeIf { it.isNotBlank() }) },
             onSuccess = { users = it.items },
         )
@@ -169,18 +172,20 @@ class AdminViewModel : ViewModel() {
         selectedUser = null
         posts = emptyList()
         audits = emptyList()
+        usersRequestId++
         uiState = AdminUiState.Idle
     }
 
     private suspend fun <T> call(
         requestGeneration: Long,
         sessionGeneration: Long,
+        isLatestRequest: () -> Boolean = { true },
         request: suspend () -> retrofit2.Response<com.ku.lostandfound.network.ApiResponse<T>>,
         onSuccess: (T) -> Unit,
     ) {
         try {
             val response = request()
-            if (!isCurrentRequest(requestGeneration, sessionGeneration)) return
+            if (!isCurrentRequest(requestGeneration, sessionGeneration) || !isLatestRequest()) return
             val body = response.body()
             if (response.isSuccessful && body?.success == true && body.data != null) {
                 onSuccess(body.data)
@@ -190,7 +195,7 @@ class AdminViewModel : ViewModel() {
                 uiState = AdminUiState.Error(message)
             }
         } catch (exception: Exception) {
-            if (!isCurrentRequest(requestGeneration, sessionGeneration)) return
+            if (!isCurrentRequest(requestGeneration, sessionGeneration) || !isLatestRequest()) return
             NetworkLog.exception("adminApi", exception)
             uiState = AdminUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
         }

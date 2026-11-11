@@ -62,6 +62,13 @@ object ChatTimeFormatter {
         }
     }
 
+    /** Formats administrative timestamps with a year so audit records are never ambiguous. */
+    fun formatFullDateTime(raw: String?): String {
+        return parseToKst(raw)?.format(
+            DateTimeFormatter.ofPattern("yyyy.M.d HH:mm", Locale.KOREAN)
+        ) ?: ""
+    }
+
     /**
      * Chat timestamps are UTC Instants and are ordered by their instant. Offsetless
      * legacy values retain lexicographic local ordering as a safe fallback.
@@ -79,7 +86,13 @@ object ChatTimeFormatter {
         return if (firstInstant != null && secondInstant != null) {
             firstInstant.compareTo(secondInstant)
         } else {
-            firstValue.compareTo(secondValue)
+            val firstLocal = parseToKst(firstValue)
+            val secondLocal = parseToKst(secondValue)
+            if (firstLocal != null && secondLocal != null) {
+                firstLocal.compareTo(secondLocal)
+            } else {
+                firstValue.compareTo(secondValue)
+            }
         }
     }
 }

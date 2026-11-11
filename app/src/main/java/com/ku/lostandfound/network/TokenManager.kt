@@ -94,5 +94,6 @@ object TokenManager {
     fun isAccessTokenExpired(nowMillis: Long = System.currentTimeMillis()): Boolean =
         JwtTokenExpiry.isExpired(accessToken, nowMillis)
 
-    fun isLoggedIn(): Boolean = !accessToken.isNullOrBlank()
+    /** A partial or backup-restored credential set is never treated as authenticated. */
+    fun isLoggedIn(): Boolean = hasTokens()
 }

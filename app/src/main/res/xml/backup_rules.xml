@@ -1,3 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
+    <!-- Credentials are device-local. Restoring them into a new installation can
+         trigger an unintended session check before the user has signed in. -->
+    <exclude domain="sharedpref" path="auth_prefs.xml" />
 </full-backup-content>
