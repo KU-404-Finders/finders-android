@@ -47,6 +47,8 @@ class ChatViewModel : ViewModel() {
 
 
     private val authorRequestsInFlight = mutableSetOf<Long>()
+    private val authorRequestsAttempted = mutableSetOf<Long>()
+    private val pendingCreatedRoomIds = mutableSetOf<Long>()
     private var roomListRequestId = 0
     var messages by mutableStateOf<List<ChatMessageResponse>>(emptyList())
         private set
@@ -86,12 +88,18 @@ class ChatViewModel : ViewModel() {
                     val body = response.body()
 
                     if (body?.success == true) {
-                        val baseRooms = body.data.orEmpty()
+                        val serverRooms = body.data.orEmpty()
+                        // A just-created room can be absent from an in-flight list response.
+                        // Preserve only those optimistic entries; every other missing room is
+                        // deliberately evicted from both list and cache.
+                        val serverIds = serverRooms.mapTo(mutableSetOf()) { it.id }
+                        pendingCreatedRoomIds.removeAll(serverIds)
+                        val pendingRooms = rooms.filter { it.id in pendingCreatedRoomIds }
+                        val reconciledRooms = serverRooms + pendingRooms.filter { it.id !in serverIds }
 
-                        roomCache = roomCache +
-                                baseRooms.associateBy { it.id }
+                        roomCache = reconciledRooms.associateBy { it.id }
 
-                        rooms = baseRooms.sortedWith(Comparator { first, second ->
+                        rooms = reconciledRooms.sortedWith(Comparator { first, second ->
                             ChatTimeFormatter.compareNewest(
                                 second.lastMessageAt ?: second.createdAt,
                                 first.lastMessageAt ?: first.createdAt,
@@ -292,6 +300,7 @@ class ChatViewModel : ViewModel() {
 
                         roomCache = roomCache +
                                 (createdRoom.id to createdRoom)
+                        pendingCreatedRoomIds += createdRoom.id
 
                         rooms = (
                                 rooms.filterNot { it.id == createdRoom.id } +
@@ -346,6 +355,8 @@ class ChatViewModel : ViewModel() {
         roomListRequestId++
         messageLoadRequestId++
         authorRequestsInFlight.clear()
+        authorRequestsAttempted.clear()
+        pendingCreatedRoomIds.clear()
         rooms = emptyList()
         roomCache = emptyMap()
         authorInfoByRoomId = emptyMap()
@@ -365,7 +376,7 @@ class ChatViewModel : ViewModel() {
         val postId = room.postId ?: return
         val postType = room.postType?.uppercase() ?: return
 
-        if (authorInfoByRoomId.containsKey(room.id)) return
+        if (authorInfoByRoomId.containsKey(room.id) || !authorRequestsAttempted.add(room.id)) return
         if (!authorRequestsInFlight.add(room.id)) return
         val requestGeneration = cacheGeneration
         val sessionGeneration = TokenManager.sessionGeneration()

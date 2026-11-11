@@ -1,6 +1,7 @@
 package com.ku.lostandfound.ui.chat
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatTimeFormatterTest {
@@ -28,5 +29,23 @@ class ChatTimeFormatterTest {
     @Test
     fun malformedTimestamp_isSafe() {
         assertEquals("", ChatTimeFormatter.formatTime("not-a-timestamp"))
+    }
+
+    @Test
+    fun fullDateTime_alwaysIncludesYearForAdministrativeRecords() {
+        assertEquals(
+            "2026.11.9 12:00",
+            ChatTimeFormatter.formatFullDateTime("2026-11-09T03:00:00Z"),
+        )
+    }
+
+    @Test
+    fun mixedOffsetAndLocalTimestamps_compareByNormalizedLocalTime() {
+        assertTrue(
+            ChatTimeFormatter.compareNewest(
+                "2026-11-09T03:00:00Z",
+                "2026-11-09T11:59:00",
+            ) > 0,
+        )
     }
 }

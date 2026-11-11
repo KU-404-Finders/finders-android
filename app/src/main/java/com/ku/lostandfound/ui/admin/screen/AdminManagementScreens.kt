@@ -141,7 +141,7 @@ fun AdminUserDetailScreen(
         BackTitleBar("사용자 상세", onBackClick)
         if (isLoading) {
             EmptyText("사용자 정보를 불러오는 중입니다.")
-        } else if (errorMessage != null) {
+        } else if (errorMessage != null && user == null) {
             EmptyText(errorMessage, ManagementRed)
         } else if (user == null) {
             EmptyText("사용자 정보를 찾을 수 없습니다.")
@@ -150,6 +150,13 @@ fun AdminUserDetailScreen(
                 modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
+                if (errorMessage != null) {
+                    Text(
+                        text = errorMessage,
+                        color = ManagementRed,
+                        fontSize = 14.sp,
+                    )
+                }
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -165,7 +172,7 @@ fun AdminUserDetailScreen(
                         Detail("권한", user.role)
                         Detail("상태", if (user.suspended) "이용 제한" else "정상")
                         user.suspensionReason?.let { Detail("사유", it) }
-                        Detail("가입일", ChatTimeFormatter.formatListTime(user.createdAt))
+                        Detail("가입일", ChatTimeFormatter.formatFullDateTime(user.createdAt))
                     }
                 }
 
@@ -357,7 +364,7 @@ fun AdminAuditLogScreen(audits: List<AdminAudit>, isLoading: Boolean, errorMessa
                     Text(audit.action, fontWeight = FontWeight.Bold)
                     Text("${audit.targetType} #${audit.targetId} · 관리자 #${audit.adminId}", fontSize = 12.sp, color = ManagementGray)
                     audit.note?.let { Text(it, fontSize = 13.sp) }
-                    Text(ChatTimeFormatter.formatListTime(audit.createdAt), fontSize = 12.sp, color = ManagementGray)
+                    Text(ChatTimeFormatter.formatFullDateTime(audit.createdAt), fontSize = 12.sp, color = ManagementGray)
                 }
             }
         }

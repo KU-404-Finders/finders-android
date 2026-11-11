@@ -59,9 +59,6 @@ import com.ku.lostandfound.ui.login.viewmodel.LoginViewModel
 @Composable
 fun LoginScreen(
     viewModel: LoginViewModel,
-    sessionMessage: String? = null,
-    canRetrySession: Boolean = false,
-    onRetrySession: () -> Unit = {},
     onLoginSuccess: () -> Unit = {},
     onNavigateToSignUp: () -> Unit = {},
     onNavigateToPasswordReset: () -> Unit = {},
@@ -74,7 +71,7 @@ fun LoginScreen(
 
     val uiState = viewModel.uiState
     val isLoading = uiState is LoginUiState.Loading
-    val errorMessage = (uiState as? LoginUiState.Error)?.message ?: sessionMessage
+    val loginErrorMessage = (uiState as? LoginUiState.Error)?.message
 
     val isLoginEnabled = emailPrefix.isNotBlank() && password.isNotBlank() && !isLoading
 
@@ -149,7 +146,7 @@ fun LoginScreen(
                 keyboardActions = KeyboardActions(
                     onNext = { passwordFocusRequester.requestFocus() },
                 ),
-                isError = errorMessage != null,
+                isError = loginErrorMessage != null,
                 shape = RoundedCornerShape(8.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color(0xFF4A6741),
@@ -208,7 +205,7 @@ fun LoginScreen(
                         if (isLoginEnabled) viewModel.login(emailPrefix, password)
                     },
                 ),
-                isError = errorMessage != null,
+                isError = loginErrorMessage != null,
                 shape = RoundedCornerShape(8.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color(0xFF4A6741),
@@ -224,9 +221,9 @@ fun LoginScreen(
         }
 
         Spacer(modifier = Modifier.height(8.dp))
-        if (errorMessage != null) {
+        if (loginErrorMessage != null) {
             Text(
-                text = errorMessage,
+                text = loginErrorMessage,
                 color = Color.Red,
                 fontSize = 12.sp,
                 modifier = Modifier.fillMaxWidth(),
@@ -234,22 +231,6 @@ fun LoginScreen(
             )
         } else {
             Spacer(modifier = Modifier.height(16.dp))
-        }
-
-        if (canRetrySession) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Button(
-                onClick = onRetrySession,
-                enabled = !isLoading,
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF4A6741),
-                    disabledContainerColor = Color(0xFFD9D9D9),
-                ),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("저장된 세션 다시 시도")
-            }
         }
 
         Spacer(modifier = Modifier.height(24.dp))

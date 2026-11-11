@@ -13,19 +13,18 @@ android {
         applicationId = "com.ku.lostandfound"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "1.0.3"
+        versionCode = 5
+        versionName = "1.0.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            optimization {
+                enable = true
+            }
+            proguardFiles("proguard-rules.pro")
         }
     }
 

@@ -84,6 +84,7 @@ import com.ku.lostandfound.ui.profile.screen.MyPostsScreen
 import com.ku.lostandfound.ui.profile.screen.MyPostsType
 import com.ku.lostandfound.ui.profile.screen.ProfileScreen
 import com.ku.lostandfound.ui.profile.viewmodel.UserViewModel
+import com.ku.lostandfound.ui.profile.viewmodel.UserUiState
 import com.ku.lostandfound.ui.search.screen.SearchScreen
 import com.ku.lostandfound.ui.signup.screen.SignupCodeScreen
 import com.ku.lostandfound.ui.signup.screen.SignupEmailScreen
@@ -94,8 +95,6 @@ import com.ku.lostandfound.ui.signup.viewmodel.SignupViewmodel
 import com.ku.lostandfound.viewmodel.PostWriteViewModel
 import kotlinx.coroutines.launch
 
-private const val SESSION_EXPIRED_MESSAGE = "로그인이 만료되었습니다. 다시 로그인해주세요."
-
 @Composable
 private fun SessionCheckingScreen(modifier: Modifier = Modifier) {
     Box(
@@ -105,6 +104,32 @@ private fun SessionCheckingScreen(modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center
     ) {
         CircularProgressIndicator()
+    }
+}
+
+/** Prevents admin content from entering composition until the server-provided role is known. */
+@Composable
+private fun AdminAccessGate(
+    user: UserMeData?,
+    userState: UserUiState,
+    navController: NavHostController,
+    content: @Composable () -> Unit,
+) {
+    LaunchedEffect(user?.role, userState) {
+        if (user != null && user.role != "ADMIN") {
+            navController.popBackStack()
+        }
+    }
+
+    when {
+        user?.role == "ADMIN" -> content()
+        userState is UserUiState.Error -> Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("사용자 정보를 확인할 수 없습니다.")
+        }
+        else -> SessionCheckingScreen()
     }
 }
 
@@ -152,7 +177,7 @@ fun MainNavGraph(
         mutableStateOf<String?>(
             if (isFreshLaunch) {
                 when {
-                    TokenManager.accessToken.isNullOrBlank() ->
+                    !TokenManager.hasTokens() ->
                         Route.Login.route
 
                     !TokenManager.isAccessTokenExpired() ->
@@ -165,15 +190,13 @@ fun MainNavGraph(
             }
         )
     }
-    var loginMessage by remember { mutableStateOf<String?>(null) }
-    var canRetrySession by remember { mutableStateOf(false) }
     // A restored NavController can still contain protected destinations even when the
     // newly verified start destination is Login.
     var clearRestoredAuthenticatedStack by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         startDestination = when {
-            TokenManager.accessToken.isNullOrBlank() -> {
+            !TokenManager.hasTokens() -> {
                 clearRestoredAuthenticatedStack = !isFreshLaunch
                 Route.Login.route
             }
@@ -182,15 +205,13 @@ fun MainNavGraph(
             else -> when (RetrofitClient.refreshSession()) {
                 RefreshSessionResult.Success -> Route.Found.route
                 RefreshSessionResult.InvalidSession -> {
-                    loginMessage = SESSION_EXPIRED_MESSAGE
                     clearRestoredAuthenticatedStack = true
                     Route.Login.route
                 }
-                // Keep credentials on transient failures but never expose a private screen
-                // before a successful verification. The user can sign in again and retry.
+                // Keep credentials on transient failures. A later app launch or an authenticated
+                // request can retry automatically, but private screens stay inaccessible until
+                // verification succeeds.
                 RefreshSessionResult.RetryableFailure -> {
-                    loginMessage = "네트워크 오류로 세션을 확인하지 못했습니다. 다시 시도해주세요."
-                    canRetrySession = true
                     clearRestoredAuthenticatedStack = true
                     Route.Login.route
                 }
@@ -389,7 +410,6 @@ fun MainNavGraph(
             // newer session created after the expiry was reported.
             if (!TokenManager.isCurrentSession(expiredGeneration)) return@collect
             clearAuthenticatedUiState()
-            loginMessage = SESSION_EXPIRED_MESSAGE
             navigateToLoginClearingBackStack()
         }
     }
@@ -459,28 +479,8 @@ fun MainNavGraph(
         composable(route = Route.Login.route) {
             LoginScreen(
                 viewModel = loginViewModel,
-                sessionMessage = loginMessage,
-                canRetrySession = canRetrySession,
-                onRetrySession = {
-                    loginViewModel.refreshToken {
-                        clearAuthenticatedUiState()
-
-                        canRetrySession = false
-                        loginMessage = null
-                        userViewModel.loadMe()
-
-                        navController.navigate(Route.Found.route) {
-                            popUpTo(Route.Login.route) {
-                                inclusive = true
-                            }
-                        }
-                    }
-                },
                 onLoginSuccess = {
                     clearAuthenticatedUiState()
-
-                    loginMessage = null
-                    canRetrySession = false
                     userViewModel.loadMe()
 
                     navController.navigate(Route.Found.route) {
@@ -1499,11 +1499,9 @@ fun MainNavGraph(
         composable(
             route = Route.Admin.route
         ) {
-            LaunchedEffect(userViewModel.me?.role) {
-                if (userViewModel.me?.role == "ADMIN") adminViewModel.loadDashboard()
-                else navController.popBackStack()
-            }
-            AdminDashboardScreen(
+            AdminAccessGate(userViewModel.me, userViewModel.uiState, navController) {
+                LaunchedEffect(Unit) { adminViewModel.loadDashboard() }
+                AdminDashboardScreen(
                 pendingReportCount = adminViewModel.dashboard?.pendingReportCount?.toInt() ?: 0,
                 errorMessage = (adminViewModel.uiState as? AdminUiState.Error)?.message,
 
@@ -1528,22 +1526,22 @@ fun MainNavGraph(
                 onAuditLogClick = {
                     navController.navigate(Route.AdminAudits.route)
                 },
-            )
+                )
+            }
         }
 
         composable(route = Route.AdminUsers.route) {
-            LaunchedEffect(userViewModel.me?.role) {
-                if (userViewModel.me?.role == "ADMIN") adminViewModel.loadUsers()
-                else navController.popBackStack()
-            }
-            AdminUserListScreen(
+            AdminAccessGate(userViewModel.me, userViewModel.uiState, navController) {
+                LaunchedEffect(Unit) { adminViewModel.loadUsers() }
+                AdminUserListScreen(
                 users = adminViewModel.users,
                 isLoading = adminViewModel.uiState is AdminUiState.Loading,
                 errorMessage = (adminViewModel.uiState as? AdminUiState.Error)?.message,
                 onBackClick = { navController.popBackStack() },
                 onSearch = { adminViewModel.loadUsers(it) },
                 onUserClick = { navController.navigate(Route.AdminUserDetail.create(it)) },
-            )
+                )
+            }
         }
 
         composable(
@@ -1553,13 +1551,11 @@ fun MainNavGraph(
             }),
         ) { entry ->
             val userId = entry.arguments?.getLong(Route.AdminUserDetail.ARG_USER_ID)
-            LaunchedEffect(userId, userViewModel.me?.role) {
-                if (userViewModel.me?.role == "ADMIN" && userId != null) adminViewModel.loadUser(
-                    userId
-                )
-                else navController.popBackStack()
-            }
-            AdminUserDetailScreen(
+            AdminAccessGate(userViewModel.me, userViewModel.uiState, navController) {
+                LaunchedEffect(userId) {
+                    if (userId != null) adminViewModel.loadUser(userId)
+                }
+                AdminUserDetailScreen(
                 user = adminViewModel.selectedUser?.takeIf { it.id == userId },
                 isLoading = adminViewModel.uiState is AdminUiState.Loading,
                 errorMessage = (adminViewModel.uiState as? AdminUiState.Error)?.message,
@@ -1570,16 +1566,15 @@ fun MainNavGraph(
                         suspended
                     ) {}
                 },
-            )
+                )
+            }
         }
 
         composable(route = Route.AdminPosts.route) {
             var adminPostType by remember { mutableStateOf("FOUND") }
-            LaunchedEffect(userViewModel.me?.role, adminPostType) {
-                if (userViewModel.me?.role == "ADMIN") adminViewModel.loadPosts(adminPostType)
-                else navController.popBackStack()
-            }
-            AdminPostListScreen(
+            AdminAccessGate(userViewModel.me, userViewModel.uiState, navController) {
+                LaunchedEffect(adminPostType) { adminViewModel.loadPosts(adminPostType) }
+                AdminPostListScreen(
                 posts = adminViewModel.posts,
                 postType = adminPostType,
                 isLoading = adminViewModel.uiState is AdminUiState.Loading,
@@ -1596,30 +1591,28 @@ fun MainNavGraph(
                         }
                     }
                 },
-            )
+                )
+            }
         }
 
         composable(route = Route.AdminAudits.route) {
-            LaunchedEffect(userViewModel.me?.role) {
-                if (userViewModel.me?.role == "ADMIN") adminViewModel.loadAudits()
-                else navController.popBackStack()
-            }
-            AdminAuditLogScreen(
+            AdminAccessGate(userViewModel.me, userViewModel.uiState, navController) {
+                LaunchedEffect(Unit) { adminViewModel.loadAudits() }
+                AdminAuditLogScreen(
                 audits = adminViewModel.audits,
                 isLoading = adminViewModel.uiState is AdminUiState.Loading,
                 errorMessage = (adminViewModel.uiState as? AdminUiState.Error)?.message,
                 onBackClick = { navController.popBackStack() },
-            )
+                )
+            }
         }
 
         composable(
             route = Route.AdminReports.route
         ) {
-            LaunchedEffect(userViewModel.me?.role) {
-                if (userViewModel.me?.role == "ADMIN") adminViewModel.loadReports()
-                else navController.popBackStack()
-            }
-            AdminReportListScreen(
+            AdminAccessGate(userViewModel.me, userViewModel.uiState, navController) {
+                LaunchedEffect(Unit) { adminViewModel.loadReports() }
+                AdminReportListScreen(
                 reports = adminViewModel.reports.map { it.toUiModel() },
                 isLoading = adminViewModel.uiState is AdminUiState.Loading,
                 errorMessage = (adminViewModel.uiState as? AdminUiState.Error)?.message,
@@ -1633,7 +1626,8 @@ fun MainNavGraph(
                         Route.AdminReportDetail.create(reportId)
                     )
                 }
-            )
+                )
+            }
         }
 
         composable(
@@ -1650,18 +1644,15 @@ fun MainNavGraph(
                 .orEmpty()
 
             val numericReportId = reportId.toLongOrNull()
-            LaunchedEffect(numericReportId, userViewModel.me?.role) {
-                if (userViewModel.me?.role == "ADMIN" && numericReportId != null) {
-                    adminViewModel.loadReport(numericReportId)
-                } else {
-                    navController.popBackStack()
+            AdminAccessGate(userViewModel.me, userViewModel.uiState, navController) {
+                LaunchedEffect(numericReportId) {
+                    if (numericReportId != null) adminViewModel.loadReport(numericReportId)
                 }
-            }
-            val report = adminViewModel.selectedReport
-                ?.takeIf { it.id == numericReportId }
-                ?.toUiModel()
+                val report = adminViewModel.selectedReport
+                    ?.takeIf { it.id == numericReportId }
+                    ?.toUiModel()
 
-            AdminReportDetailScreen(
+                AdminReportDetailScreen(
                 report = report,
                 isLoading = adminViewModel.uiState is AdminUiState.Loading,
                 errorMessage = (adminViewModel.uiState as? AdminUiState.Error)?.message,
@@ -1679,11 +1670,14 @@ fun MainNavGraph(
                     }
                     if (numericReportId != null) {
                         adminViewModel.processReport(numericReportId, apiAction) {
-                            navController.popBackStack()
+                            if (navController.currentDestination?.route == Route.AdminReportDetail.route) {
+                                navController.popBackStack()
+                            }
                         }
                     }
                 }
-            )
+                )
+            }
         }
 
     }
