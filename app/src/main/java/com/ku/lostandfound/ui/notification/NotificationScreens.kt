@@ -1,6 +1,7 @@
 package com.ku.lostandfound.ui.notification
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,9 +19,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.VisibilityOff
 import com.ku.lostandfound.network.InboxNotificationData
 import com.ku.lostandfound.network.NotificationSettingsPatch
 import com.ku.lostandfound.ui.component.BackTitleBar
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,7 +34,7 @@ fun NotificationInboxScreen(vm: NotificationViewModel, onBack: () -> Unit, onOpe
         BackTitleBar(title = "알림함", onBackClick = onBack)
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
             if (vm.items.any { it.readAt == null }) TextButton(onClick = vm::markAllRead) { Text("모두 읽음") }
-            if (vm.items.isNotEmpty()) TextButton(onClick = vm::hideAll) { Text("전체 숨기기", color = Color(0xFFD32F2F)) }
+            if (vm.items.isNotEmpty()) TextButton(onClick = vm::hideAll) { Text("현재 목록 숨기기", color = Color(0xFF647568)) }
         }
         PullToRefreshBox(isRefreshing = vm.state is InboxState.Loading, onRefresh = { vm.load(true) }, modifier = Modifier.weight(1f)) {
             when (val state = vm.state) {
@@ -55,7 +59,7 @@ fun NotificationInboxScreen(vm: NotificationViewModel, onBack: () -> Unit, onOpe
         headlineContent = { Text(item.title ?: "새 알림", fontWeight = if (item.readAt == null) FontWeight.Bold else FontWeight.Normal) },
         supportingContent = { Text(listOfNotNull(item.body, item.unreadMessages?.takeIf { it > 1 }?.let { "새 메시지 ${it.coerceAtMost(99)}개" }).joinToString("\n")) },
         leadingContent = { Text(if (item.readAt == null) "●" else "○", color = if (item.readAt == null) Color(0xFF1B6425) else Color.Gray) },
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
     )
     HorizontalDivider()
 }
@@ -77,10 +81,11 @@ private fun SwipeToHideNotification(
         state = state,
         backgroundContent = {
             Box(
-                modifier = Modifier.fillMaxSize().background(Color(0xFFD32F2F)).padding(horizontal = 20.dp),
+                modifier = Modifier.fillMaxSize().background(Color(0xFFE7F3E9)).padding(horizontal = 20.dp),
                 contentAlignment = Alignment.CenterEnd,
-            ) { Text("숨기기", color = Color.White, fontWeight = FontWeight.Bold) }
+            ) { Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Outlined.VisibilityOff, contentDescription = null, tint = Color(0xFF1B6425)); Spacer(Modifier.width(6.dp)); Text("숨기기", color = Color(0xFF1B6425), fontWeight = FontWeight.Bold) } }
         },
+        enableDismissFromStartToEnd = false,
         content = { content() },
     )
 }
@@ -102,7 +107,12 @@ fun NotificationSettingsScreen(vm: NotificationViewModel, onBack: () -> Unit) {
             if (settings.similarItemEnabled) {
                 var threshold by remember(settings.similarityThreshold) { mutableFloatStateOf(settings.similarityThreshold.toFloat()) }
                 Text("알림 기준 유사도 ${(threshold * 100).toInt()}% 이상")
-                Slider(value = threshold, onValueChange = { threshold = it }, onValueChangeFinished = { vm.updateSettings(NotificationSettingsPatch(similarityThreshold = threshold.toDouble())) }, valueRange = 0.05f..1f)
+                Slider(value = threshold, onValueChange = { threshold = it }, onValueChangeFinished = {
+                    val normalized = (threshold * 20).roundToInt() / 20.0
+                    if (kotlin.math.abs(normalized - settings.similarityThreshold) >= 0.001) {
+                        vm.updateSettings(NotificationSettingsPatch(similarityThreshold = normalized))
+                    }
+                }, valueRange = 0.05f..1f, steps = 18, colors = SliderDefaults.colors(thumbColor = Color(0xFF1B6425), activeTrackColor = Color(0xFF1B6425)))
             }
         }
     }

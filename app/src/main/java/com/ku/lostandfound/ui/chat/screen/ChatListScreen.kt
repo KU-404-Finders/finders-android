@@ -130,17 +130,10 @@ fun ChatListScreen(
         }
     }
     leaveTargetId?.let { roomId ->
-        AlertDialog(
-            onDismissRequest = { leaveTargetId = null },
-            title = { Text("채팅방을 나갈까요?") },
-            text = { Text("나간 뒤에는 이 채팅방의 대화를 볼 수 없습니다.") },
-            dismissButton = { TextButton(onClick = { leaveTargetId = null }) { Text("취소") } },
-            confirmButton = {
-                TextButton(onClick = {
-                    leaveTargetId = null
-                    onLeaveRoom(roomId)
-                }) { Text("나가기") }
-            },
+        ChatActionConfirmDialog(
+            action = ChatConfirmAction.Leave,
+            onDismiss = { leaveTargetId = null },
+            onConfirm = { leaveTargetId = null; onLeaveRoom(roomId) },
         )
     }
 }

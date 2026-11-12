@@ -13,6 +13,23 @@ import androidx.compose.runtime.setValue
 import com.ku.lostandfound.data.BoardPost
 import com.ku.lostandfound.data.PostType
 import com.ku.lostandfound.ui.board.screen.HomeScreen
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 @Composable
 fun LostBoardScreen(
@@ -59,8 +76,43 @@ fun LostBoardScreen(
         onRefresh = onRefresh,
         listHeaderAction = {
             Box {
-                TextButton(onClick = { filterExpanded = true }) {
-                    Text("필터: ${selectedCategory.label}")
+                OutlinedButton(
+                    onClick = { filterExpanded = true },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = Color(0xFFE7F3E9),
+                        contentColor = Color(0xFF1B6425)
+                    ),
+                    border = BorderStroke(
+                        1.dp,
+                        Color(0xFFB8D4BC)
+                    ),
+                    contentPadding = PaddingValues(
+                        horizontal = 12.dp,
+                        vertical = 6.dp
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FilterList,
+                        contentDescription = "카테고리 필터",
+                        modifier = Modifier.size(17.dp)
+                    )
+
+                    Spacer(Modifier.width(6.dp))
+
+                    Text(
+                        text = selectedCategory.label,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    Spacer(Modifier.width(4.dp))
+
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
                 DropdownMenu(
                     expanded = filterExpanded,

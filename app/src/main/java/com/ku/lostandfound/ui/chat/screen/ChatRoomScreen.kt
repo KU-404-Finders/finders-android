@@ -283,19 +283,15 @@ fun ChatRoomScreen(
         }
 
         if (confirmBlock) {
-            ChatConfirmDialog(
-                title = "사용자를 차단할까요?",
-                message = "차단하면 해당 사용자의 게시글과 채팅을 볼 수 없습니다.",
-                confirmText = "차단",
+            ChatActionConfirmDialog(
+                action = ChatConfirmAction.Block,
                 onDismiss = { confirmBlock = false },
                 onConfirm = { confirmBlock = false; onBlockUser() },
             )
         }
         if (confirmLeave) {
-            ChatConfirmDialog(
-                title = "채팅방을 나갈까요?",
-                message = "나간 뒤에는 이 채팅방의 대화를 볼 수 없습니다.",
-                confirmText = "나가기",
+            ChatActionConfirmDialog(
+                action = ChatConfirmAction.Leave,
                 onDismiss = { confirmLeave = false },
                 onConfirm = { confirmLeave = false; onLeaveRoom() },
             )
@@ -303,20 +299,6 @@ fun ChatRoomScreen(
     }
 }
 
-@Composable
-private fun ChatConfirmDialog(
-    title: String,
-    message: String,
-    confirmText: String,
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit,
-) = AlertDialog(
-    onDismissRequest = onDismiss,
-    title = { Text(title) },
-    text = { Text(message) },
-    dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } },
-    confirmButton = { TextButton(onClick = onConfirm) { Text(confirmText) } },
-)
 
 @Composable
 private fun ChatMessageBubble(

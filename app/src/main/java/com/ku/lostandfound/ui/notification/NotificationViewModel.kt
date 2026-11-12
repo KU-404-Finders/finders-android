@@ -15,6 +15,8 @@ import com.ku.lostandfound.network.RetrofitClient
 import com.ku.lostandfound.notification.NotificationInboxRefreshBus
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 sealed class InboxState {
     data object Loading : InboxState()
@@ -39,6 +41,7 @@ class NotificationViewModel(application: Application) : AndroidViewModel(applica
     private var requestId = 0
     private var unreadRequestId = 0
     private var settingRequestId = 0
+    private val settingsMutex = Mutex()
 
     fun attachAccount(userId: Long?) {
         if (accountId == userId) return
@@ -107,11 +110,14 @@ class NotificationViewModel(application: Application) : AndroidViewModel(applica
     }
 
     fun updateSettings(patch: NotificationSettingsPatch) {
-        val previous = settings ?: return; val id = ++settingRequestId
         viewModelScope.launch {
-            try { val r = RetrofitClient.notificationApi.updateSettings(patch); val updated = r.body()?.takeIf { r.isSuccessful && it.success }?.data
-                if (id == settingRequestId) { settings = updated ?: previous; settingsError = if (updated == null) "설정 저장에 실패했습니다." else null } }
-            catch (_: Exception) { if (id == settingRequestId) { settings = previous; settingsError = "설정 저장에 실패했습니다." } }
+            settingsMutex.withLock {
+                val previous = settings ?: return@withLock
+                val id = ++settingRequestId
+                try { val r = RetrofitClient.notificationApi.updateSettings(patch); val updated = r.body()?.takeIf { r.isSuccessful && it.success }?.data
+                    if (id == settingRequestId) { settings = updated ?: previous; settingsError = if (updated == null) "설정 저장에 실패했습니다." else null } }
+                catch (_: Exception) { if (id == settingRequestId) { settings = previous; settingsError = "설정 저장에 실패했습니다." } }
+            }
         }
     }
 
