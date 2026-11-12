@@ -7,6 +7,7 @@ import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
 import retrofit2.http.PATCH
+import retrofit2.http.DELETE
 
 interface ChatApiService {
 
@@ -19,6 +20,11 @@ interface ChatApiService {
     suspend fun getRooms(
         @Query("page") page: Int = 0,
     ): Response<ApiResponse<List<ChatRoomResponse>>>
+
+    @GET("api/v1/chat/rooms/{roomId}")
+    suspend fun getRoom(
+        @Path("roomId") roomId: Long,
+    ): Response<ApiResponse<ChatRoomResponse>>
 
     @GET("api/v1/chat/rooms/{roomId}/messages")
     suspend fun getMessages(
@@ -37,4 +43,9 @@ interface ChatApiService {
         @Path("roomId") roomId: Long,
         @Body request: ChatReadRequest,
     ): Response<ApiResponse<ChatReadReceipt>>
+
+    @DELETE("api/v1/chat/rooms/{roomId}/membership")
+    suspend fun leaveRoom(
+        @Path("roomId") roomId: Long,
+    ): Response<ApiResponse<Unit>>
 }

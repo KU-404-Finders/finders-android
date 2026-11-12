@@ -1,20 +1,26 @@
 package com.ku.lostandfound
 
+import androidx.core.view.WindowCompat
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.LocalOverscrollFactory
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.core.content.edit
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -32,7 +38,9 @@ import android.content.Intent
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.ku.lostandfound.notification.NotificationTarget
+import androidx.compose.ui.graphics.Color
 
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 class MainActivity : ComponentActivity() {
 
     private val notificationPermissionLauncher =
@@ -53,6 +61,7 @@ class MainActivity : ComponentActivity() {
             by mutableStateOf<NotificationTarget?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
 
         if (savedInstanceState == null) {
@@ -65,6 +74,10 @@ class MainActivity : ComponentActivity() {
         FindersNotificationHelper.createChannel(applicationContext)
 
         enableEdgeToEdge()
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = true
+            isAppearanceLightNavigationBars = true
+        }
 
         // FID 기반 FCM 등록을 시작한다. 성공 FID는 onRegistered에서만 서버에 전달한다.
         FirebaseMessaging.getInstance().register()
@@ -78,12 +91,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-        window.setSoftInputMode(
-            WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
-        )
-
         setContent {
             KUfindersTheme {
+                // Keep scroll ranges intact while suppressing visual bounce/glow on
+                // screens whose content does not exceed the viewport.
+                CompositionLocalProvider(LocalOverscrollFactory provides null) {
                 val navController = rememberNavController()
 
                 val backStackEntry by
@@ -91,6 +103,7 @@ class MainActivity : ComponentActivity() {
 
                 val currentRoute =
                     backStackEntry?.destination?.route
+                val isImeVisible = WindowInsets.isImeVisible
 
                 val mainRoutes = setOf(
                     Route.Lost.route,
@@ -210,9 +223,10 @@ class MainActivity : ComponentActivity() {
                 }
 
                 Scaffold(
+                    containerColor = Color.White,
                     contentWindowInsets = WindowInsets.safeDrawing,
                     bottomBar = {
-                        if (currentRoute in mainRoutes) {
+                        if (currentRoute in mainRoutes && !isImeVisible) {
                             AppBottomBar(
                                 currentRoute = currentRoute.orEmpty(),
                                 onTabClick = { targetRoute ->
@@ -225,7 +239,9 @@ class MainActivity : ComponentActivity() {
                     MainNavGraph(
                         navController = navController,
                         padding = innerPadding,
+                        isFreshLaunch = savedInstanceState == null,
                     )
+                }
                 }
             }
         }

@@ -11,8 +11,21 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -21,17 +34,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ku.lostandfound.network.ChatMessageResponse
-import com.ku.lostandfound.ui.component.BackTitleBar
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import com.ku.lostandfound.ui.chat.ChatTimeFormatter
 import com.ku.lostandfound.ui.component.noRippleClickable
 
 private val DeepGreen = Color(0xFF1B6425)
 private val FieldGray = Color(0xFFF4F4F4)
 private val TextGray = Color(0xFF8A8A8A)
-private val MyMessageColor = Color(0xFFE4F6E5)
+private val MyMessageColor = Color(0xFFE5F5E8)
 
 @Composable
 fun ChatRoomScreen(
@@ -45,6 +54,13 @@ fun ChatRoomScreen(
     isConnected: Boolean,
     connectionMessage: String?,
     onSendMessage: (String) -> Boolean,
+    postAuthorId: Long? = null,
+    postAuthorName: String? = null,
+    hasLinkedPost: Boolean = false,
+    canBlockUser: Boolean = false,
+    onViewPost: () -> Unit = {},
+    onBlockUser: () -> Unit = {},
+    onLeaveRoom: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
 
@@ -53,8 +69,10 @@ fun ChatRoomScreen(
     }
 
     val canSend = isConnected && messageText.isNotBlank()
+    var menuExpanded by remember(roomId) { mutableStateOf(false) }
+    var confirmBlock by remember(roomId) { mutableStateOf(false) }
+    var confirmLeave by remember(roomId) { mutableStateOf(false) }
 
-    // 채팅방 입장 또는 메시지 변경 시 최신 메시지로 이동
     LaunchedEffect(roomId, messages.lastOrNull()?.id) {
         if (messages.isNotEmpty()) {
             listState.scrollToItem(messages.lastIndex)
@@ -66,41 +84,68 @@ fun ChatRoomScreen(
             .fillMaxSize()
             .background(Color.White)
     ) {
-        BackTitleBar(
-            title = roomTitle?.takeIf { it.isNotBlank() } ?: "채팅",
-            onBackClick = onBackClick,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBackClick) {
+                Icon(Icons.Default.ArrowBack, contentDescription = "뒤로가기", tint = DeepGreen)
+            }
+            Text(
+                text = roomTitle?.takeIf { it.isNotBlank() } ?: "채팅",
+                modifier = Modifier.weight(1f).noRippleClickable { if (hasLinkedPost) onViewPost() },
+                color = Color(0xFF222222), fontSize = 17.sp, fontWeight = FontWeight.Bold,
+            )
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "더보기", tint = DeepGreen)
+                }
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text("게시글 보기") },
+                        enabled = hasLinkedPost,
+                        onClick = { menuExpanded = false; onViewPost() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("사용자 차단") },
+                        enabled = canBlockUser,
+                        onClick = { menuExpanded = false; confirmBlock = true },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("채팅방 나가기") },
+                        onClick = { menuExpanded = false; confirmLeave = true },
+                    )
+                }
+            }
+        }
+
+        // 기존 상단바 아래의 중복 제목은 제거함
+
         if (!isConnected || connectionMessage != null) {
             Text(
-                text = connectionMessage ?: "실시간 채팅 연결 중...",
+                text = connectionMessage
+                    ?: "실시간 채팅 연결 중...",
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(
+                        horizontal = 16.dp,
+                        vertical = 8.dp
+                    ),
                 color = Color(0xFFD32F2F),
                 fontSize = 12.sp,
             )
         }
 
-        Text(
-            text = roomTitle?.takeIf { it.isNotBlank() } ?: "상대방과의 대화",
-            color = TextGray,
-            fontSize = 12.sp,
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xFFF9F9F9))
-                .padding(horizontal = 20.dp, vertical = 10.dp),
-        )
-
         Box(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth(),
+                .fillMaxWidth()
         ) {
             when {
                 isLoading -> {
                     CircularProgressIndicator(
                         modifier = Modifier.align(Alignment.Center),
-                        color = DeepGreen,
+                        color = DeepGreen
                     )
                 }
 
@@ -129,20 +174,34 @@ fun ChatRoomScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(horizontal = 16.dp),
-                        contentPadding = PaddingValues(vertical = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        contentPadding = PaddingValues(
+                            vertical = 16.dp
+                        ),
+                        verticalArrangement =
+                            Arrangement.spacedBy(12.dp),
                     ) {
                         items(
                             items = messages,
-                            key = { it.id },
+                            key = { it.id }
                         ) { message ->
+
                             val isMine =
                                 currentUserId != null &&
                                         message.senderId == currentUserId
 
+                            val senderName =
+                                if (postAuthorId != null &&
+                                    message.senderId == postAuthorId
+                                ) {
+                                    postAuthorName
+                                } else {
+                                    null
+                                }
+
                             ChatMessageBubble(
                                 message = message,
                                 isMine = isMine,
+                                senderName = senderName,
                             )
                         }
                     }
@@ -153,8 +212,12 @@ fun ChatRoomScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .imePadding()
                 .background(Color.White)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(
+                    horizontal = 16.dp,
+                    vertical = 10.dp
+                ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TextField(
@@ -191,7 +254,7 @@ fun ChatRoomScreen(
                     .height(56.dp),
             )
 
-            Spacer(Modifier.size(10.dp))
+            Spacer(Modifier.width(10.dp))
 
             Box(
                 modifier = Modifier
@@ -202,11 +265,13 @@ fun ChatRoomScreen(
                         else Color(0xFFB7CBB9)
                     )
                     .noRippleClickable {
-                        if (canSend && onSendMessage(messageText)) {
+                        if (canSend &&
+                            onSendMessage(messageText)
+                        ) {
                             messageText = ""
                         }
                     },
-                contentAlignment = Alignment.Center,
+                contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "➤",
@@ -217,13 +282,29 @@ fun ChatRoomScreen(
             }
         }
 
+        if (confirmBlock) {
+            ChatActionConfirmDialog(
+                action = ChatConfirmAction.Block,
+                onDismiss = { confirmBlock = false },
+                onConfirm = { confirmBlock = false; onBlockUser() },
+            )
+        }
+        if (confirmLeave) {
+            ChatActionConfirmDialog(
+                action = ChatConfirmAction.Leave,
+                onDismiss = { confirmLeave = false },
+                onConfirm = { confirmLeave = false; onLeaveRoom() },
+            )
+        }
     }
 }
+
 
 @Composable
 private fun ChatMessageBubble(
     message: ChatMessageResponse,
     isMine: Boolean,
+    senderName: String?,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -231,22 +312,23 @@ private fun ChatMessageBubble(
             Arrangement.End
         } else {
             Arrangement.Start
-        },
+        }
     ) {
         Column(
             horizontalAlignment = if (isMine) {
                 Alignment.End
             } else {
                 Alignment.Start
-            },
+            }
         ) {
             if (!isMine) {
                 Text(
-                    text = "상대방",
+                    text = senderName
+                        ?.takeIf { it.isNotBlank() }
+                        ?: "상대방",
                     color = TextGray,
-                    fontSize = 11.sp,
+                    fontSize = 11.sp
                 )
-
                 Spacer(Modifier.height(4.dp))
             }
 
@@ -257,20 +339,26 @@ private fun ChatMessageBubble(
                         RoundedCornerShape(
                             topStart = 16.dp,
                             topEnd = 16.dp,
-                            bottomStart = if (isMine) 16.dp else 4.dp,
-                            bottomEnd = if (isMine) 4.dp else 16.dp,
+                            bottomStart =
+                                if (isMine) 16.dp else 4.dp,
+                            bottomEnd =
+                                if (isMine) 4.dp else 16.dp,
                         )
                     )
                     .background(
-                        if (isMine) MyMessageColor else FieldGray
+                        if (isMine) MyMessageColor
+                        else FieldGray
                     )
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(
+                        horizontal = 14.dp,
+                        vertical = 10.dp
+                    )
             ) {
                 Text(
                     text = message.content,
                     color = Color(0xFF222222),
                     fontSize = 14.sp,
-                    lineHeight = 20.sp,
+                    lineHeight = 20.sp
                 )
             }
 
@@ -278,22 +366,23 @@ private fun ChatMessageBubble(
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement =
+                    Arrangement.spacedBy(6.dp),
             ) {
                 Text(
-                    text = message.createdAt
-                        .substringAfter("T", "")
-                        .take(5),
+                    text = ChatTimeFormatter.formatTime(
+                        message.createdAt
+                    ),
                     color = TextGray,
-                    fontSize = 10.sp,
+                    fontSize = 10.sp
                 )
 
-                if (isMine) {
+                if (isMine && message.unreadCount > 0) {
                     Text(
-                        text = message.unreadCount.takeIf { it > 0 }?.toString().orEmpty(),
+                        text = message.unreadCount.toString(),
                         color = TextGray,
                         fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium,
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }

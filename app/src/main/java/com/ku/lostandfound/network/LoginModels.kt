@@ -8,6 +8,9 @@ data class LoginRequest(
 data class TokenData(
     val accessToken: String,
     val refreshToken: String,
+    val userId: Long? = null,
+    val role: String? = null,
+    val admin: Boolean = false,
 )
 
 data class LoginResponse(

@@ -9,8 +9,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -146,6 +148,8 @@ fun HomeTopBar(
     title: String = "습득물 캠퍼스맵",
     onProfileClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
+    onNotificationClick: () -> Unit = {},
+    notificationCount: Int = 0,
 ) {
     Row(
         modifier = Modifier
@@ -170,6 +174,18 @@ fun HomeTopBar(
         }
         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
             Text(text = title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        }
+        Box(
+            modifier = Modifier.size(44.dp).noRippleClickable(onNotificationClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Notifications,
+                contentDescription = "알림함",
+                tint = Color.White,
+                modifier = Modifier.size(24.dp),
+            )
+            if (notificationCount > 0) Text(if (notificationCount > 99) "99+" else notificationCount.toString(), color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.TopEnd).background(Color(0xFFE53935), CircleShape).padding(horizontal = 4.dp, vertical = 1.dp))
         }
         Box(
             modifier = Modifier

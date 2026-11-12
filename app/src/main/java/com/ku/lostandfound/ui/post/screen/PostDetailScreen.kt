@@ -7,6 +7,7 @@ import android.media.ExifInterface
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -24,6 +26,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -47,6 +51,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -55,6 +60,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.ku.lostandfound.data.BoardComment
 import com.ku.lostandfound.data.BoardPost
 import com.ku.lostandfound.data.CampusBoundary
@@ -115,7 +121,8 @@ fun PostDetailScreen(
     currentUserName: String = "김건국",
     currentUserEmail: String = "konkuk26@konkuk.ac.kr",
     currentUserId: Long? = null,
-    onAddComment: (String) -> Unit = {},
+    onAddComment: (String, (String) -> Unit) -> Unit = { _, _ -> },
+    isCommentSubmitting: Boolean = false,
     matchCandidates: List<MatchCandidateUiModel> = emptyList(),
     isDetailLoading: Boolean = false,
     isMatchLoading: Boolean = false,
@@ -124,11 +131,19 @@ fun PostDetailScreen(
     onUpdateComment: (BoardComment, String) -> Unit = { _, _ -> },
     onMatchCandidateClick: (MatchCandidateUiModel) -> Unit = {},
     showSimilarityScores: Boolean = false,
+    onBlockUserRequest: (
+        Long,
+        (Boolean) -> Unit
+    ) -> Unit = { _, onFinished -> onFinished(false) },
 ) {
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     var showResolveConfirmDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var commentPendingDeletion by remember(post.id) {
+        mutableStateOf<BoardComment?>(null)
+    }
+    var commentToRevealId by remember(post.id) { mutableStateOf<String?>(null) }
     var showReportDialog by remember {
         mutableStateOf(false)
     }
@@ -146,7 +161,20 @@ fun PostDetailScreen(
     }
     var safetyError by remember { mutableStateOf<String?>(null) }
     var safetyRequestInFlight by remember { mutableStateOf(false) }
+    var blockedUserIdForNavigation by remember {
+        mutableStateOf<Long?>(null)
+    }
 
+    val finishBlockDialog: () -> Unit = {
+        blockCompleted = false
+
+        val blockedId = blockedUserIdForNavigation
+        blockedUserIdForNavigation = null
+
+        if (blockedId != null) {
+            onUserBlocked(blockedId)
+        }
+    }
     if (showResolveConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showResolveConfirmDialog = false },
@@ -197,29 +225,75 @@ fun PostDetailScreen(
         )
     }
 
+    commentPendingDeletion?.let { comment ->
+        AlertDialog(
+            onDismissRequest = { commentPendingDeletion = null },
+            title = { Text("댓글을 삭제할까요?", fontWeight = FontWeight.Bold) },
+            text = { Text("삭제한 댓글은 복구할 수 없습니다.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        commentPendingDeletion = null
+                        onDeleteComment(comment)
+                    }
+                ) {
+                    Text("삭제", color = Color(0xFFD32F2F))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { commentPendingDeletion = null }) {
+                    Text("취소", color = TextGray)
+                }
+            },
+            containerColor = Color.White,
+        )
+    }
+
     if (showReportDialog) {
         ReportPostDialog(
             onDismiss = {
                 showReportDialog = false
             },
 
-            onReport = { reasonIndex ->
+            onReport = onReport@{ reasonIndex ->
+                if (safetyRequestInFlight) return@onReport
+
                 val postId = post.id.toLongOrNull()
-                if (postId == null || showOwnerActions || safetyRequestInFlight) {
-                    safetyError = "신고할 게시글 정보를 확인할 수 없습니다."
+
+                if (postId == null || showOwnerActions) {
+                    safetyError =
+                        "신고할 게시글 정보를 확인할 수 없습니다."
                 } else {
+                    safetyError = null
                     safetyRequestInFlight = true
+
                     scope.launch {
                         try {
-                            val response = RetrofitClient.moderationApi.report(
-                                CreateReportRequest(post.type.name, postId, reportReasonCode(reasonIndex))
-                            )
-                            if (response.isSuccessful && response.body()?.success == true) {
+                            val response =
+                                RetrofitClient.moderationApi.report(
+                                    CreateReportRequest(
+                                        post.type.name,
+                                        postId,
+                                        reportReasonCode(reasonIndex)
+                                    )
+                                )
+
+                            if (
+                                response.isSuccessful &&
+                                response.body()?.success == true
+                            ) {
                                 showReportDialog = false
                                 reportCompleted = true
-                            } else safetyError = "신고 접수에 실패했습니다."
-                        } catch (_: Exception) { safetyError = "서버와 연결할 수 없습니다." }
-                        finally { safetyRequestInFlight = false }
+                            } else {
+                                safetyError = "신고 접수에 실패했습니다."
+                            }
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            safetyError = "서버와 연결할 수 없습니다."
+                        } finally {
+                            safetyRequestInFlight = false
+                        }
                     }
                 }
             }
@@ -233,23 +307,33 @@ fun PostDetailScreen(
             onDismiss = {
                 showBlockDialog = false
             },
+            onBlock = onBlock@{
+                if (safetyRequestInFlight) return@onBlock
 
-            onBlock = {
                 val userId = post.authorUserId
-                if (userId == null || userId == currentUserId || safetyRequestInFlight) {
-                    safetyError = "차단할 사용자를 확인할 수 없습니다."
+
+                if (
+                    userId == null ||
+                    currentUserId == null ||
+                    userId == currentUserId
+                ) {
+                    safetyError =
+                        "차단할 사용자를 확인할 수 없습니다."
                 } else {
+                    safetyError = null
                     safetyRequestInFlight = true
-                    scope.launch {
-                        try {
-                            val response = RetrofitClient.moderationApi.block(userId)
-                            if (response.isSuccessful && response.body()?.success == true) {
-                                showBlockDialog = false
-                                blockCompleted = true
-                                onUserBlocked(userId)
-                            } else safetyError = "사용자 차단에 실패했습니다."
-                        } catch (_: Exception) { safetyError = "서버와 연결할 수 없습니다." }
-                        finally { safetyRequestInFlight = false }
+
+                    onBlockUserRequest(userId) { success ->
+                        safetyRequestInFlight = false
+
+                        if (success) {
+                            showBlockDialog = false
+                            blockedUserIdForNavigation = userId
+                            blockCompleted = true
+                        } else {
+                            safetyError =
+                                "사용자 차단에 실패했습니다."
+                        }
                     }
                 }
             }
@@ -303,7 +387,7 @@ fun PostDetailScreen(
     if (blockCompleted) {
         AlertDialog(
             onDismissRequest = {
-                blockCompleted = false
+                finishBlockDialog()
             },
 
             title = {
@@ -322,7 +406,7 @@ fun PostDetailScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        blockCompleted = false
+                        finishBlockDialog()
                     }
                 ) {
                     Text(
@@ -511,7 +595,8 @@ fun PostDetailScreen(
                 currentUserName = currentUserName,
                 currentUserEmail = currentUserEmail,
                 isLoading = isCommentsLoading,
-                onDeleteComment = onDeleteComment,
+                commentToRevealId = commentToRevealId,
+                onDeleteComment = { commentPendingDeletion = it },
                 onUpdateComment = onUpdateComment,
             )
 
@@ -520,7 +605,13 @@ fun PostDetailScreen(
 
         CommentInputBar(
             currentUserName = currentUserName,
-            onSubmit = onAddComment
+            isSubmitting = isCommentSubmitting,
+            onSubmit = { content, onSuccess ->
+                onAddComment(content) { commentId ->
+                    commentToRevealId = commentId
+                    onSuccess()
+                }
+            },
         )
     }
 }
@@ -661,7 +752,7 @@ private fun MatchCandidateCard(
 
 @Composable
 private fun CandidateThumbnail(imageUrl: String?) {
-    val imageBitmap = rememberPostImageBitmap(imageUrl)
+    val imageBitmap = rememberPostImageBitmap(imageUrl).bitmap
     Box(
         modifier = Modifier
             .size(54.dp)
@@ -689,7 +780,9 @@ private fun CandidateThumbnail(imageUrl: String?) {
 
 @Composable
 private fun PostImageBox(imageUri: String?) {
-    val imageBitmap = rememberPostImageBitmap(imageUri)
+    val imageState = rememberPostImageBitmap(imageUri)
+    val imageBitmap = imageState.bitmap
+    var showFullscreen by remember(imageUri) { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -704,8 +797,12 @@ private fun PostImageBox(imageUri: String?) {
                 bitmap = imageBitmap,
                 contentDescription = "게시글 사진",
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .noRippleClickable { showFullscreen = true },
             )
+        } else if (imageState.failed) {
+            Text(text = "사진을 불러오지 못했습니다.", color = Color.Gray)
         } else {
             Text(
                 text = if (imageUri == null) "사진 영역" else "사진을 불러오는 중입니다.",
@@ -713,17 +810,70 @@ private fun PostImageBox(imageUri: String?) {
             )
         }
     }
+    if (showFullscreen && imageBitmap != null) {
+        FullscreenPostImage(image = imageBitmap, onDismiss = { showFullscreen = false })
+    }
 }
 
 @Composable
-private fun rememberPostImageBitmap(imageUri: String?): ImageBitmap? {
+private fun FullscreenPostImage(image: ImageBitmap, onDismiss: () -> Unit) {
+    var scale by remember { mutableStateOf(1f) }
+    var offsetX by remember { mutableStateOf(0f) }
+    var offsetY by remember { mutableStateOf(0f) }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize().background(Color.Black),
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(
+                bitmap = image,
+                contentDescription = "확대된 게시글 사진",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        translationX = offsetX
+                        translationY = offsetY
+                    }
+                    .pointerInput(Unit) {
+                        detectTransformGestures { _, pan, zoomChange, _ ->
+                            val nextScale = (scale * zoomChange).coerceIn(1f, 4f)
+                            scale = nextScale
+                            if (nextScale == 1f) {
+                                offsetX = 0f
+                                offsetY = 0f
+                            } else {
+                                // A generous bound preserves panning while preventing the image
+                                // from being irretrievably dragged off-screen.
+                                offsetX = (offsetX + pan.x).coerceIn(-1200f, 1200f)
+                                offsetY = (offsetY + pan.y).coerceIn(-1200f, 1200f)
+                            }
+                        }
+                    }
+                    .pointerInput(Unit) { detectTapGestures(onTap = { onDismiss() }) },
+            )
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+            ) { Text("닫기", color = Color.White) }
+        }
+    }
+}
+
+@Composable
+private fun rememberPostImageBitmap(imageUri: String?): PostImageLoadState {
     val context = LocalContext.current
-    var bitmap by remember(imageUri) { mutableStateOf<ImageBitmap?>(null) }
+    var state by remember(imageUri) { mutableStateOf(PostImageLoadState()) }
 
     LaunchedEffect(imageUri) {
-        bitmap = null
+        state = PostImageLoadState(isLoading = !imageUri.isNullOrBlank())
         if (imageUri.isNullOrBlank()) return@LaunchedEffect
-        bitmap = withContext(Dispatchers.IO) {
+        val bitmap = withContext(Dispatchers.IO) {
             runCatching {
                 val sourceBytes =
                     if (imageUri.startsWith("http://") || imageUri.startsWith("https://")) {
@@ -737,10 +887,17 @@ private fun rememberPostImageBitmap(imageUri: String?): ImageBitmap? {
                 sourceBytes?.toOrientedImageBitmap()
             }.getOrNull()
         }
+        state = PostImageLoadState(bitmap = bitmap, failed = bitmap == null)
     }
 
-    return bitmap
+    return state
 }
+
+private data class PostImageLoadState(
+    val bitmap: ImageBitmap? = null,
+    val isLoading: Boolean = false,
+    val failed: Boolean = false,
+)
 
 private fun ByteArray.toOrientedImageBitmap(): ImageBitmap? {
     val decoded = BitmapFactory.decodeByteArray(this, 0, size) ?: return null
@@ -932,6 +1089,7 @@ private fun CommentSection(
     currentUserName: String,
     currentUserEmail: String,
     isLoading: Boolean,
+    commentToRevealId: String?,
     onDeleteComment: (BoardComment) -> Unit,
     onUpdateComment: (BoardComment, String) -> Unit,
 ) {
@@ -968,6 +1126,7 @@ private fun CommentSection(
                     )
                     CommentItem(
                         comment = comment,
+                        shouldBringIntoView = comment.id == commentToRevealId,
                         isPostAuthor = postAuthorUserId != null && comment.authorUserId == postAuthorUserId,
                         canManage = canManage,
                         onDeleteClick = { onDeleteComment(comment) },
@@ -982,6 +1141,7 @@ private fun CommentSection(
 @Composable
 private fun CommentItem(
     comment: BoardComment,
+    shouldBringIntoView: Boolean,
     isPostAuthor: Boolean,
     canManage: Boolean,
     onDeleteClick: () -> Unit,
@@ -989,9 +1149,18 @@ private fun CommentItem(
 ) {
     var isEditing by remember(comment.id) { mutableStateOf(false) }
     var editText by remember(comment.id, comment.content) { mutableStateOf(comment.content) }
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+
+    LaunchedEffect(shouldBringIntoView) {
+        if (shouldBringIntoView) {
+            bringIntoViewRequester.bringIntoView()
+        }
+    }
 
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .bringIntoViewRequester(bringIntoViewRequester),
         verticalAlignment = Alignment.Top
     ) {
         Box(
@@ -1227,13 +1396,16 @@ private fun LoadingRow(text: String) {
 @Composable
 private fun CommentInputBar(
     currentUserName: String,
-    onSubmit: (String) -> Unit,
+    isSubmitting: Boolean,
+    onSubmit: (String, () -> Unit) -> Unit,
 ) {
     var commentText by remember { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .imePadding()
             .background(Color.White)
             .padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -1241,6 +1413,7 @@ private fun CommentInputBar(
         TextField(
             value = commentText,
             onValueChange = { commentText = it },
+            enabled = !isSubmitting,
             placeholder = {
                 Text(
                     text = "댓글을 입력해보세요.",
@@ -1275,13 +1448,15 @@ private fun CommentInputBar(
                 .size(38.dp)
                 .clip(CircleShape)
                 .background(
-                    if (commentText.isBlank()) Color(0xFFB7CBB9) else DeepGreen
+                    if (commentText.isBlank() || isSubmitting) Color(0xFFB7CBB9) else DeepGreen
                 )
                 .noRippleClickable {
                     val text = commentText.trim()
-                    if (text.isNotBlank()) {
-                        onSubmit(text)
-                        commentText = ""
+                    if (text.isNotBlank() && !isSubmitting) {
+                        onSubmit(text) {
+                            commentText = ""
+                            focusManager.clearFocus()
+                        }
                     }
                 },
             contentAlignment = Alignment.Center

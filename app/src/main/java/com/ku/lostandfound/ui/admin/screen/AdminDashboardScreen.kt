@@ -1,6 +1,8 @@
 package com.ku.lostandfound.ui.admin.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,10 +32,12 @@ private val TextGray = Color(0xFF888888)
 @Composable
 fun AdminDashboardScreen(
     pendingReportCount: Int,
+    errorMessage: String? = null,
     onBackClick: () -> Unit,
     onReportManagementClick: () -> Unit = {},
     onUserManagementClick: () -> Unit = {},
     onPostManagementClick: () -> Unit = {},
+    onAuditLogClick: () -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -48,7 +52,8 @@ fun AdminDashboardScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(20.dp),
+                .padding(20.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Text(
@@ -57,6 +62,10 @@ fun AdminDashboardScreen(
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
             )
+
+            if (errorMessage != null) {
+                Text(text = errorMessage, color = Color(0xFFD32F2F), fontSize = 13.sp)
+            }
 
             Text(
                 text = "서비스 운영 및 신고 내역을 관리할 수 있습니다.",
@@ -83,6 +92,12 @@ fun AdminDashboardScreen(
                 title = "게시글 관리",
                 description = "등록된 분실물·습득물 게시글을 관리합니다.",
                 onClick = onPostManagementClick,
+            )
+
+            AdminMenuCard(
+                title = "관리자 작업 이력",
+                description = "관리자 처리 및 삭제 작업의 이력을 확인합니다.",
+                onClick = onAuditLogClick,
             )
         }
     }

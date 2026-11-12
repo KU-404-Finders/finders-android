@@ -19,6 +19,8 @@ sealed class Route(val route: String) {
     object MyFoundPosts : Route(route = "myPosts/found")
 
     object Search : Route(route = "search")
+    object Notifications : Route(route = "notifications")
+    object NotificationSettings : Route(route = "notificationSettings")
 
     object PostWrite : Route(route = "postWrite")
     object PostEdit : Route(route = "postEdit/{postId}") {
@@ -44,6 +46,14 @@ sealed class Route(val route: String) {
     object Admin : Route(route = "admin")
 
     object AdminReports : Route(route = "adminReports")
+
+    object AdminUsers : Route(route = "adminUsers")
+    object AdminUserDetail : Route(route = "adminUsers/{userId}") {
+        const val ARG_USER_ID = "userId"
+        fun create(userId: Long): String = "adminUsers/$userId"
+    }
+    object AdminPosts : Route(route = "adminPosts")
+    object AdminAudits : Route(route = "adminAudits")
 
     object AdminReportDetail : Route(route = "adminReports/{reportId}") {
         const val ARG_REPORT_ID = "reportId"

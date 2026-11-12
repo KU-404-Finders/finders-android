@@ -4,8 +4,8 @@ import android.graphics.Paint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -95,6 +95,26 @@ fun CampusMapCanvas(
         )
     }
 
+    fun panForZoomAt(focus: Offset, nextZoom: Float): Offset {
+        if (canvasSize == Size.Zero) return Offset.Zero
+        val currentConverter = GeoScreenConverter(
+            points = mapPoints,
+            canvasSize = canvasSize,
+            zoom = zoom,
+            panOffset = panOffset,
+            paddingPx = with(density) { MapContentPadding.toPx() },
+        )
+        val focusedPoint = currentConverter.screenToGeo(focus)
+        val nextConverter = GeoScreenConverter(
+            points = mapPoints,
+            canvasSize = canvasSize,
+            zoom = nextZoom,
+            panOffset = Offset.Zero,
+            paddingPx = with(density) { MapContentPadding.toPx() },
+        )
+        return clampPan(focus - nextConverter.geoToScreen(focusedPoint), nextZoom)
+    }
+
     Box(modifier = modifier.clipToBounds().background(MapBackground)) {
         Canvas(
             modifier = Modifier
@@ -103,10 +123,18 @@ fun CampusMapCanvas(
                     canvasSize = Size(it.width.toFloat(), it.height.toFloat())
                     panOffset = clampPan(panOffset)
                 }
-                .pointerInput(mapPoints, zoom, canvasSize) {
-                    detectDragGestures { change, dragAmount ->
-                        change.consume()
-                        panOffset = clampPan(panOffset + dragAmount)
+                .pointerInput(mapPoints, canvasSize) {
+                    detectTransformGestures { centroid, pan, gestureZoom, _ ->
+                        val nextZoom = (zoom * gestureZoom).coerceIn(0.75f, 3.0f)
+                        // Keep the geographic point under the fingers fixed while zooming,
+                        // then apply the one-finger/two-finger pan in the same coordinate space.
+                        val zoomAdjustedPan = if (nextZoom != zoom) {
+                            panForZoomAt(centroid, nextZoom)
+                        } else {
+                            panOffset
+                        }
+                        zoom = nextZoom
+                        panOffset = clampPan(zoomAdjustedPan + pan, nextZoom)
                     }
                 }
                 .then(

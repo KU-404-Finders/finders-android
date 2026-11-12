@@ -39,9 +39,25 @@ private val DangerRed = Color(0xFFD32F2F)
 @Composable
 fun AdminReportDetailScreen(
     report: AdminReportUiModel?,
+    isLoading: Boolean = false,
+    errorMessage: String? = null,
     onBackClick: () -> Unit,
     onActionConfirmed: (String) -> Unit,
 ) {
+
+    if (report == null && (isLoading || errorMessage != null)) {
+        Column(
+            modifier = Modifier.fillMaxSize().background(ScreenGray)
+        ) {
+            BackTitleBar(title = "신고 상세", onBackClick = onBackClick)
+            Text(
+                text = errorMessage ?: "신고 정보를 불러오는 중입니다.",
+                modifier = Modifier.padding(20.dp),
+                color = if (errorMessage != null) DangerRed else TextGray,
+            )
+        }
+        return
+    }
 
     if (report == null) {
         Column(
@@ -255,59 +271,40 @@ fun AdminReportDetailScreen(
     }
 
     selectedAction?.let { action ->
+        val accent = if (action == "게시글 삭제") DangerRed else DeepGreen
         AlertDialog(
-            onDismissRequest = {
-                selectedAction = null
-            },
-
+            onDismissRequest = { selectedAction = null },
             title = {
-                Text(
-                    text = "$action 처리",
-                    fontWeight = FontWeight.Bold,
-                )
+                Text("$action 처리", color = Color(0xFF202A22), fontWeight = FontWeight.Bold)
             },
-
             text = {
-                Text(
-                    text = "이 신고를 '$action' 상태로 처리하시겠습니까?"
-                )
+                Text("이 신고를 '$action' 상태로 처리하시겠습니까?", color = Color(0xFF536156))
             },
-
             confirmButton = {
-                TextButton(
+                Button(
                     onClick = {
                         onActionConfirmed(action)
                         selectedAction = null
-                    }
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Color.White),
                 ) {
-                    Text(
-                        text = "처리",
-                        color = if (action == "게시글 삭제") {
-                            DangerRed
-                        } else {
-                            DeepGreen
-                        },
-                        fontWeight = FontWeight.Bold,
-                    )
+                    Text("처리하기", fontWeight = FontWeight.SemiBold)
                 }
             },
-
             dismissButton = {
-                TextButton(
-                    onClick = {
-                        selectedAction = null
-                    }
-                ) {
-                    Text(
-                        text = "취소",
-                        color = TextGray,
-                    )
+                TextButton(onClick = { selectedAction = null }) {
+                    Text("취소", color = Color(0xFF627367))
                 }
             },
-
+            shape = RoundedCornerShape(20.dp),
             containerColor = Color.White,
+            titleContentColor = Color(0xFF202A22),
+            textContentColor = Color(0xFF536156),
         )
     }
+
+
 }
 
 @Composable

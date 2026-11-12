@@ -53,5 +53,6 @@ class FindersFirebaseMessagingService : FirebaseMessagingService() {
             target = target,
             notificationType = remoteMessage.data["type"],
         )
+        NotificationInboxRefreshBus.notifyArrival()
     }
 }

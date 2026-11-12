@@ -9,7 +9,6 @@ import com.google.gson.Gson
 import com.ku.lostandfound.network.AuthErrorResponse
 import com.ku.lostandfound.network.LoginRequest
 import com.ku.lostandfound.network.NetworkLog
-import com.ku.lostandfound.network.RefreshTokenRequest
 import com.ku.lostandfound.network.RetrofitClient
 import com.ku.lostandfound.network.TokenManager
 import com.ku.lostandfound.network.httpErrorMessage
@@ -28,9 +27,13 @@ sealed class LoginUiState {
 class LoginViewModel : ViewModel() {
     var uiState by mutableStateOf<LoginUiState>(LoginUiState.Idle)
         private set
+    private var loginAttemptId = 0L
 
     fun login(emailPrefix: String, password: String) {
+        val attemptId = ++loginAttemptId
+
         viewModelScope.launch {
+            val sessionGeneration = TokenManager.sessionGeneration()
             uiState = LoginUiState.Loading
 
             try {
@@ -43,8 +46,16 @@ class LoginViewModel : ViewModel() {
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true && body.data != null) {
-                        TokenManager.accessToken = body.data.accessToken
-                        TokenManager.refreshToken = body.data.refreshToken
+                        if (!TokenManager.saveNewSessionTokens(
+                                sessionGeneration,
+                                body.data.accessToken,
+                                body.data.refreshToken,
+                            )) {
+                            if (attemptId == loginAttemptId) {
+                                uiState = LoginUiState.Idle
+                            }
+                            return@launch
+                        }
 
                         // 로그인된 사용자와 Firebase 기기 연결
                         PushDeviceManager.onLoginSucceeded()
@@ -70,61 +81,28 @@ class LoginViewModel : ViewModel() {
         }
     }
 
-    fun refreshToken() {
-        val storedRefreshToken = TokenManager.refreshToken ?: return
-        viewModelScope.launch {
-            try {
-                val response = RetrofitClient.authApi.refreshToken(
-                    RefreshTokenRequest(refreshToken = storedRefreshToken)
-                )
-                if (response.isSuccessful) {
-                    val body = response.body()
-                    if (body?.success == true && body.data != null) {
-                        TokenManager.accessToken = body.data.accessToken
-                        TokenManager.refreshToken = body.data.refreshToken
-                    } else {
-                        TokenManager.clear()
-                        uiState = LoginUiState.Error(body?.message ?: "토큰 재발급에 실패했습니다.")
-                    }
-                } else {
-                    TokenManager.clear()
-                    val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("refreshToken", response.code(), errorBody)
-                    uiState = LoginUiState.Error(
-                        httpErrorMessage(
-                            response.code(),
-                            parseErrorMessage(errorBody)
-                        )
-                    )
-                }
-            } catch (e: Exception) {
-                NetworkLog.exception("refreshToken", e)
-                uiState = LoginUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
-            }
-        }
-    }
-
     fun logout(onFinished: () -> Unit) {
         viewModelScope.launch {
+            // Invalidate before any suspend call so an in-flight refresh cannot restore this
+            // session while server-side device cleanup is still running.
+            val authorization = TokenManager.accessToken?.let { "Bearer $it" }
+            TokenManager.clear()
+            uiState = LoginUiState.Idle
+            onFinished()
+
             try {
-                // JWT를 삭제하기 전에 기기 등록 해제
-                // 서버 오류로 로그아웃이 지나치게 지연되지 않도록 제한
-                withTimeoutOrNull(4000L.milliseconds) {
-                    PushDeviceManager.unregisterBeforeLogout()
+                // The captured header permits best-effort server cleanup after the local
+                // session has been invalidated.
+                if (authorization != null) {
+                    withTimeoutOrNull(4000L.milliseconds) {
+                        PushDeviceManager.unregisterBeforeLogout(authorization)
+                    }
+                    RetrofitClient.authApi.logout(authorization)
                 }
-
-                RetrofitClient.authApi.logout(
-                    bearerTokenOrThrow()
-                )
-
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 NetworkLog.exception("logout", e)
-            } finally {
-                TokenManager.clear()
-                uiState = LoginUiState.Idle
-                onFinished()
             }
         }
     }
@@ -135,7 +113,7 @@ class LoginViewModel : ViewModel() {
                 // 탈퇴 전에 현재 기기의 푸시 토큰도 서버에서 해제한다.
                 // 실패해도 탈퇴 API는 진행하며, 서버는 탈퇴 처리 시 남은 토큰도 삭제해야 한다.
                 withTimeoutOrNull(4000L.milliseconds) {
-                    PushDeviceManager.unregisterBeforeLogout()
+                    PushDeviceManager.unregisterBeforeLogout(bearerTokenOrThrow())
                 }
 
                 val response = RetrofitClient.authApi.withdraw(bearerTokenOrThrow())

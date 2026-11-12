@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Email
@@ -39,10 +40,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -63,10 +67,11 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
+    val passwordFocusRequester = remember { FocusRequester() }
 
     val uiState = viewModel.uiState
     val isLoading = uiState is LoginUiState.Loading
-    val errorMessage = (uiState as? LoginUiState.Error)?.message
+    val loginErrorMessage = (uiState as? LoginUiState.Error)?.message
 
     val isLoginEnabled = emailPrefix.isNotBlank() && password.isNotBlank() && !isLoading
 
@@ -84,8 +89,10 @@ fun LoginScreen(
             .pointerInput(Unit) {
                 detectTapGestures(onTap = { focusManager.clearFocus() })
             }
-            .verticalScroll(rememberScrollState())
             .imePadding()
+            // Let the keyboard shrink the scroll viewport instead of adding an
+            // IME-sized tail below an otherwise short form.
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp)
             .padding(bottom = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -132,7 +139,14 @@ fun LoginScreen(
                     )
                 },
                 singleLine = true,
-                isError = errorMessage != null,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Email,
+                    imeAction = ImeAction.Next,
+                ),
+                keyboardActions = KeyboardActions(
+                    onNext = { passwordFocusRequester.requestFocus() },
+                ),
+                isError = loginErrorMessage != null,
                 shape = RoundedCornerShape(8.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color(0xFF4A6741),
@@ -181,8 +195,17 @@ fun LoginScreen(
                 },
                 singleLine = true,
                 visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                isError = errorMessage != null,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Password,
+                    imeAction = ImeAction.Done,
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = {
+                        focusManager.clearFocus()
+                        if (isLoginEnabled) viewModel.login(emailPrefix, password)
+                    },
+                ),
+                isError = loginErrorMessage != null,
                 shape = RoundedCornerShape(8.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color(0xFF4A6741),
@@ -191,14 +214,16 @@ fun LoginScreen(
                     unfocusedTextColor = Color.Black,
                     errorBorderColor = Color.Red
                 ),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(passwordFocusRequester)
             )
         }
 
         Spacer(modifier = Modifier.height(8.dp))
-        if (errorMessage != null) {
+        if (loginErrorMessage != null) {
             Text(
-                text = errorMessage,
+                text = loginErrorMessage,
                 color = Color.Red,
                 fontSize = 12.sp,
                 modifier = Modifier.fillMaxWidth(),

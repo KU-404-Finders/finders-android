@@ -9,9 +9,25 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.util.concurrent.CompletableFuture
+
+sealed interface RefreshSessionResult {
+    data object Success : RefreshSessionResult
+    data object InvalidSession : RefreshSessionResult
+    data object RetryableFailure : RefreshSessionResult
+}
 
 object RetrofitClient {
     private const val BASE_URL = "https://finders.hyungyu.dev/"
+
+    private data class RefreshAttempt(
+        val sessionGeneration: Long,
+        val accessToken: String?,
+        val result: CompletableFuture<String?>,
+    )
+
+    private val refreshLock = Any()
+    private var activeRefresh: RefreshAttempt? = null
 
     private val loggingInterceptor = HttpLoggingInterceptor { message ->
         Log.d("KUFindersOkHttp", message)
@@ -22,38 +38,73 @@ object RetrofitClient {
 
     private val authInterceptor = okhttp3.Interceptor { chain ->
         val originalRequest = chain.request()
+        val sessionGeneration = TokenManager.sessionGeneration()
         val token = TokenManager.accessToken
         val path = originalRequest.url.encodedPath
-        val method = originalRequest.method
-        val isAuthRequest = path.endsWith("/api/v1/auth/login") ||
-                path.endsWith("/api/v1/auth/join") ||
-                path.endsWith("/api/v1/auth/reissue") ||
-                path.endsWith("/api/v1/auth/email/send") ||
-                path.startsWith("/api/v1/auth/password-reset/")
-        val request = if (
-            token != null &&
-            originalRequest.header("Authorization") == null &&
-            !isAuthRequest
-        ) {
+
+        val isAuthRequest =
+            path.endsWith("/api/v1/auth/login") ||
+                    path.endsWith("/api/v1/auth/join") ||
+                    path.endsWith("/api/v1/auth/reissue") ||
+                    path.endsWith("/api/v1/auth/email/send") ||
+                    path.startsWith("/api/v1/auth/password-reset/")
+
+        // 이 인터셉터가 인증 헤더를 추가한 요청만 자동 갱신 대상
+        val shouldAttachToken =
+            !token.isNullOrBlank() &&
+                    originalRequest.header("Authorization") == null &&
+                    !isAuthRequest
+
+        val request = if (shouldAttachToken) {
             originalRequest.newBuilder()
-                .addHeader("Authorization", "Bearer $token")
+                .header("Authorization", "Bearer $token")
                 .build()
         } else {
             originalRequest
         }
+
         val response = chain.proceed(request)
-        if (response.code == 403 && response.peekBody(2048).string().contains("\"timestamp\"")) {
-            val newAccessToken = synchronized(this) {
-                refreshTokensBlocking()
+
+        if (
+            shouldAttachToken &&
+            isAuthenticationFailure(response) &&
+            TokenManager.isCurrentSession(sessionGeneration)
+        ) {
+            val currentToken = TokenManager.accessToken
+
+            val newAccessToken = when {
+                currentToken.isNullOrBlank() -> null
+
+                // 다른 요청이 이미 토큰을 갱신한 경우 재사용
+                currentToken != token -> currentToken
+
+                // 아직 같은 토큰이라면 갱신 요청 공유
+                else -> refreshTokensCoalesced(
+                    sessionGeneration,
+                    token
+                )
             }
-            if (newAccessToken != null) {
+
+            if (
+                !newAccessToken.isNullOrBlank() &&
+                TokenManager.isCurrentSession(
+                    sessionGeneration,
+                    newAccessToken
+                )
+            ) {
                 response.close()
-                val retryRequest = originalRequest.newBuilder()
-                    .header("Authorization", "Bearer $newAccessToken")
+
+                val retryRequest = request.newBuilder()
+                    .header(
+                        "Authorization",
+                        "Bearer $newAccessToken"
+                    )
                     .build()
+
                 return@Interceptor chain.proceed(retryRequest)
             }
         }
+
         response
     }
 
@@ -76,12 +127,58 @@ object RetrofitClient {
     val foundItemApi: FoundItemApiService = retrofit.create(FoundItemApiService::class.java)
     val chatApi: ChatApiService = retrofit.create(ChatApiService::class.java)
     val moderationApi: ModerationApiService = retrofit.create(ModerationApiService::class.java)
+    val adminApi: AdminApiService = retrofit.create(AdminApiService::class.java)
+    val notificationApi: NotificationApiService = retrofit.create(NotificationApiService::class.java)
 
     val pushDeviceApi: PushDeviceApiService =
         retrofit.create(PushDeviceApiService::class.java)
 
-    private fun refreshTokensBlocking(): String? {
-        val refreshToken = TokenManager.refreshToken ?: return null
+    /** Used during app start only after an expired access token was detected. */
+    suspend fun refreshSession(): RefreshSessionResult {
+        val sessionGeneration = TokenManager.sessionGeneration()
+        val refreshToken = TokenManager.refreshToken ?: run {
+            if (TokenManager.isCurrentSession(sessionGeneration)) TokenManager.expireSession()
+            return RefreshSessionResult.InvalidSession
+        }
+        return try {
+            val response = authApi.refreshToken(RefreshTokenRequest(refreshToken))
+            if (!response.isSuccessful) {
+                if (RefreshSessionPolicy.isConfirmedInvalid(response.code())) {
+                    if (TokenManager.isCurrentSession(sessionGeneration)) TokenManager.expireSession()
+                    RefreshSessionResult.InvalidSession
+                } else {
+                    RefreshSessionResult.RetryableFailure
+                }
+            } else {
+                val body = response.body()
+                val tokens = body?.data
+                if (body?.success == true && tokens != null) {
+                    if (TokenManager.saveRefreshedTokens(sessionGeneration, tokens.accessToken, tokens.refreshToken)) {
+                        RefreshSessionResult.Success
+                    } else {
+                        RefreshSessionResult.InvalidSession
+                    }
+                } else {
+                    // A syntactically incomplete successful response is not proof that the
+                    // saved refresh token is invalid. Keep it so a later retry is possible.
+                    RefreshSessionResult.RetryableFailure
+                }
+            }
+        } catch (e: Exception) {
+            NetworkLog.exception("refreshSession", e)
+            RefreshSessionResult.RetryableFailure
+        }
+    }
+
+    private fun refreshTokensBlocking(sessionGeneration: Long, accessToken: String?): String? {
+        val refreshToken = TokenManager.refreshToken ?: run {
+            // An access token without its refresh credential cannot recover from expiry.
+            // Only clear when this is still the session that initiated the refresh.
+            if (TokenManager.isCurrentSession(sessionGeneration, accessToken)) {
+                TokenManager.expireSession()
+            }
+            return null
+        }
         return try {
             val refreshRequestJson = Gson().toJson(RefreshTokenRequest(refreshToken))
             val request = Request.Builder()
@@ -95,25 +192,83 @@ object RetrofitClient {
                 .execute()
             response.use {
                 if (!it.isSuccessful) {
-                    TokenManager.clear()
+                    if (RefreshSessionPolicy.isConfirmedInvalid(it.code)) {
+                        if (TokenManager.isCurrentSession(sessionGeneration, accessToken)) TokenManager.expireSession()
+                    }
                     return null
                 }
                 val body = it.body?.string().orEmpty()
                 val parsed = Gson().fromJson(body, RefreshTokenResponse::class.java)
                 val tokens = parsed.data
                 if (parsed.success && tokens != null) {
-                    TokenManager.accessToken = tokens.accessToken
-                    TokenManager.refreshToken = tokens.refreshToken
-                    tokens.accessToken
+                    tokens.accessToken.takeIf {
+                        TokenManager.saveRefreshedTokens(sessionGeneration, it, tokens.refreshToken)
+                    }
                 } else {
-                    TokenManager.clear()
+                    // A malformed or incomplete success response is not a confirmed
+                    // credential rejection. Preserve the session for a later retry.
                     null
                 }
             }
         } catch (e: Exception) {
             NetworkLog.exception("refreshTokensBlocking", e)
-            TokenManager.clear()
             null
         }
+    }
+
+    private fun refreshTokensCoalesced(sessionGeneration: Long, accessToken: String?): String? {
+        val attempt: RefreshAttempt
+        val isOwner: Boolean
+
+        synchronized(refreshLock) {
+            val existing = activeRefresh
+            if (
+                existing != null &&
+                existing.sessionGeneration == sessionGeneration &&
+                existing.accessToken == accessToken
+            ) {
+                attempt = existing
+                isOwner = false
+            } else {
+                attempt = RefreshAttempt(
+                    sessionGeneration = sessionGeneration,
+                    accessToken = accessToken,
+                    result = CompletableFuture<String?>(),
+                )
+                activeRefresh = attempt
+                isOwner = true
+            }
+        }
+
+        if (!isOwner) {
+            return try {
+                attempt.result.get()
+            } catch (exception: InterruptedException) {
+                Thread.currentThread().interrupt()
+                null
+            } catch (exception: Exception) {
+                NetworkLog.exception("sharedRefresh", exception)
+                null
+            }
+        }
+
+        val refreshedToken = try {
+            refreshTokensBlocking(sessionGeneration, accessToken)
+        } catch (exception: Exception) {
+            NetworkLog.exception("refreshTokensCoalesced", exception)
+            null
+        }
+        attempt.result.complete(refreshedToken)
+        synchronized(refreshLock) {
+            if (activeRefresh === attempt) activeRefresh = null
+        }
+        return refreshedToken
+    }
+
+    private fun isAuthenticationFailure(response: okhttp3.Response): Boolean {
+        // Spring Security uses this shape for an invalid/expired credential. Other 403s are
+        // authorization failures and must be returned to the caller without ending the session.
+        return response.code == 403 &&
+                response.peekBody(2048).string().contains("\"timestamp\"")
     }
 }
