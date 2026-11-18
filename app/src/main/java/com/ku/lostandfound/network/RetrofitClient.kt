@@ -63,10 +63,14 @@ object RetrofitClient {
             originalRequest
         }
 
+        // 탈퇴 전용 토큰은 일반 세션의 갱신 대상이 아니다. 정상 탈퇴의 명시적 헤더만 예외로 허용한다.
+        val canRefresh = shouldAttachToken ||
+                (path == "/api/v1/auth/withdraw" && !token.isNullOrBlank() &&
+                        originalRequest.header("Authorization") == "Bearer $token")
         val response = chain.proceed(request)
 
         if (
-            shouldAttachToken &&
+            canRefresh &&
             isAuthenticationFailure(response) &&
             TokenManager.isCurrentSession(sessionGeneration)
         ) {
@@ -152,7 +156,7 @@ object RetrofitClient {
             } else {
                 val body = response.body()
                 val tokens = body?.data
-                if (body?.success == true && tokens != null) {
+                if (body?.success == true && tokens?.accessToken != null && tokens.refreshToken != null) {
                     if (TokenManager.saveRefreshedTokens(sessionGeneration, tokens.accessToken, tokens.refreshToken)) {
                         RefreshSessionResult.Success
                     } else {
@@ -200,7 +204,7 @@ object RetrofitClient {
                 val body = it.body?.string().orEmpty()
                 val parsed = Gson().fromJson(body, RefreshTokenResponse::class.java)
                 val tokens = parsed.data
-                if (parsed.success && tokens != null) {
+                if (parsed.success && tokens?.accessToken != null && tokens.refreshToken != null) {
                     tokens.accessToken.takeIf {
                         TokenManager.saveRefreshedTokens(sessionGeneration, it, tokens.refreshToken)
                     }

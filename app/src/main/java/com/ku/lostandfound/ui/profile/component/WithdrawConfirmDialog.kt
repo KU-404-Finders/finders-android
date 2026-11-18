@@ -45,7 +45,7 @@ fun WithdrawConfirmDialog(
             )
 
             Text(
-                text = "등록하신 모든 게시물과\n정보가 영구적으로 삭제됩니다.",
+                text = "계정과 작성한 게시글·댓글이 삭제됩니다.\n채팅·신고 기록은 탈퇴한 사용자로 남으며,\n같은 이메일로 다시 가입할 수 있습니다.",
                 color = Color(0xFF9A9A9A),
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,

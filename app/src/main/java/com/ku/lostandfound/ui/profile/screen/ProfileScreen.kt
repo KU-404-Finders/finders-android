@@ -67,6 +67,8 @@ fun ProfileScreen(
     onLogoutClick: () -> Unit,
     onWithdrawClick: (onSuccess: () -> Unit) -> Unit,
     onWithdrawCompleteConfirm: () -> Unit,
+    isWithdrawing: Boolean = false,
+    withdrawalError: String? = null,
     onHomeClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
     selectedType: PostType = PostType.FOUND,
@@ -154,16 +156,19 @@ fun ProfileScreen(
                 }
             }
 
+            if (withdrawalError != null) {
+                item { Text(withdrawalError, color = Color(0xFFB3261E), fontSize = 13.sp) }
+            }
             item {
                 Spacer(Modifier.height(58.dp))
                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Text(
-                        text = "탈퇴하기",
+                        text = if (isWithdrawing) "탈퇴 처리 중..." else "탈퇴하기",
                         color = Color(0xFF888888),
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.noRippleClickable {
-                            showWithdrawConfirmDialog = true
+                            if (!isWithdrawing) showWithdrawConfirmDialog = true
                         },
                     )
                 }

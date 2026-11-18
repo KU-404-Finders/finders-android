@@ -991,6 +991,8 @@ fun MainNavGraph(
                         navigateToLoginClearingBackStack()
                     }
                 },
+                isWithdrawing = loginViewModel.isWithdrawing,
+                withdrawalError = (loginViewModel.uiState as? com.ku.lostandfound.ui.login.viewmodel.LoginUiState.Error)?.message,
                 onWithdrawClick = { onSuccess ->
                     loginViewModel.withdraw {
                         onSuccess()
