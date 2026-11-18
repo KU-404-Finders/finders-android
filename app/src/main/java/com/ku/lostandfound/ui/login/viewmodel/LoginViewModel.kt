@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
 import com.ku.lostandfound.network.AuthErrorResponse
+import com.ku.lostandfound.network.LoginResponse
 import com.ku.lostandfound.network.LoginRequest
 import com.ku.lostandfound.network.NetworkLog
 import com.ku.lostandfound.network.RetrofitClient
@@ -21,10 +22,16 @@ sealed class LoginUiState {
     object Idle : LoginUiState()
     object Loading : LoginUiState()
     object Success : LoginUiState()
+    object Suspended : LoginUiState()
+    object WithdrawalComplete : LoginUiState()
     data class Error(val message: String) : LoginUiState()
 }
 
 class LoginViewModel : ViewModel() {
+    // 탈퇴 전용 토큰은 메모리에서만 보관하며 일반 로그인 저장소에 넣지 않는다.
+    private var withdrawalToken: String? = null
+    var isWithdrawing by mutableStateOf(false)
+        private set
     var uiState by mutableStateOf<LoginUiState>(LoginUiState.Idle)
         private set
     private var loginAttemptId = 0L
@@ -34,6 +41,7 @@ class LoginViewModel : ViewModel() {
 
         viewModelScope.launch {
             val sessionGeneration = TokenManager.sessionGeneration()
+            withdrawalToken = null
             uiState = LoginUiState.Loading
 
             try {
@@ -43,9 +51,10 @@ class LoginViewModel : ViewModel() {
                         password = password,
                     )
                 )
+                if (attemptId != loginAttemptId || !TokenManager.isCurrentSession(sessionGeneration)) return@launch
                 if (response.isSuccessful) {
                     val body = response.body()
-                    if (body?.success == true && body.data != null) {
+                    if (body?.success == true && body.data?.accessToken != null && body.data.refreshToken != null) {
                         if (!TokenManager.saveNewSessionTokens(
                                 sessionGeneration,
                                 body.data.accessToken,
@@ -66,7 +75,17 @@ class LoginViewModel : ViewModel() {
                     }
                 } else {
                     val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("login", response.code(), errorBody)
+                    val suspended = if (response.code() == 403) {
+                        runCatching { Gson().fromJson(errorBody, LoginResponse::class.java).data }.getOrNull()
+                    } else null
+                    if (suspended?.suspended == true && !suspended.withdrawalToken.isNullOrBlank()) {
+                        TokenManager.clear()
+                        withdrawalToken = suspended.withdrawalToken
+                        uiState = LoginUiState.Suspended
+                        return@launch
+                    }
+                    // 정지 응답의 탈퇴 토큰을 오류 로그에 남기지 않는다.
+                    NetworkLog.httpError("login", response.code(), null)
                     uiState = LoginUiState.Error(
                         httpErrorMessage(
                             response.code(),
@@ -74,7 +93,10 @@ class LoginViewModel : ViewModel() {
                         )
                     )
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (attemptId != loginAttemptId || !TokenManager.isCurrentSession(sessionGeneration)) return@launch
                 NetworkLog.exception("login", e)
                 uiState = LoginUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
             }
@@ -108,20 +130,23 @@ class LoginViewModel : ViewModel() {
     }
 
     fun withdraw(onFinished: () -> Unit) {
+        if (isWithdrawing) return
+        isWithdrawing = true
+        val sessionGeneration = TokenManager.sessionGeneration()
+        val suspendedWithdrawal = withdrawalToken != null
+        uiState = LoginUiState.Loading
         viewModelScope.launch {
             try {
-                // 탈퇴 전에 현재 기기의 푸시 토큰도 서버에서 해제한다.
-                // 실패해도 탈퇴 API는 진행하며, 서버는 탈퇴 처리 시 남은 토큰도 삭제해야 한다.
-                withTimeoutOrNull(4000L.milliseconds) {
-                    PushDeviceManager.unregisterBeforeLogout(bearerTokenOrThrow())
-                }
-
-                val response = RetrofitClient.authApi.withdraw(bearerTokenOrThrow())
+                // 기기 해제는 서버의 탈퇴 트랜잭션에서 처리한다.
+                val authorization = withdrawalToken?.let { "Bearer $it" } ?: bearerTokenOrThrow()
+                val response = RetrofitClient.authApi.withdraw(authorization)
+                if (!TokenManager.isCurrentSession(sessionGeneration)) return@launch
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true) {
                         TokenManager.clear()
-                        uiState = LoginUiState.Idle
+                        withdrawalToken = null
+                        uiState = if (suspendedWithdrawal) LoginUiState.WithdrawalComplete else LoginUiState.Idle
                         onFinished()
                     } else {
                         uiState = LoginUiState.Error(body?.message ?: "회원 탈퇴에 실패했습니다.")
@@ -136,14 +161,20 @@ class LoginViewModel : ViewModel() {
                         )
                     )
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 NetworkLog.exception("withdraw", e)
                 uiState = LoginUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
+            } finally {
+                withdrawalToken = null
+                isWithdrawing = false
             }
         }
     }
 
     fun resetUiState() {
+        withdrawalToken = null
         uiState = LoginUiState.Idle
     }
 
