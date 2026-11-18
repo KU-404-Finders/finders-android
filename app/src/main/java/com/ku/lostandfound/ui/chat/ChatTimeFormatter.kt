@@ -69,30 +69,11 @@ object ChatTimeFormatter {
         ) ?: ""
     }
 
-    /**
-     * Chat timestamps are UTC Instants and are ordered by their instant. Offsetless
-     * legacy values retain lexicographic local ordering as a safe fallback.
-     */
-    fun compareNewest(first: String?, second: String?): Int {
-        val firstValue = first?.trim().orEmpty()
-        val secondValue = second?.trim().orEmpty()
-        val firstInstant = runCatching {
-            OffsetDateTime.parse(firstValue.replace(' ', 'T')).toInstant()
-        }.getOrNull()
-        val secondInstant = runCatching {
-            OffsetDateTime.parse(secondValue.replace(' ', 'T')).toInstant()
-        }.getOrNull()
-
-        return if (firstInstant != null && secondInstant != null) {
-            firstInstant.compareTo(secondInstant)
-        } else {
-            val firstLocal = parseToKst(firstValue)
-            val secondLocal = parseToKst(secondValue)
-            if (firstLocal != null && secondLocal != null) {
-                firstLocal.compareTo(secondLocal)
-            } else {
-                firstValue.compareTo(secondValue)
-            }
-        }
+    private fun instant(raw: String?): java.time.Instant? {
+        val value = raw?.trim()?.replace(' ', 'T') ?: return null
+        return runCatching { OffsetDateTime.parse(value).toInstant() }.getOrNull()
+            ?: runCatching { LocalDateTime.parse(value).atZone(koreaZone).toInstant() }.getOrNull()
     }
+
+    fun compareNewest(first: String?, second: String?): Int = compareValues(instant(first), instant(second))
 }

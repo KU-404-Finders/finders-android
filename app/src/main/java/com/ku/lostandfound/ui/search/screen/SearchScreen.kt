@@ -42,6 +42,9 @@ import com.ku.lostandfound.ui.component.CompactPostCard
 @Composable
 fun SearchScreen(
     posts: List<BoardPost>,
+    loading: Boolean,
+    error: String?,
+    onRetry: () -> Unit,
     onBackClick: () -> Unit,
     onPostClick: (BoardPost) -> Unit,
 ) {
@@ -72,6 +75,9 @@ fun SearchScreen(
             onSearch = { focusManager.clearFocus() }
         )
 
+        if (error != null) {
+            androidx.compose.material3.TextButton(onClick = onRetry) { Text("$error 다시 시도") }
+        }
         when {
             trimmedKeyword.isBlank() -> {
                 EmptySearchGuide(
@@ -83,7 +89,11 @@ fun SearchScreen(
             searchedPosts.isEmpty() -> {
                 EmptySearchGuide(
                     iconText = "",
-                    message = "검색 결과가 없습니다."
+                    message = when {
+                        loading -> "게시글을 불러오는 중입니다."
+                        error != null -> "전체 게시글을 검색할 수 없습니다."
+                        else -> "검색 결과가 없습니다."
+                    }
                 )
             }
 
@@ -95,7 +105,7 @@ fun SearchScreen(
                 ) {
                     items(
                         items = searchedPosts,
-                        key = { it.id }
+                        key = { "${it.type}-${it.id}" }
                     ) { post ->
                         CompactPostCard(
                             post = post,

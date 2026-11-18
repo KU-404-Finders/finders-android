@@ -27,6 +27,7 @@
 -keepclassmembers,allowoptimization class com.ku.lostandfound.network.*Response { <fields>; }
 -keepclassmembers,allowoptimization class com.ku.lostandfound.network.*Data { <fields>; }
 -keepclassmembers,allowoptimization class com.ku.lostandfound.network.*Result { <fields>; }
+-keepclassmembers,allowoptimization class com.ku.lostandfound.network.NotificationSettingsPatch { <fields>; }
 -keepclassmembers,allowoptimization class com.ku.lostandfound.network.ApiResponse { <fields>; }
 -keepclassmembers,allowoptimization class com.ku.lostandfound.network.AdminDashboard { <fields>; }
 -keepclassmembers,allowoptimization class com.ku.lostandfound.network.AdminPage { <fields>; }

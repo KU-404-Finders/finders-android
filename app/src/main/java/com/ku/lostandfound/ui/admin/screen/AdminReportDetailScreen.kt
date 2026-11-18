@@ -39,13 +39,14 @@ private val DangerRed = Color(0xFFD32F2F)
 @Composable
 fun AdminReportDetailScreen(
     report: AdminReportUiModel?,
+    onRetry: () -> Unit,
     isLoading: Boolean = false,
     errorMessage: String? = null,
     onBackClick: () -> Unit,
     onActionConfirmed: (String) -> Unit,
 ) {
 
-    if (report == null && (isLoading || errorMessage != null)) {
+    if (isLoading || errorMessage != null) {
         Column(
             modifier = Modifier.fillMaxSize().background(ScreenGray)
         ) {
@@ -55,6 +56,7 @@ fun AdminReportDetailScreen(
                 modifier = Modifier.padding(20.dp),
                 color = if (errorMessage != null) DangerRed else TextGray,
             )
+            if (errorMessage != null) TextButton(onClick = onRetry) { Text("다시 시도") }
         }
         return
     }

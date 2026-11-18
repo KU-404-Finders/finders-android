@@ -15,8 +15,12 @@ import com.ku.lostandfound.network.AdminUser
 import com.ku.lostandfound.network.AuthErrorResponse
 import com.ku.lostandfound.network.NetworkLog
 import com.ku.lostandfound.network.ProcessAdminReportRequest
+import com.ku.lostandfound.network.AdminApiService
 import com.ku.lostandfound.network.RetrofitClient
 import com.ku.lostandfound.network.TokenManager
+import retrofit2.Response
+import com.ku.lostandfound.network.ApiResponse
+import com.ku.lostandfound.network.AdminPage
 import kotlinx.coroutines.launch
 
 sealed class AdminUiState {
@@ -25,9 +29,17 @@ sealed class AdminUiState {
     data class Error(val message: String) : AdminUiState()
 }
 
-class AdminViewModel : ViewModel() {
+class AdminViewModel(
+    private val adminApi: AdminApiService = RetrofitClient.adminApi,
+) : ViewModel() {
     private var cacheGeneration = 0L
-    private var usersRequestId = 0L
+    enum class Section { Dashboard, Reports, Report, Users, User, Posts, Audits, Delete }
+    private val requests = mutableMapOf<Section, Long>()
+    private val states = androidx.compose.runtime.mutableStateMapOf<Section, AdminUiState>()
+    private val nextPages = androidx.compose.runtime.mutableStateMapOf<Section, Int>()
+    private var searchKeyword: String? = null
+    fun state(section: Section) = states[section] ?: AdminUiState.Idle
+    fun hasNext(section: Section) = section in nextPages
     var dashboard: AdminDashboard? by mutableStateOf(null)
         private set
     var reports: List<AdminReport> by mutableStateOf(emptyList())
@@ -42,125 +54,90 @@ class AdminViewModel : ViewModel() {
         private set
     var audits: List<AdminAudit> by mutableStateOf(emptyList())
         private set
-    var uiState: AdminUiState by mutableStateOf(AdminUiState.Idle)
-        private set
+    fun loadDashboard() = request(Section.Dashboard, { adminApi.dashboard() }) { dashboard = it }
 
-    fun loadDashboard() = viewModelScope.launch {
-        val requestGeneration = cacheGeneration
-        val sessionGeneration = TokenManager.sessionGeneration()
-        uiState = AdminUiState.Loading
-        call(
-            requestGeneration, sessionGeneration,
-            request = { RetrofitClient.adminApi.dashboard() },
-            onSuccess = { dashboard = it },
-        )
+    fun loadReport(id: Long) {
+        selectedReport = null
+        request(Section.Report, { adminApi.report(id) }) { selectedReport = it }
     }
 
-    fun loadReports() = viewModelScope.launch {
-        val requestGeneration = cacheGeneration
-        val sessionGeneration = TokenManager.sessionGeneration()
-        uiState = AdminUiState.Loading
-        call(
-            requestGeneration, sessionGeneration,
-            request = { RetrofitClient.adminApi.reports() },
-            onSuccess = { reports = it.items },
-        )
+    fun loadUser(id: Long) {
+        selectedUser = null
+        request(Section.User, { adminApi.user(id) }) { selectedUser = it }
     }
 
-    fun loadReport(id: Long) = viewModelScope.launch {
-        val requestGeneration = cacheGeneration
-        val sessionGeneration = TokenManager.sessionGeneration()
-        uiState = AdminUiState.Loading
-        call(
-            requestGeneration, sessionGeneration,
-            request = { RetrofitClient.adminApi.report(id) },
-            onSuccess = { selectedReport = it },
-        )
+    fun processReport(id: Long, action: String, onSuccess: () -> Unit) {
+        if (selectedReport?.id != id || state(Section.Report) == AdminUiState.Loading) return
+        request(Section.Report, { adminApi.processReport(id, ProcessAdminReportRequest(action)) }) { updated ->
+            selectedReport = updated
+            reports = reports.map { if (it.id == updated.id) updated else it }
+            loadDashboard()
+            onSuccess()
+        }
     }
 
-    fun processReport(id: Long, action: String, onSuccess: () -> Unit) = viewModelScope.launch {
-        val requestGeneration = cacheGeneration
-        val sessionGeneration = TokenManager.sessionGeneration()
-        uiState = AdminUiState.Loading
-        val wasProcessed = reports.firstOrNull { it.id == id }?.isProcessed
-            ?: selectedReport?.takeIf { it.id == id }?.isProcessed
-            ?: false
-        call(
-            requestGeneration, sessionGeneration,
-            request = { RetrofitClient.adminApi.processReport(id, ProcessAdminReportRequest(action)) },
-            onSuccess = { updated ->
-                selectedReport = updated
-                reports = reports.map { if (it.id == updated.id) updated else it }
-                dashboard = dashboard?.copy(
-                    pendingReportCount = (dashboard?.pendingReportCount ?: 0L) -
-                        if (!wasProcessed && updated.isProcessed) 1 else 0
-                )
-                onSuccess()
-            },
-        )
+    fun setUserSuspension(id: Long, suspended: Boolean, onSuccess: () -> Unit) {
+        if (selectedUser?.id != id || state(Section.User) == AdminUiState.Loading) return
+        request(Section.User, { adminApi.setSuspension(id, AdminSuspensionRequest(suspended)) }) { updated ->
+            selectedUser = updated
+            users = users.map { if (it.id == id) updated else it }
+            onSuccess()
+        }
     }
 
-    fun loadUsers(keyword: String? = null) = viewModelScope.launch {
-        val requestGeneration = cacheGeneration
-        val sessionGeneration = TokenManager.sessionGeneration()
-        val requestId = ++usersRequestId
-        uiState = AdminUiState.Loading
-        call(
-            requestGeneration, sessionGeneration,
-            isLatestRequest = { requestId == usersRequestId },
-            request = { RetrofitClient.adminApi.users(keyword = keyword?.takeIf { it.isNotBlank() }) },
-            onSuccess = { users = it.items },
-        )
+    fun loadUsers(keyword: String? = null, more: Boolean = false) {
+        if (!more) {
+            searchKeyword = keyword?.takeIf { it.isNotBlank() }
+            users = emptyList()
+        }
+        val query = searchKeyword
+        page(Section.Users, more, { adminApi.users(keyword = query, page = it) }) {
+            users = (users + it).distinctBy { user -> user.id }
+        }
     }
 
-    fun loadUser(id: Long) = viewModelScope.launch {
-        val requestGeneration = cacheGeneration
-        val sessionGeneration = TokenManager.sessionGeneration()
-        uiState = AdminUiState.Loading
-        call(requestGeneration, sessionGeneration, request = { RetrofitClient.adminApi.user(id) }, onSuccess = { selectedUser = it })
+    fun loadReports(more: Boolean = false) {
+        if (!more) reports = emptyList()
+        page(Section.Reports, more, { adminApi.reports(page = it) }) {
+            reports = (reports + it).distinctBy { report -> report.id }
+        }
     }
 
-    fun setUserSuspension(id: Long, suspended: Boolean, onSuccess: () -> Unit) = viewModelScope.launch {
-        val requestGeneration = cacheGeneration
-        val sessionGeneration = TokenManager.sessionGeneration()
-        uiState = AdminUiState.Loading
-        call(
-            requestGeneration, sessionGeneration,
-            request = { RetrofitClient.adminApi.setSuspension(id, AdminSuspensionRequest(suspended)) },
-            onSuccess = { updated ->
-                selectedUser = updated
-                users = users.map { if (it.id == updated.id) updated else it }
-                onSuccess()
-            },
-        )
+    fun loadPosts(postType: String, more: Boolean = false) {
+        if (!more) posts = emptyList()
+        page(Section.Posts, more, { adminApi.posts(postType, page = it) }) {
+            posts = (posts + it).distinctBy { post -> post.postType to post.id }
+        }
     }
 
-    fun loadPosts(postType: String) = viewModelScope.launch {
-        val requestGeneration = cacheGeneration
-        val sessionGeneration = TokenManager.sessionGeneration()
-        uiState = AdminUiState.Loading
-        call(requestGeneration, sessionGeneration, request = { RetrofitClient.adminApi.posts(postType) }, onSuccess = { posts = it.items })
+    fun loadAudits(more: Boolean = false) {
+        if (!more) audits = emptyList()
+        page(Section.Audits, more, { adminApi.auditLogs(page = it) }) {
+            audits = (audits + it).distinctBy { audit -> audit.id }
+        }
     }
 
-    fun deletePost(post: AdminPost, onSuccess: () -> Unit) = viewModelScope.launch {
-        val requestGeneration = cacheGeneration
-        val sessionGeneration = TokenManager.sessionGeneration()
-        uiState = AdminUiState.Loading
-        callUnit(
-            requestGeneration, sessionGeneration,
-            request = { RetrofitClient.adminApi.deletePost(post.postType, post.id) },
-            onSuccess = {
-                posts = posts.filterNot { it.postType == post.postType && it.id == post.id }
-                onSuccess()
-            },
-        )
+    private fun <T> page(
+        section: Section,
+        more: Boolean,
+        fetch: suspend (Int) -> Response<ApiResponse<AdminPage<T>>>,
+        append: (List<T>) -> Unit,
+    ) {
+        if (more && state(section) == AdminUiState.Loading) return
+        val page = if (more) nextPages[section] ?: return else 0
+        if (!more) nextPages.remove(section)
+        request(section, { fetch(page) }) { result ->
+            append(result.items)
+            if (result.hasNext) nextPages[section] = result.page + 1 else nextPages.remove(section)
+        }
     }
 
-    fun loadAudits() = viewModelScope.launch {
-        val requestGeneration = cacheGeneration
-        val sessionGeneration = TokenManager.sessionGeneration()
-        uiState = AdminUiState.Loading
-        call(requestGeneration, sessionGeneration, request = { RetrofitClient.adminApi.auditLogs() }, onSuccess = { audits = it.items })
+    fun deletePost(post: AdminPost, onSuccess: () -> Unit) {
+        if (state(Section.Delete) == AdminUiState.Loading) return
+        execute(Section.Delete, { adminApi.deletePost(post.postType, post.id) }) {
+            posts = posts.filterNot { it.postType == post.postType && it.id == post.id }
+            onSuccess()
+        }
     }
 
     fun clearSession() {
@@ -172,55 +149,46 @@ class AdminViewModel : ViewModel() {
         selectedUser = null
         posts = emptyList()
         audits = emptyList()
-        usersRequestId++
-        uiState = AdminUiState.Idle
+        states.clear()
+        requests.clear()
+        nextPages.clear()
+        searchKeyword = null
     }
 
-    private suspend fun <T> call(
-        requestGeneration: Long,
-        sessionGeneration: Long,
-        isLatestRequest: () -> Boolean = { true },
-        request: suspend () -> retrofit2.Response<com.ku.lostandfound.network.ApiResponse<T>>,
-        onSuccess: (T) -> Unit,
-    ) {
-        try {
-            val response = request()
-            if (!isCurrentRequest(requestGeneration, sessionGeneration) || !isLatestRequest()) return
-            val body = response.body()
-            if (response.isSuccessful && body?.success == true && body.data != null) {
-                onSuccess(body.data)
-                uiState = AdminUiState.Idle
-            } else {
-                val message = body?.message ?: parseError(response.errorBody()?.string())
-                uiState = AdminUiState.Error(message)
-            }
-        } catch (exception: Exception) {
-            if (!isCurrentRequest(requestGeneration, sessionGeneration) || !isLatestRequest()) return
-            NetworkLog.exception("adminApi", exception)
-            uiState = AdminUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
+    private fun <T> request(section: Section, fetch: suspend () -> Response<ApiResponse<T>>, accept: (T) -> Unit) =
+        execute(section, fetch) { body ->
+            val data = body.data
+            if (data == null) states[section] = AdminUiState.Error("응답에 데이터가 없습니다.")
+            else accept(data)
         }
-    }
 
-    private suspend fun callUnit(
-        requestGeneration: Long,
-        sessionGeneration: Long,
-        request: suspend () -> retrofit2.Response<com.ku.lostandfound.network.ApiResponse<Unit>>,
-        onSuccess: () -> Unit,
+    private fun <T> execute(
+        section: Section, fetch: suspend () -> Response<ApiResponse<T>>, accept: (ApiResponse<T>) -> Unit,
     ) {
-        try {
-            val response = request()
-            if (!isCurrentRequest(requestGeneration, sessionGeneration)) return
-            val body = response.body()
-            if (response.isSuccessful && body?.success == true) {
-                onSuccess()
-                uiState = AdminUiState.Idle
-            } else {
-                uiState = AdminUiState.Error(body?.message ?: parseError(response.errorBody()?.string()))
+        val cache = cacheGeneration
+        val session = TokenManager.sessionGeneration()
+        val id = (requests[section] ?: 0L) + 1
+        requests[section] = id
+        states[section] = AdminUiState.Loading
+        fun current() = isCurrentRequest(cache, session) && requests[section] == id
+        viewModelScope.launch {
+            try {
+                val response = fetch()
+                if (!current()) return@launch
+                val body = response.body()
+                if (response.isSuccessful && body?.success == true) {
+                    states[section] = AdminUiState.Idle
+                    accept(body)
+                } else {
+                    states[section] = AdminUiState.Error(body?.message ?: parseError(response.errorBody()?.string()))
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (!current()) return@launch
+                NetworkLog.exception("adminApi", e)
+                states[section] = AdminUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
             }
-        } catch (exception: Exception) {
-            if (!isCurrentRequest(requestGeneration, sessionGeneration)) return
-            NetworkLog.exception("adminApi", exception)
-            uiState = AdminUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
         }
     }
 

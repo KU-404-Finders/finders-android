@@ -1,10 +1,6 @@
 package com.ku.lostandfound.ui.found.screen
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import com.ku.lostandfound.data.BoardPost
 import com.ku.lostandfound.data.CampusBoundary
 import com.ku.lostandfound.data.CampusBuilding
@@ -27,13 +23,13 @@ fun FoundBoardScreen(
     onSearchClick: () -> Unit = {},
     onNotificationClick: () -> Unit = {},
     notificationCount: Int = 0,
+    selectedBuilding: CampusBuilding?,
     onBuildingSelected: (CampusBuilding?) -> Unit = {},
     isLoading: Boolean = false,
     errorMessage: String? = null,
     onRetryClick: () -> Unit = {},
     onRefresh: () -> Unit = {},
 ) {
-    var selectedBuilding by remember { mutableStateOf<CampusBuilding?>(null) }
     val foundPosts = posts.filter { it.type == PostType.FOUND }
     val filteredPosts = selectedBuilding?.let { building ->
         foundPosts.filter { post ->
@@ -55,12 +51,8 @@ fun FoundBoardScreen(
         referencePaths = referencePaths,
         showCampusMap = true,
         selectedBuilding = selectedBuilding,
-        onBuildingClick = {
-            selectedBuilding = it
-            onBuildingSelected(it)
-        },
+        onBuildingClick = onBuildingSelected,
         onClearBuildingFilter = {
-            selectedBuilding = null
             onBuildingSelected(null)
         },
         onPostClick = onPostClick,
