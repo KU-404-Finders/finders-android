@@ -13,6 +13,8 @@ import com.ku.lostandfound.network.CommentCreateRequest
 import com.ku.lostandfound.network.CommentUpdateRequest
 import com.ku.lostandfound.network.ItemCommentResponse
 import com.ku.lostandfound.network.NetworkLog
+import com.ku.lostandfound.network.LostItemApiService
+import com.ku.lostandfound.network.FoundItemApiService
 import com.ku.lostandfound.network.RetrofitClient
 import com.ku.lostandfound.network.TokenManager
 import com.ku.lostandfound.network.httpErrorMessage
@@ -24,7 +26,10 @@ sealed class PostCommentUiState {
     data class Error(val message: String) : PostCommentUiState()
 }
 
-class PostCommentViewModel : ViewModel() {
+class PostCommentViewModel(
+    private val lostItemApi: LostItemApiService = RetrofitClient.lostItemApi,
+    private val foundItemApi: FoundItemApiService = RetrofitClient.foundItemApi,
+) : ViewModel() {
     var uiState by mutableStateOf<PostCommentUiState>(PostCommentUiState.Idle)
         private set
 
@@ -36,39 +41,59 @@ class PostCommentViewModel : ViewModel() {
 
     private val deletingCommentIds = mutableSetOf<Long>()
 
+    private var generation = 0L
+    private val loadVersions = mutableMapOf<String, Long>()
+    private val editVersions = mutableMapOf<Long, Long>()
+
+    private fun current(cache: Long, session: Long) =
+        generation == cache && TokenManager.isCurrentSession(session)
+
     fun loadComments(postId: Long, postType: PostType) {
+        val cache = generation
+        val session = TokenManager.sessionGeneration()
         viewModelScope.launch {
+            if (!current(cache, session)) return@launch
             loadCommentsNow(postId, postType)
         }
     }
 
     suspend fun loadCommentsNow(postId: Long, postType: PostType) {
-            uiState = PostCommentUiState.Loading
-            try {
-                val response = when (postType) {
-                    PostType.FOUND -> RetrofitClient.foundItemApi.getFoundItemComments(postId)
-                    PostType.LOST -> RetrofitClient.lostItemApi.getLostItemComments(postId)
-                }
-                if (response.isSuccessful) {
-                    val body = response.body()
-                    if (body?.success == true) {
-                        val postKey = postKey(postId, postType)
-                        commentsByPostId = commentsByPostId + (
-                            postKey to body.data.orEmpty().map { it.toBoardComment(postKey) }
-                            )
-                        uiState = PostCommentUiState.Idle
-                    } else {
-                        uiState = PostCommentUiState.Error(body?.message ?: "댓글을 불러오지 못했습니다.")
-                    }
-                } else {
-                    val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("loadComments", response.code(), errorBody)
-                    uiState = PostCommentUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
-                }
-            } catch (e: Exception) {
-                NetworkLog.exception("loadComments", e)
-                uiState = PostCommentUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
+        val cache = generation
+        val session = TokenManager.sessionGeneration()
+        val key = postKey(postId, postType)
+        val version = (loadVersions[key] ?: 0L) + 1
+        loadVersions[key] = version
+        fun valid() = current(cache, session) && loadVersions[key] == version
+        uiState = PostCommentUiState.Loading
+        try {
+            val response = when (postType) {
+                PostType.FOUND -> foundItemApi.getFoundItemComments(postId)
+                PostType.LOST -> lostItemApi.getLostItemComments(postId)
             }
+            if (!valid()) return
+            if (response.isSuccessful) {
+                val body = response.body()
+                if (body?.success == true) {
+                    val postKey = postKey(postId, postType)
+                    commentsByPostId = commentsByPostId + (
+                        postKey to body.data.orEmpty().map { it.toBoardComment(postKey) }
+                        )
+                    uiState = PostCommentUiState.Idle
+                } else {
+                    uiState = PostCommentUiState.Error(body?.message ?: "댓글을 불러오지 못했습니다.")
+                }
+            } else {
+                val errorBody = response.errorBody()?.string()
+                NetworkLog.httpError("loadComments", response.code())
+                uiState = PostCommentUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (!valid()) return
+            NetworkLog.exception("loadComments", e)
+            uiState = PostCommentUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
+        }
     }
 
     fun addComment(
@@ -80,29 +105,34 @@ class PostCommentViewModel : ViewModel() {
     ) {
         if (content.isBlank() || isAddingComment) return
         isAddingComment = true
+        val cache = generation
+        val session = TokenManager.sessionGeneration()
         viewModelScope.launch {
             try {
+                if (!current(cache, session)) return@launch
                 val authorization = bearerTokenOrThrow()
                 val request = CommentCreateRequest(content = content.trim())
                 val response = when (postType) {
-                    PostType.FOUND -> RetrofitClient.foundItemApi.createFoundItemComment(
+                    PostType.FOUND -> foundItemApi.createFoundItemComment(
                         authorization = authorization,
                         foundItemId = postId,
                         request = request,
                     )
-                    PostType.LOST -> RetrofitClient.lostItemApi.createLostItemComment(
+                    PostType.LOST -> lostItemApi.createLostItemComment(
                         authorization = authorization,
                         lostItemId = postId,
                         request = request,
                     )
                 }
+                if (!current(cache, session)) return@launch
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true && body.data != null) {
                         val postKey = postKey(postId, postType)
+                        loadVersions[postKey] = (loadVersions[postKey] ?: 0L) + 1
                         val current = commentsByPostId[postKey].orEmpty()
                         val createdComment = body.data.toBoardComment(postKey)
-                        commentsByPostId = commentsByPostId + (postKey to (current + createdComment))
+                        commentsByPostId = commentsByPostId + (postKey to (current.filterNot { it.id == createdComment.id } + createdComment))
                         uiState = PostCommentUiState.Idle
                         onSuccess(createdComment)
                     } else {
@@ -112,18 +142,21 @@ class PostCommentViewModel : ViewModel() {
                     }
                 } else {
                     val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("addComment", response.code(), errorBody)
+                    NetworkLog.httpError("addComment", response.code())
                     val message = httpErrorMessage(response.code(), parseErrorMessage(errorBody))
                     uiState = PostCommentUiState.Error(message)
                     onFailure(message)
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (!current(cache, session)) return@launch
                 NetworkLog.exception("addComment", e)
                 val message = e.message ?: "서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요."
                 uiState = PostCommentUiState.Error(message)
                 onFailure(message)
             } finally {
-                isAddingComment = false
+                if (current(cache, session)) isAddingComment = false
             }
         }
     }
@@ -135,25 +168,30 @@ class PostCommentViewModel : ViewModel() {
         onFailure: (String) -> Unit = {},
     ) {
         if (!deletingCommentIds.add(commentId)) return
+        val cache = generation
+        val session = TokenManager.sessionGeneration()
         viewModelScope.launch {
             try {
+                if (!current(cache, session)) return@launch
                 val authorization = bearerTokenOrThrow()
                 val response = when (postType) {
-                    PostType.FOUND -> RetrofitClient.foundItemApi.deleteFoundItemComment(
+                    PostType.FOUND -> foundItemApi.deleteFoundItemComment(
                         authorization = authorization,
                         foundItemId = postId,
                         commentId = commentId,
                     )
-                    PostType.LOST -> RetrofitClient.lostItemApi.deleteLostItemComment(
+                    PostType.LOST -> lostItemApi.deleteLostItemComment(
                         authorization = authorization,
                         lostItemId = postId,
                         commentId = commentId,
                     )
                 }
+                if (!current(cache, session)) return@launch
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body == null || body.success) {
                         val postKey = postKey(postId, postType)
+                        loadVersions[postKey] = (loadVersions[postKey] ?: 0L) + 1
                         commentsByPostId = commentsByPostId + (
                             postKey to commentsByPostId[postKey].orEmpty().filterNot { it.id == commentId.toString() }
                             )
@@ -165,18 +203,21 @@ class PostCommentViewModel : ViewModel() {
                     }
                 } else {
                     val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("deleteComment", response.code(), errorBody)
+                    NetworkLog.httpError("deleteComment", response.code())
                     val message = httpErrorMessage(response.code(), parseErrorMessage(errorBody))
                     uiState = PostCommentUiState.Error(message)
                     onFailure(message)
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (!current(cache, session)) return@launch
                 NetworkLog.exception("deleteComment", e)
                 val message = e.message ?: "서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요."
                 uiState = PostCommentUiState.Error(message)
                 onFailure(message)
             } finally {
-                deletingCommentIds.remove(commentId)
+                if (current(cache, session)) deletingCommentIds.remove(commentId)
             }
         }
     }
@@ -185,28 +226,35 @@ class PostCommentViewModel : ViewModel() {
         val trimmedContent = content.trim()
         if (trimmedContent.isBlank()) return
 
+        val version = (editVersions[commentId] ?: 0L) + 1
+        editVersions[commentId] = version
+        val cache = generation
+        val session = TokenManager.sessionGeneration()
         viewModelScope.launch {
             try {
+                if (!current(cache, session)) return@launch
                 val authorization = bearerTokenOrThrow()
                 val request = CommentUpdateRequest(content = trimmedContent)
                 val response = when (postType) {
-                    PostType.FOUND -> RetrofitClient.foundItemApi.updateFoundItemComment(
+                    PostType.FOUND -> foundItemApi.updateFoundItemComment(
                         authorization = authorization,
                         foundItemId = postId,
                         commentId = commentId,
                         request = request,
                     )
-                    PostType.LOST -> RetrofitClient.lostItemApi.updateLostItemComment(
+                    PostType.LOST -> lostItemApi.updateLostItemComment(
                         authorization = authorization,
                         lostItemId = postId,
                         commentId = commentId,
                         request = request,
                     )
                 }
+                if (!current(cache, session) || editVersions[commentId] != version) return@launch
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true && body.data != null) {
                         val postKey = postKey(postId, postType)
+                        loadVersions[postKey] = (loadVersions[postKey] ?: 0L) + 1
                         commentsByPostId = commentsByPostId + (
                             postKey to commentsByPostId[postKey].orEmpty().map { comment ->
                                 if (comment.id == commentId.toString()) {
@@ -222,10 +270,13 @@ class PostCommentViewModel : ViewModel() {
                     }
                 } else {
                     val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("updateComment", response.code(), errorBody)
+                    NetworkLog.httpError("updateComment", response.code())
                     uiState = PostCommentUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (!current(cache, session) || editVersions[commentId] != version) return@launch
                 NetworkLog.exception("updateComment", e)
                 uiState = PostCommentUiState.Error(e.message ?: "서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
             }
@@ -254,6 +305,9 @@ class PostCommentViewModel : ViewModel() {
     }
 
     fun clear() {
+        generation++
+        loadVersions.clear()
+        editVersions.clear()
         commentsByPostId = emptyMap()
         uiState = PostCommentUiState.Idle
         isAddingComment = false

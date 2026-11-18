@@ -30,19 +30,22 @@ class LoginViewModel : ViewModel() {
     private var loginAttemptId = 0L
 
     fun login(emailPrefix: String, password: String) {
+        val sessionGeneration = TokenManager.sessionGeneration()
         val attemptId = ++loginAttemptId
 
         viewModelScope.launch {
-            val sessionGeneration = TokenManager.sessionGeneration()
             uiState = LoginUiState.Loading
 
             try {
-                val response = RetrofitClient.authApi.login(
+                val response = com.ku.lostandfound.network.AuthRequestOrder.shared.login {
+                    RetrofitClient.authApi.login(
                     LoginRequest(
                         email = toKonkukEmail(emailPrefix),
                         password = password,
                     )
                 )
+                }
+                if (attemptId != loginAttemptId) return@launch
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true && body.data != null) {
@@ -66,7 +69,7 @@ class LoginViewModel : ViewModel() {
                     }
                 } else {
                     val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("login", response.code(), errorBody)
+                    NetworkLog.httpError("login", response.code())
                     uiState = LoginUiState.Error(
                         httpErrorMessage(
                             response.code(),
@@ -74,31 +77,54 @@ class LoginViewModel : ViewModel() {
                         )
                     )
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (attemptId != loginAttemptId || !TokenManager.isCurrentSession(sessionGeneration)) return@launch
                 NetworkLog.exception("login", e)
                 uiState = LoginUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
             }
         }
     }
 
+    fun retrySavedSession() {
+        if (uiState == LoginUiState.Loading || !TokenManager.hasTokens()) return
+        val session = TokenManager.sessionGeneration()
+        val attempt = ++loginAttemptId
+        uiState = LoginUiState.Loading
+        viewModelScope.launch {
+            val result = RetrofitClient.refreshSession()
+            if (attempt != loginAttemptId || !TokenManager.isCurrentSession(session)) return@launch
+            uiState = if (result == com.ku.lostandfound.network.RefreshSessionResult.Success) {
+                PushDeviceManager.onLoginSucceeded()
+                LoginUiState.Success
+            } else LoginUiState.Idle
+        }
+    }
+
     fun logout(onFinished: () -> Unit) {
         viewModelScope.launch {
-            // Invalidate before any suspend call so an in-flight refresh cannot restore this
-            // session while server-side device cleanup is still running.
-            val authorization = TokenManager.accessToken?.let { "Bearer $it" }
-            TokenManager.clear()
-            uiState = LoginUiState.Idle
-            onFinished()
-
+            var authorization: String? = null
+            var closedGeneration = 0L
             try {
-                // The captured header permits best-effort server cleanup after the local
-                // session has been invalidated.
-                if (authorization != null) {
-                    withTimeoutOrNull(4000L.milliseconds) {
-                        PushDeviceManager.unregisterBeforeLogout(authorization)
-                    }
-                    RetrofitClient.authApi.logout(authorization)
-                }
+                com.ku.lostandfound.network.AuthRequestOrder.shared.logout(
+                    invalidate = {
+                        synchronized(TokenManager) {
+                            authorization = TokenManager.accessToken?.let { "Bearer $it" }
+                            closedGeneration = TokenManager.clear()
+                        }
+                        resetUiState()
+                        onFinished()
+                    },
+                    cleanup = {
+                        authorization?.let { header ->
+                            withTimeoutOrNull(4000L.milliseconds) {
+                                PushDeviceManager.unregisterBeforeLogout(header, closedGeneration)
+                            }
+                            RetrofitClient.authApi.logout(header)
+                        }
+                    },
+                )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -108,15 +134,19 @@ class LoginViewModel : ViewModel() {
     }
 
     fun withdraw(onFinished: () -> Unit) {
+        val session = TokenManager.credentials()
         viewModelScope.launch {
             try {
                 // 탈퇴 전에 현재 기기의 푸시 토큰도 서버에서 해제한다.
                 // 실패해도 탈퇴 API는 진행하며, 서버는 탈퇴 처리 시 남은 토큰도 삭제해야 한다.
+                val authorization = "Bearer ${session.access ?: return@launch}"
                 withTimeoutOrNull(4000L.milliseconds) {
-                    PushDeviceManager.unregisterBeforeLogout(bearerTokenOrThrow())
+                    PushDeviceManager.unregisterBeforeLogout(authorization, session.generation)
                 }
 
-                val response = RetrofitClient.authApi.withdraw(bearerTokenOrThrow())
+                if (!TokenManager.isCurrentSession(session.generation)) return@launch
+                val response = RetrofitClient.authApi.withdraw(authorization)
+                if (!TokenManager.isCurrentSession(session.generation)) return@launch
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true) {
@@ -128,7 +158,7 @@ class LoginViewModel : ViewModel() {
                     }
                 } else {
                     val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("withdraw", response.code(), errorBody)
+                    NetworkLog.httpError("withdraw", response.code())
                     uiState = LoginUiState.Error(
                         httpErrorMessage(
                             response.code(),
@@ -136,14 +166,20 @@ class LoginViewModel : ViewModel() {
                         )
                     )
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (!TokenManager.isCurrentSession(session.generation)) return@launch
                 NetworkLog.exception("withdraw", e)
                 uiState = LoginUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
+            } finally {
+                PushDeviceManager.resumeAfterFailedWithdrawal(session.generation)
             }
         }
     }
 
     fun resetUiState() {
+        loginAttemptId++
         uiState = LoginUiState.Idle
     }
 
@@ -165,8 +201,4 @@ class LoginViewModel : ViewModel() {
         }
     }
 
-    private fun bearerTokenOrThrow(): String {
-        val token = TokenManager.accessToken ?: throw IllegalStateException("로그인이 필요합니다.")
-        return "Bearer $token"
-    }
 }

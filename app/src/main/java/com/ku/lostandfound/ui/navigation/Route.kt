@@ -67,3 +67,10 @@ sealed class Route(val route: String) {
         fun create(postTypeName: String): String = "locationPicker/$postTypeName"
     }
 }
+
+
+internal fun isPublicRoute(route: String?) = route in setOf(
+    Route.Login.route, Route.SignupName.route, Route.SignupPw.route, Route.SignupEmail.route,
+    Route.SignupCode.route, Route.SignupFinish.route, Route.PasswordResetEmail.route,
+    Route.PasswordResetCode.route, Route.PasswordResetPassword.route,
+)

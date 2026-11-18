@@ -59,7 +59,7 @@ class SignupViewmodel : ViewModel() {
                     }
                 } else {
                     val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("sendVerificationCode", response.code(), errorBody)
+                    NetworkLog.httpError("sendVerificationCode", response.code())
                     uiState = SignupUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
                 }
             } catch (e: Exception) {
@@ -90,7 +90,7 @@ class SignupViewmodel : ViewModel() {
                     }
                 } else {
                     val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("register", response.code(), errorBody)
+                    NetworkLog.httpError("register", response.code())
                     val errorMessage = parseErrorMessage(errorBody)
                     uiState = SignupUiState.Error(httpErrorMessage(response.code(), errorMessage))
                 }

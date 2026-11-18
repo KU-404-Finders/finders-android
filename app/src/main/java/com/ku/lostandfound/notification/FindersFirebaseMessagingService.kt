@@ -26,6 +26,8 @@ class FindersFirebaseMessagingService : FirebaseMessagingService() {
         // 로그아웃 상태에서는 직접 알림을 표시하지 않음
         if (!TokenManager.isLoggedIn()) return
 
+        NotificationInboxRefreshBus.notifyArrival()
+
         val title = remoteMessage.notification?.title
             ?: remoteMessage.data["title"]
             ?: "찾을건대"
@@ -53,6 +55,5 @@ class FindersFirebaseMessagingService : FirebaseMessagingService() {
             target = target,
             notificationType = remoteMessage.data["type"],
         )
-        NotificationInboxRefreshBus.notifyArrival()
     }
 }

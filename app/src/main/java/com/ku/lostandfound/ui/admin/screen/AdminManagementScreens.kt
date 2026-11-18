@@ -52,6 +52,8 @@ private val ManagementText = Color(0xFF202A22)
 @Composable
 fun AdminUserListScreen(
     users: List<AdminUser>,
+    hasNext: Boolean,
+    onMore: () -> Unit,
     isLoading: Boolean,
     errorMessage: String?,
     onBackClick: () -> Unit,
@@ -60,7 +62,7 @@ fun AdminUserListScreen(
 ) {
     var keyword by remember { mutableStateOf("") }
 
-    AdminListLayout("사용자 관리", isLoading, errorMessage, onBackClick) {
+    AdminListLayout("사용자 관리", isLoading, errorMessage, onBackClick, hasNext, onMore) {
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -130,6 +132,7 @@ fun AdminUserListScreen(
 @Composable
 fun AdminUserDetailScreen(
     user: AdminUser?,
+    onRetry: () -> Unit,
     isLoading: Boolean,
     errorMessage: String?,
     onBackClick: () -> Unit,
@@ -143,6 +146,7 @@ fun AdminUserDetailScreen(
             EmptyText("사용자 정보를 불러오는 중입니다.")
         } else if (errorMessage != null && user == null) {
             EmptyText(errorMessage, ManagementRed)
+            TextButton(onClick = onRetry) { Text("다시 시도") }
         } else if (user == null) {
             EmptyText("사용자 정보를 찾을 수 없습니다.")
         } else {
@@ -246,6 +250,8 @@ fun AdminUserDetailScreen(
 @Composable
 fun AdminPostListScreen(
     posts: List<AdminPost>,
+    hasNext: Boolean,
+    onMore: () -> Unit,
     postType: String,
     isLoading: Boolean,
     errorMessage: String?,
@@ -254,7 +260,7 @@ fun AdminPostListScreen(
     onDelete: (AdminPost) -> Unit,
 ) {
     var selectedForDeletion by remember { mutableStateOf<AdminPost?>(null) }
-    AdminListLayout("게시글 관리", isLoading, errorMessage, onBackClick) {
+    AdminListLayout("게시글 관리", isLoading, errorMessage, onBackClick, hasNext, onMore) {
         item {
             Row(
                 modifier = Modifier
@@ -355,8 +361,8 @@ fun AdminPostListScreen(
 }
 
 @Composable
-fun AdminAuditLogScreen(audits: List<AdminAudit>, isLoading: Boolean, errorMessage: String?, onBackClick: () -> Unit) {
-    AdminListLayout("관리자 작업 이력", isLoading, errorMessage, onBackClick) {
+fun AdminAuditLogScreen(hasNext: Boolean, onMore: () -> Unit, audits: List<AdminAudit>, isLoading: Boolean, errorMessage: String?, onBackClick: () -> Unit) {
+    AdminListLayout("관리자 작업 이력", isLoading, errorMessage, onBackClick, hasNext, onMore) {
         if (!isLoading && audits.isEmpty()) item { EmptyText("작업 이력이 없습니다.") }
         items(audits, key = { it.id }) { audit ->
             Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White)) {
@@ -372,13 +378,14 @@ fun AdminAuditLogScreen(audits: List<AdminAudit>, isLoading: Boolean, errorMessa
 }
 
 @Composable
-private fun AdminListLayout(title: String, loading: Boolean, error: String?, onBack: () -> Unit, content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit) {
+private fun AdminListLayout(title: String, loading: Boolean, error: String?, onBack: () -> Unit, hasNext: Boolean, onMore: () -> Unit, content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit) {
     Column(Modifier.fillMaxSize().background(ManagementBackground)) {
         BackTitleBar(title, onBack)
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (loading) item { EmptyText("불러오는 중입니다.") }
             if (error != null) item { EmptyText(error, ManagementRed) }
             content()
+            if (hasNext) item { TextButton(onClick = onMore, enabled = !loading) { Text("더 보기") } }
         }
     }
 }

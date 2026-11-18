@@ -12,12 +12,15 @@ data class PushDeviceRequest(
     val installationId: String,
 )
 
+data class RequestSession(val generation: Long)
+
 interface PushDeviceApiService {
 
     // 현재 로그인한 사용자에게 Firebase 기기 등록
     @PUT("api/v1/users/me/push-devices")
     suspend fun registerDevice(
         @Body request: PushDeviceRequest,
+        @retrofit2.http.Tag session: RequestSession,
     ): Response<Unit>
 
     // 로그아웃 시 현재 기기 등록 해제

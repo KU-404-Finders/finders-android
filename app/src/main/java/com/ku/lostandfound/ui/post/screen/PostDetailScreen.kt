@@ -46,6 +46,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -820,6 +822,12 @@ private fun FullscreenPostImage(image: ImageBitmap, onDismiss: () -> Unit) {
     var scale by remember { mutableStateOf(1f) }
     var offsetX by remember { mutableStateOf(0f) }
     var offsetY by remember { mutableStateOf(0f) }
+    var viewport by remember { mutableStateOf(IntSize.Zero) }
+    val bounds = imagePanBounds(image.width, image.height, viewport.width, viewport.height, scale)
+    LaunchedEffect(bounds) {
+        offsetX = offsetX.coerceIn(-bounds.first, bounds.first)
+        offsetY = offsetY.coerceIn(-bounds.second, bounds.second)
+    }
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -834,28 +842,22 @@ private fun FullscreenPostImage(image: ImageBitmap, onDismiss: () -> Unit) {
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
                     .fillMaxSize()
+                    .onSizeChanged { viewport = it }
+                    .pointerInput(image, viewport) {
+                        detectTransformGestures { _, pan, zoomChange, _ ->
+                            scale = (scale * zoomChange).coerceIn(1f, 4f)
+                            val (x, y) = imagePanBounds(image.width, image.height, size.width, size.height, scale)
+                            offsetX = (offsetX + pan.x).coerceIn(-x, x)
+                            offsetY = (offsetY + pan.y).coerceIn(-y, y)
+                        }
+                    }
+                    .pointerInput(Unit) { detectTapGestures(onTap = { onDismiss() }) }
                     .graphicsLayer {
                         scaleX = scale
                         scaleY = scale
-                        translationX = offsetX
-                        translationY = offsetY
-                    }
-                    .pointerInput(Unit) {
-                        detectTransformGestures { _, pan, zoomChange, _ ->
-                            val nextScale = (scale * zoomChange).coerceIn(1f, 4f)
-                            scale = nextScale
-                            if (nextScale == 1f) {
-                                offsetX = 0f
-                                offsetY = 0f
-                            } else {
-                                // A generous bound preserves panning while preventing the image
-                                // from being irretrievably dragged off-screen.
-                                offsetX = (offsetX + pan.x).coerceIn(-1200f, 1200f)
-                                offsetY = (offsetY + pan.y).coerceIn(-1200f, 1200f)
-                            }
-                        }
-                    }
-                    .pointerInput(Unit) { detectTapGestures(onTap = { onDismiss() }) },
+                        translationX = offsetX.coerceIn(-bounds.first, bounds.first)
+                        translationY = offsetY.coerceIn(-bounds.second, bounds.second)
+                    },
             )
             TextButton(
                 onClick = onDismiss,
@@ -1666,4 +1668,12 @@ private fun BlockUserDialog(
 
         containerColor = Color.White,
     )
+}
+
+
+internal fun imagePanBounds(imageWidth: Int, imageHeight: Int, width: Int, height: Int, scale: Float): Pair<Float, Float> {
+    if (imageWidth <= 0 || imageHeight <= 0 || width <= 0 || height <= 0) return 0f to 0f
+    val fit = minOf(width.toFloat() / imageWidth, height.toFloat() / imageHeight)
+    return ((imageWidth * fit * scale - width) / 2f).coerceAtLeast(0f) to
+        ((imageHeight * fit * scale - height) / 2f).coerceAtLeast(0f)
 }

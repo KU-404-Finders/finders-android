@@ -29,7 +29,11 @@ import kotlin.math.roundToInt
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NotificationInboxScreen(vm: NotificationViewModel, onBack: () -> Unit, onOpenRoom: (Long) -> Unit) {
-    LaunchedEffect(Unit) { vm.load(true) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    androidx.compose.runtime.DisposableEffect(vm) {
+        vm.setInboxOpen(true)
+        onDispose { vm.setInboxOpen(false) }
+    }
     Column(Modifier.fillMaxSize().background(Color.White)) {
         BackTitleBar(title = "알림함", onBackClick = onBack)
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
@@ -41,10 +45,13 @@ fun NotificationInboxScreen(vm: NotificationViewModel, onBack: () -> Unit, onOpe
                 is InboxState.Unsupported -> InboxMessage("알림함을 사용할 수 없습니다", state.message)
                 is InboxState.Error -> InboxMessage("알림을 불러오지 못했습니다", state.message, vm::load)
                 else -> LazyColumn(Modifier.fillMaxSize()) {
-                    if (vm.items.isEmpty() && state !is InboxState.Loading) item { InboxMessage("받은 알림이 없습니다", "새 채팅이 오면 여기에 표시됩니다.") }
+                    if (vm.account == null) item { InboxMessage("계정 정보를 기다리고 있습니다.", "") }
+                    else if (vm.items.isEmpty() && state !is InboxState.Loading) item {
+                        InboxMessage("받은 알림이 없습니다", "새 채팅이 오면 여기에 표시됩니다.")
+                    }
                     items(vm.items, key = { it.id }) { item ->
                         SwipeToHideNotification(item = item, onHide = { vm.hide(item) }) {
-                            InboxRow(item, onClick = { vm.markRead(item) { item.roomId?.let(onOpenRoom) } })
+                            InboxRow(item, onClick = { vm.markRead(item, onError = { android.widget.Toast.makeText(context, "알림 읽음 처리에 실패했습니다.", android.widget.Toast.LENGTH_SHORT).show() }) { item.roomId?.let(onOpenRoom) } })
                         }
                     }
                     if (vm.nextBeforeSequence != null) item { TextButton(onClick = { vm.load(false) }, modifier = Modifier.fillMaxWidth(), enabled = !vm.loadingMore) { Text(if (vm.loadingMore) "불러오는 중…" else "이전 알림 더 보기") } }
@@ -94,11 +101,11 @@ private fun SwipeToHideNotification(
 
 @Composable
 fun NotificationSettingsScreen(vm: NotificationViewModel, onBack: () -> Unit) {
-    LaunchedEffect(Unit) { vm.loadSettings() }
+    LaunchedEffect(vm.account) { vm.loadSettings() }
     Column(Modifier.fillMaxSize().background(Color(0xFFF4F4F4))) {
         BackTitleBar(title = "알림 설정", onBackClick = onBack)
         val settings = vm.settings
-        if (settings == null) InboxMessage("알림 설정", vm.settingsError ?: "불러오는 중입니다.", if (vm.settingsError != null) ({ vm.loadSettings() }) else null)
+        if (settings == null) InboxMessage("알림 설정", vm.settingsError ?: if (vm.account == null) "계정 정보를 기다리고 있습니다." else "불러오는 중입니다.", if (vm.settingsError != null) ({ vm.loadSettings() }) else null)
         else Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             vm.settingsError?.let { Text(it, color = Color(0xFFD32F2F)) }
             SettingSwitch("채팅 알림", settings.chatEnabled) { vm.updateSettings(NotificationSettingsPatch(chatEnabled = it)) }

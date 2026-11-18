@@ -75,6 +75,8 @@ internal val sampleAdminReports = listOf(
 @Composable
 fun AdminReportListScreen(
     reports: List<AdminReportUiModel>,
+    hasNext: Boolean,
+    onMore: () -> Unit,
     isLoading: Boolean = false,
     errorMessage: String? = null,
     onBackClick: () -> Unit,
@@ -130,6 +132,7 @@ fun AdminReportListScreen(
                     }
                 )
             }
+            if (hasNext) item { androidx.compose.material3.TextButton(onClick = onMore, enabled = !isLoading) { Text("더 보기") } }
         }
     }
 }

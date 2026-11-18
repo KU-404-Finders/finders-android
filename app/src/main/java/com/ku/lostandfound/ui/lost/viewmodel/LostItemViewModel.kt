@@ -19,6 +19,7 @@ import com.ku.lostandfound.network.LostItemMatchData
 import com.ku.lostandfound.network.LostItemSummaryData
 import com.ku.lostandfound.network.MatchStatus
 import com.ku.lostandfound.network.NetworkLog
+import com.ku.lostandfound.network.LostItemApiService
 import com.ku.lostandfound.network.RetrofitClient
 import com.ku.lostandfound.network.TokenManager
 import com.ku.lostandfound.network.httpErrorMessage
@@ -31,7 +32,9 @@ sealed class LostItemListUiState {
     data class Error(val message: String) : LostItemListUiState()
 }
 
-class LostItemViewModel : ViewModel() {
+class LostItemViewModel(
+    private val lostItemApi: LostItemApiService = RetrofitClient.lostItemApi,
+) : ViewModel() {
     var uiState by mutableStateOf<LostItemListUiState>(LostItemListUiState.Idle)
         private set
 
@@ -50,28 +53,53 @@ class LostItemViewModel : ViewModel() {
     var matches by mutableStateOf<List<LostItemMatchData>>(emptyList())
         private set
 
+    var listState by mutableStateOf<LostItemListUiState>(LostItemListUiState.Idle)
+        private set
+    private var listRequestId = 0L
+
+    fun ensureLoaded() {
+        if (listState != LostItemListUiState.Loading && (listVersion == 0 || listState is LostItemListUiState.Error)) loadLostItems()
+    }
+
+    fun clearSession() {
+        listRequestId++
+        listVersion = 0
+        lostItems = emptyList()
+        detailPost = null
+        matches = emptyList()
+        matchesStatus = null
+        listState = LostItemListUiState.Idle
+        uiState = LostItemListUiState.Idle
+    }
+
     fun loadLostItems() {
+        val request = ++listRequestId
+        val session = TokenManager.sessionGeneration()
         viewModelScope.launch {
-            uiState = LostItemListUiState.Loading
+            listState = LostItemListUiState.Loading
             try {
-                val response = RetrofitClient.lostItemApi.getLostItems()
+                val response = lostItemApi.getLostItems()
+                if (request != listRequestId || !TokenManager.isCurrentSession(session)) return@launch
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true) {
                         lostItems = body.data.orEmpty().filter { it.itemStatus == "SEARCHING" }
                         listVersion++
-                        uiState = LostItemListUiState.Idle
+                        listState = LostItemListUiState.Idle
                     } else {
-                        uiState = LostItemListUiState.Error(body?.message ?: "분실물 목록을 불러오지 못했습니다.")
+                        listState = LostItemListUiState.Error(body?.message ?: "분실물 목록을 불러오지 못했습니다.")
                     }
                 } else {
                     val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("loadLostItems", response.code(), errorBody)
-                    uiState = LostItemListUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
+                    NetworkLog.httpError("loadLostItems", response.code())
+                    listState = LostItemListUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (request != listRequestId || !TokenManager.isCurrentSession(session)) return@launch
                 NetworkLog.exception("loadLostItems", e)
-                uiState = LostItemListUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
+                listState = LostItemListUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
             }
         }
     }
@@ -98,9 +126,11 @@ class LostItemViewModel : ViewModel() {
     }
 
     suspend fun loadLostItemDetailNow(id: Long): BoardPost? {
+            val session = TokenManager.sessionGeneration()
             uiState = LostItemListUiState.Loading
             try {
-                val response = RetrofitClient.lostItemApi.getLostItemDetail(id)
+                val response = lostItemApi.getLostItemDetail(id)
+                if (!TokenManager.isCurrentSession(session)) return null
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true && body.data != null) {
@@ -112,10 +142,13 @@ class LostItemViewModel : ViewModel() {
                     }
                 } else {
                     val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("loadLostItemDetail", response.code(), errorBody)
+                    NetworkLog.httpError("loadLostItemDetail", response.code())
                     uiState = LostItemListUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (!TokenManager.isCurrentSession(session)) return null
                 NetworkLog.exception("loadLostItemDetail", e)
                 uiState = LostItemListUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
             }
@@ -123,10 +156,12 @@ class LostItemViewModel : ViewModel() {
     }
 
     fun markReturned(id: Long, onSuccess: (BoardPost) -> Unit) {
+        val session = TokenManager.sessionGeneration()
         viewModelScope.launch {
             uiState = LostItemListUiState.Loading
             try {
-                val response = RetrofitClient.lostItemApi.markLostItemReturned(bearerTokenOrThrow(), id)
+                val response = lostItemApi.markLostItemReturned(bearerTokenOrThrow(), id)
+                if (!TokenManager.isCurrentSession(session)) return@launch
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true && body.data != null) {
@@ -141,10 +176,13 @@ class LostItemViewModel : ViewModel() {
                     }
                 } else {
                     val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("markReturned", response.code(), errorBody)
+                    NetworkLog.httpError("markReturned", response.code())
                     uiState = LostItemListUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (!TokenManager.isCurrentSession(session)) return@launch
                 NetworkLog.exception("markReturned", e)
                 uiState = LostItemListUiState.Error(e.message ?: "서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
             }
@@ -152,10 +190,12 @@ class LostItemViewModel : ViewModel() {
     }
 
     fun deleteLostItem(id: Long, onSuccess: () -> Unit) {
+        val session = TokenManager.sessionGeneration()
         viewModelScope.launch {
             uiState = LostItemListUiState.Loading
             try {
-                val response = RetrofitClient.lostItemApi.deleteLostItem(bearerTokenOrThrow(), id)
+                val response = lostItemApi.deleteLostItem(bearerTokenOrThrow(), id)
+                if (!TokenManager.isCurrentSession(session)) return@launch
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body == null || body.success) {
@@ -170,10 +210,13 @@ class LostItemViewModel : ViewModel() {
                     }
                 } else {
                     val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("deleteLostItem", response.code(), errorBody)
+                    NetworkLog.httpError("deleteLostItem", response.code())
                     uiState = LostItemListUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (!TokenManager.isCurrentSession(session)) return@launch
                 NetworkLog.exception("deleteLostItem", e)
                 uiState = LostItemListUiState.Error(e.message ?: "서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
             }
@@ -187,11 +230,14 @@ class LostItemViewModel : ViewModel() {
     }
 
     suspend fun loadMatchesNow(id: Long) {
+            val session = TokenManager.sessionGeneration()
             matchesStatus = MatchStatus.CALCULATING.name
             matches = emptyList()
             try {
                 repeat(MAX_MATCH_POLL_COUNT) { attempt ->
-                    val response = RetrofitClient.lostItemApi.getLostItemMatches(id)
+                    if (!TokenManager.isCurrentSession(session)) return
+                    val response = lostItemApi.getLostItemMatches(id)
+                    if (!TokenManager.isCurrentSession(session)) return
                     val body = response.body()
                     val result = body?.data
                     when {
@@ -211,7 +257,7 @@ class LostItemViewModel : ViewModel() {
                             return
                         }
                         else -> {
-                            NetworkLog.httpError("loadLostItemMatches", response.code(), response.errorBody()?.string())
+                            NetworkLog.httpError("loadLostItemMatches", response.code())
                             matchesStatus = null
                             matches = emptyList()
                             return
@@ -220,7 +266,10 @@ class LostItemViewModel : ViewModel() {
                 }
                 matchesStatus = MatchStatus.FAILED.name
                 matches = emptyList()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (!TokenManager.isCurrentSession(session)) return
                 NetworkLog.exception("loadLostItemMatches", e)
                 matchesStatus = "FAILED"
                 matches = emptyList()
