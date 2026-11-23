@@ -79,6 +79,7 @@ fun ProfileScreen(
     showSimilarityScores: Boolean = false,
     onShowSimilarityScoresChange: (Boolean) -> Unit = {},
     onNotificationSettingsClick: () -> Unit = {},
+    onBlockedUsersClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val appVersion = remember(context) {
@@ -139,6 +140,16 @@ fun ProfileScreen(
                     showSimilarityScores = showSimilarityScores,
                     onShowSimilarityScoresChange = onShowSimilarityScoresChange,
                 )
+            }
+
+            item {
+                Card(
+                    shape = RoundedCornerShape(10.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    modifier = Modifier.fillMaxWidth().noRippleClickable(onBlockedUsersClick),
+                ) {
+                    Text("차단한 사용자", modifier = Modifier.padding(16.dp), fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                }
             }
 
             if (showAdminMenu) {

@@ -4,4 +4,5 @@
          trigger an unintended session check before the user has signed in. -->
     <exclude domain="sharedpref" path="auth_prefs.xml" />
     <exclude domain="sharedpref" path="finders_notifications.xml" />
+    <exclude domain="sharedpref" path="blocked_user_names.xml" />
 </full-backup-content>

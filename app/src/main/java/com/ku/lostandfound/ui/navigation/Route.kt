@@ -16,6 +16,7 @@ sealed class Route(val route: String) {
     object Lost : Route(route = "lost")
     object Board : Route(route = "board")
     object Profile : Route(route = "profile")
+    object BlockedUsers : Route(route = "blockedUsers")
     object MyLostPosts : Route(route = "myPosts/lost")
     object MyFoundPosts : Route(route = "myPosts/found")
 
