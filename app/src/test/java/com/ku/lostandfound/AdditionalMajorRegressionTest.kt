@@ -142,12 +142,17 @@ class AdditionalMajorRegressionTest : StabilityFixture() {
         val loads = mutableListOf<CompletableDeferred<List<ItemCommentResponse>>>()
         val adds = mutableListOf<CompletableDeferred<ItemCommentResponse>>()
         val edits = mutableListOf<Pair<String, CompletableDeferred<ApiResponse<ItemCommentResponse>>>>()
+        val deletes = mutableListOf<CompletableDeferred<Unit>>()
         val api = object : LostItemApiService by mock(LostItemApiService::class.java) {
             override suspend fun getLostItemComments(lostItemId: Long) = ok(CompletableDeferred<List<ItemCommentResponse>>().also(loads::add).await())
             override suspend fun createLostItemComment(authorization: String, lostItemId: Long, request: CommentCreateRequest) =
                 ok(CompletableDeferred<ItemCommentResponse>().also(adds::add).await())
             override suspend fun updateLostItemComment(authorization: String, lostItemId: Long, commentId: Long, request: CommentUpdateRequest) =
                 Response.success(CompletableDeferred<ApiResponse<ItemCommentResponse>>().also { edits += request.content to it }.await())
+            override suspend fun deleteLostItemComment(authorization: String, lostItemId: Long, commentId: Long): Response<ApiMessageResponse> {
+                CompletableDeferred<Unit>().also(deletes::add).await()
+                return Response.success(ApiMessageResponse(true, ""))
+            }
         }
         val vm = keep(PostCommentViewModel(api, mock(FoundItemApiService::class.java)))
         fun completeInitial() {
@@ -187,6 +192,85 @@ class AdditionalMajorRegressionTest : StabilityFixture() {
         h.loads.single().complete(listOf(comment(1, "A"), comment(3, "C")))
         dispatch()
         assertTrue(h.vm.commentsByPostId.isEmpty())
+    }
+
+    private fun Comments.addWhileLoading() {
+        vm.loadComments(1, PostType.LOST)
+        dispatch()
+        vm.addComment(1, PostType.LOST, "C")
+        dispatch()
+        adds.single().complete(comment(3, "C"))
+        dispatch()
+        assertEquals(2, loads.size)
+    }
+
+    @Test fun editDuringRecoveryRestartsLoadAndKeepsLatestEditOverStaleServerRow() {
+        val h = Comments()
+        h.addWhileLoading()
+        h.vm.updateComment(1, PostType.LOST, 3, "edited C")
+        dispatch()
+        h.edits.single().second.complete(ApiResponse(true, "", comment(3, "edited C")))
+        dispatch()
+        assertEquals(3, h.loads.size)
+        h.loads[1].complete(listOf(comment(1, "stale A"), comment(3, "C")))
+        dispatch()
+        assertEquals(listOf("edited C"), h.vm.commentsFor(1, PostType.LOST).map { it.content })
+        h.loads[2].complete(listOf(comment(1, "A"), comment(2, "B"), comment(3, "C")))
+        dispatch()
+        assertEquals(listOf("A", "B", "edited C"), h.vm.commentsFor(1, PostType.LOST).map { it.content })
+    }
+
+    @Test fun deleteDuringRecoveryRestartsLoadAndDoesNotResurrectDeletedComment() {
+        val h = Comments()
+        h.addWhileLoading()
+        h.vm.deleteComment(1, PostType.LOST, 3)
+        dispatch()
+        h.deletes.single().complete(Unit)
+        dispatch()
+        assertEquals(3, h.loads.size)
+        h.loads[1].complete(listOf(comment(3, "C")))
+        dispatch()
+        assertTrue(h.vm.commentsFor(1, PostType.LOST).isEmpty())
+        h.loads[2].complete(listOf(comment(1, "A"), comment(2, "B"), comment(3, "C")))
+        dispatch()
+        assertEquals(listOf("A", "B"), h.vm.commentsFor(1, PostType.LOST).map { it.content })
+    }
+
+    @Test fun completeListDoesNotRefetchAfterAddEditOrDelete() {
+        val h = Comments()
+        h.completeInitial()
+        h.vm.addComment(1, PostType.LOST, "C")
+        dispatch()
+        h.adds.single().complete(comment(3, "C"))
+        dispatch()
+        h.vm.updateComment(1, PostType.LOST, 3, "edited C")
+        dispatch()
+        h.edits.single().second.complete(ApiResponse(true, "", comment(3, "edited C")))
+        dispatch()
+        h.vm.deleteComment(1, PostType.LOST, 3)
+        dispatch()
+        h.deletes.single().complete(Unit)
+        dispatch()
+        assertEquals(1, h.loads.size)
+        assertEquals(listOf("original"), h.vm.commentsFor(1, PostType.LOST).map { it.content })
+    }
+
+    @Test fun failedQueuedEditDoesNotInvalidateSuccessfulEditsRecovery() {
+        val h = Comments()
+        h.addWhileLoading()
+        h.vm.updateComment(1, PostType.LOST, 3, "edited C")
+        h.vm.updateComment(1, PostType.LOST, 3, "failed C")
+        dispatch()
+        assertEquals(1, h.edits.size)
+        h.edits[0].second.complete(ApiResponse(true, "", comment(3, "edited C")))
+        dispatch()
+        assertEquals(2, h.edits.size)
+        h.edits[1].second.complete(ApiResponse(false, "failure", null))
+        dispatch()
+        assertEquals(3, h.loads.size)
+        h.loads[2].complete(listOf(comment(1, "A"), comment(3, "C")))
+        dispatch()
+        assertEquals(listOf("A", "edited C"), h.vm.commentsFor(1, PostType.LOST).map { it.content })
     }
 
     private fun editsInOrder(secondSucceeds: Boolean) {
