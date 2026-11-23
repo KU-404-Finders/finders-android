@@ -39,6 +39,7 @@ class AdminViewModel(
     private val states = androidx.compose.runtime.mutableStateMapOf<Section, AdminUiState>()
     private val nextPages = androidx.compose.runtime.mutableStateMapOf<Section, Int>()
     private var searchKeyword: String? = null
+    private var selectedPostType: String? = null
     fun state(section: Section) = states[section] ?: AdminUiState.Idle
     fun hasNext(section: Section) = section in nextPages
     var dashboard: AdminDashboard? by mutableStateOf(null)
@@ -106,7 +107,10 @@ class AdminViewModel(
     }
 
     fun loadPosts(postType: String, more: Boolean = false) {
-        if (!more) posts = emptyList()
+        if (!more) {
+            selectedPostType = postType
+            posts = emptyList()
+        }
         page(Section.Posts, more, { adminApi.posts(postType, page = it) }) {
             posts = (posts + it).distinctBy { post -> post.postType to post.id }
         }
@@ -137,7 +141,10 @@ class AdminViewModel(
     fun deletePost(post: AdminPost, onSuccess: () -> Unit) {
         if (state(Section.Delete) == AdminUiState.Loading) return
         execute(Section.Delete, { adminApi.deletePost(post.postType, post.id) }) { _, _ ->
+            // Reject list responses captured before the server confirmed deletion.
+            requests[Section.Posts] = (requests[Section.Posts] ?: 0L) + 1
             posts = posts.filterNot { it.postType == post.postType && it.id == post.id }
+            selectedPostType?.let { loadPosts(it, more = false) }
             onSuccess()
         }
     }
@@ -156,6 +163,7 @@ class AdminViewModel(
         mutations.clear()
         nextPages.clear()
         searchKeyword = null
+        selectedPostType = null
     }
 
     private fun <T> request(

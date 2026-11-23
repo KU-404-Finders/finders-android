@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -99,8 +100,11 @@ fun SearchScreen(
             }
 
             else -> {
+                if (loading) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 18.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
