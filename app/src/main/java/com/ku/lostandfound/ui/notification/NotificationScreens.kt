@@ -11,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -30,6 +31,10 @@ import kotlin.math.roundToInt
 @Composable
 fun NotificationInboxScreen(vm: NotificationViewModel, onBack: () -> Unit, onOpenRoom: (Long) -> Unit, onOpenPost: (String, Long) -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    var confirmDeleteAll by remember { mutableStateOf(false) }
+    fun read(item: InboxNotificationData, open: () -> Unit = {}) {
+        vm.markRead(item, onError = { android.widget.Toast.makeText(context, "알림 읽음 처리에 실패했습니다.", android.widget.Toast.LENGTH_SHORT).show() }, onOpen = open)
+    }
     androidx.compose.runtime.DisposableEffect(vm) {
         vm.setInboxOpen(true)
         onDispose { vm.setInboxOpen(false) }
@@ -38,7 +43,7 @@ fun NotificationInboxScreen(vm: NotificationViewModel, onBack: () -> Unit, onOpe
         BackTitleBar(title = "알림함", onBackClick = onBack)
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
             if (vm.items.any { it.readAt == null }) TextButton(onClick = vm::markAllRead) { Text("모두 읽음") }
-            if (vm.items.isNotEmpty()) TextButton(onClick = vm::hideAll) { Text("현재 목록 숨기기", color = Color(0xFF647568)) }
+            if (vm.items.isNotEmpty()) TextButton(onClick = { confirmDeleteAll = true }) { Text("전체 삭제", color = Color(0xFFD32F2F)) }
         }
         PullToRefreshBox(isRefreshing = vm.state is InboxState.Loading, onRefresh = { vm.load(true) }, modifier = Modifier.weight(1f)) {
             when (val state = vm.state) {
@@ -50,7 +55,7 @@ fun NotificationInboxScreen(vm: NotificationViewModel, onBack: () -> Unit, onOpe
                         InboxMessage("받은 알림이 없습니다", "새 채팅과 내 글에 달린 댓글이 여기에 모입니다.")
                     }
                     items(vm.items, key = { it.id }) { item ->
-                        SwipeToHideNotification(item = item, onHide = { vm.hide(item) }) {
+                        SwipeToHideNotification(item = item, onHide = { vm.hide(item) }, onRead = { read(item) }) {
                             InboxRow(item, onClick = { vm.markRead(item, onError = { android.widget.Toast.makeText(context, "알림 읽음 처리에 실패했습니다.", android.widget.Toast.LENGTH_SHORT).show() }) {
                                 if (item.type == "COMMENT") vm.openCommentPost(item,
                                     onMessage = { android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show() },
@@ -64,6 +69,13 @@ fun NotificationInboxScreen(vm: NotificationViewModel, onBack: () -> Unit, onOpe
             }
         }
     }
+    if (confirmDeleteAll) AlertDialog(
+        onDismissRequest = { confirmDeleteAll = false },
+        title = { Text("알림을 모두 삭제할까요?") },
+        text = { Text("지금 보이는 알림이 모두 읽음 처리되고 알림함에서 지워집니다.") },
+        confirmButton = { TextButton(onClick = { confirmDeleteAll = false; vm.hideAll() }) { Text("전체 삭제", color = Color(0xFFD32F2F)) } },
+        dismissButton = { TextButton(onClick = { confirmDeleteAll = false }) { Text("취소") } },
+    )
 }
 
 @Composable private fun InboxRow(item: InboxNotificationData, onClick: () -> Unit) {
@@ -81,11 +93,13 @@ fun NotificationInboxScreen(vm: NotificationViewModel, onBack: () -> Unit, onOpe
 private fun SwipeToHideNotification(
     item: InboxNotificationData,
     onHide: () -> Unit,
+    onRead: () -> Unit,
     content: @Composable () -> Unit,
 ) {
     val state = rememberSwipeToDismissBoxState(
         confirmValueChange = { target ->
-            if (target != SwipeToDismissBoxValue.Settled) onHide()
+            if (target == SwipeToDismissBoxValue.EndToStart) onHide()
+            if (target == SwipeToDismissBoxValue.StartToEnd && item.readAt == null) onRead()
             false // The list updates only after the account-local hide state is persisted.
         },
     )
@@ -93,11 +107,11 @@ private fun SwipeToHideNotification(
         state = state,
         backgroundContent = {
             Box(
-                modifier = Modifier.fillMaxSize().background(Color(0xFFE7F3E9)).padding(horizontal = 20.dp),
-                contentAlignment = Alignment.CenterEnd,
-            ) { Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Outlined.VisibilityOff, contentDescription = null, tint = Color(0xFF1B6425)); Spacer(Modifier.width(6.dp)); Text("숨기기", color = Color(0xFF1B6425), fontWeight = FontWeight.Bold) } }
+                modifier = Modifier.fillMaxSize().background(if (state.dismissDirection == SwipeToDismissBoxValue.StartToEnd) Color(0xFF1B6425) else Color(0xFFD32F2F)).padding(horizontal = 20.dp),
+                contentAlignment = if (state.dismissDirection == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd,
+            ) { Text(if (state.dismissDirection == SwipeToDismissBoxValue.StartToEnd) "읽음" else "삭제", color = Color.White, fontWeight = FontWeight.Bold) }
         },
-        enableDismissFromStartToEnd = false,
+        enableDismissFromStartToEnd = item.readAt == null,
         content = { content() },
     )
 }

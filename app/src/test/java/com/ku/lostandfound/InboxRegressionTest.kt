@@ -11,6 +11,9 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.`when`
+import org.mockito.ArgumentMatchers.*
+import android.content.SharedPreferences
 import retrofit2.Response
 
 class InboxRegressionTest : StabilityFixture() {
@@ -21,10 +24,25 @@ class InboxRegressionTest : StabilityFixture() {
     private val fetched = CompletableDeferred<NotificationSettingsData>()
     private val read = CompletableDeferred<Boolean>()
     private val saved = CompletableDeferred<NotificationSettingsData>()
+    private val allRead = CompletableDeferred<Boolean>()
     private val item = InboxNotificationData("one", "CHAT", roomId = 42, sequence = 1)
     private lateinit var vm: NotificationViewModel
 
     @Before fun createInbox() {
+        val prefs = mock(SharedPreferences::class.java)
+        val editor = mock(SharedPreferences.Editor::class.java)
+        val sequences = mutableMapOf<String, Set<String>>()
+        val cutoffs = mutableMapOf<String, Long>()
+        `when`(application.getSharedPreferences("finders_notifications", 0)).thenReturn(prefs)
+        `when`(prefs.edit()).thenReturn(editor)
+        `when`(prefs.getStringSet(anyString(), anySet())).thenAnswer { sequences[it.getArgument<String>(0)] ?: emptySet<String>() }
+        `when`(prefs.getLong(anyString(), anyLong())).thenAnswer { cutoffs[it.getArgument<String>(0)] ?: it.getArgument<Long>(1) }
+        `when`(editor.putStringSet(anyString(), anySet())).thenAnswer {
+            sequences[it.getArgument(0)] = it.getArgument<Set<String>>(1).toSet(); editor
+        }
+        `when`(editor.putLong(anyString(), anyLong())).thenAnswer {
+            cutoffs[it.getArgument(0)] = it.getArgument(1); editor
+        }
         val api = object : NotificationApiService by mock(NotificationApiService::class.java) {
             override suspend fun notifications(limit: Int, snapshotSequence: Long?, beforeSequence: Long?): Response<ApiResponse<NotificationPageData>> {
                 pages++
@@ -33,6 +51,8 @@ class InboxRegressionTest : StabilityFixture() {
             }
             override suspend fun unreadCount() = ok(NotificationUnreadCountData(++badges))
             override suspend fun markRead(id: String) = Response.success(ApiResponse(read.await(), "", Unit))
+            override suspend fun markAllRead(request: MarkAllNotificationsReadRequest) =
+                Response.success(ApiResponse(allRead.await(), "", MarkAllNotificationsReadData()))
             override suspend fun settings() = ok(fetched.await())
             override suspend fun updateSettings(patch: NotificationSettingsPatch): Response<ApiResponse<NotificationSettingsData>> {
                 patches++
@@ -123,5 +143,56 @@ class InboxRegressionTest : StabilityFixture() {
         read.complete(true)
         dispatch()
         assertEquals(0, callbacks)
+    }
+
+    @Test fun deletionWaitsForReadAndStaysDeletedAfterRefresh() {
+        vm.attachAccount(1)
+        dispatch()
+        vm.hide(vm.items.single())
+        dispatch()
+        assertEquals(listOf(item), vm.items)
+        read.complete(true)
+        dispatch()
+        assertTrue(vm.items.isEmpty())
+        vm.load()
+        dispatch()
+        assertTrue(vm.items.isEmpty())
+        vm.attachAccount(2)
+        dispatch()
+        assertEquals(listOf(item), vm.items)
+    }
+
+    @Test fun readFailureDoesNotDeleteNotification() {
+        vm.attachAccount(1)
+        dispatch()
+        vm.hide(vm.items.single())
+        read.complete(false)
+        dispatch()
+        assertEquals(listOf(item), vm.items)
+        assertTrue(vm.state is InboxState.Error)
+    }
+
+    @Test fun deleteAllFiltersOlderPagesButKeepsNewArrivals() {
+        vm.attachAccount(1)
+        dispatch()
+        vm.hideAll()
+        allRead.complete(true)
+        dispatch()
+        assertTrue(vm.items.isEmpty())
+        vm.load(false)
+        olderPage.complete(NotificationPageData(listOf(item, item.copy(id = "new", sequence = 3)), 2, null))
+        dispatch()
+        assertEquals(listOf("new"), vm.items.map { it.id })
+    }
+
+    @Test fun deletionFromPreviousAccountCannotHideNextAccountNotification() {
+        vm.attachAccount(1)
+        dispatch()
+        vm.hide(vm.items.single())
+        dispatch()
+        vm.attachAccount(2)
+        read.complete(true)
+        dispatch()
+        assertEquals(listOf(item), vm.items)
     }
 }
