@@ -21,6 +21,7 @@ class BlockedUsersRegressionTest : StabilityFixture() {
     private val lists = mutableListOf<CompletableDeferred<List<BlockResponse>>>()
     private val deletion = CompletableDeferred<Boolean>()
     private var deletes = 0
+    private val pages = mutableListOf<Int>()
 
     @Before fun createBlockedUsers() {
         val values = mutableMapOf<String, String>()
@@ -35,7 +36,10 @@ class BlockedUsersRegressionTest : StabilityFixture() {
         `when`(editor.remove(anyString())).thenAnswer { values.remove(it.getArgument<String>(0)); editor }
         names = BlockedUserNames(application)
         val api = object : ModerationApiService by mock(ModerationApiService::class.java) {
-            override suspend fun blockedUsers() = ok(CompletableDeferred<List<BlockResponse>>().also(lists::add).await())
+            override suspend fun blockedUsers(page: Int): Response<ApiResponse<List<BlockResponse>>> {
+                pages += page
+                return ok(CompletableDeferred<List<BlockResponse>>().also(lists::add).await())
+            }
             override suspend fun unblock(userId: Long): Response<ApiResponse<Unit>> {
                 deletes++
                 return if (deletion.await()) Response.success<ApiResponse<Unit>>(204, null)
@@ -98,10 +102,14 @@ class BlockedUsersRegressionTest : StabilityFixture() {
         load()
         vm.load()
         dispatch()
+        val oldList = lists.last()
         vm.unblock(42) {}
         deletion.complete(true)
         dispatch()
-        lists.last().complete(listOf(BlockResponse(42), BlockResponse(43)))
+        oldList.complete(listOf(BlockResponse(42), BlockResponse(43)))
+        dispatch()
+        assertEquals(listOf(43L), vm.users.map { it.id })
+        lists.last().complete(listOf(BlockResponse(43)))
         dispatch()
         assertEquals(listOf(43L), vm.users.map { it.id })
         assertFalse(vm.loading)
@@ -129,5 +137,70 @@ class BlockedUsersRegressionTest : StabilityFixture() {
         old.complete(listOf(BlockResponse(99)))
         dispatch()
         assertEquals(listOf(42L, 43L), vm.users.map { it.id })
+    }
+
+    @Test fun loadsFiftyAtATimeAndStopsAfterShortPage() {
+        vm.attachAccount(1)
+        vm.load()
+        dispatch()
+        lists.last().complete((1L..50L).map { BlockResponse(it, "2026-11-23T10:00:00") })
+        dispatch()
+        assertTrue(vm.hasMore)
+        assertEquals("2026-11-23T10:00:00", vm.users.first().createdAt)
+        repeat(2) { vm.load(reset = false) }
+        dispatch()
+        assertEquals(listOf(0, 1), pages)
+        lists.last().complete(listOf(BlockResponse(51)))
+        dispatch()
+        assertEquals((1L..51L).toList(), vm.users.map { it.id })
+        assertFalse(vm.hasMore)
+        vm.load(reset = false)
+        dispatch()
+        assertEquals(listOf(0, 1), pages)
+    }
+
+    @Test fun failedNextPageRetainsRowsAndRetriesTheSamePage() {
+        vm.attachAccount(1)
+        vm.load()
+        dispatch()
+        lists.last().complete((1L..50L).map { BlockResponse(it) })
+        dispatch()
+        vm.load(reset = false)
+        dispatch()
+        lists.last().completeExceptionally(java.io.IOException("offline"))
+        dispatch()
+        assertEquals(50, vm.users.size)
+        assertNotNull(vm.error)
+        vm.retry()
+        dispatch()
+        assertEquals(listOf(0, 1, 1), pages)
+        lists.last().complete(listOf(BlockResponse(51)))
+        dispatch()
+        assertEquals(51, vm.users.size)
+        assertNull(vm.error)
+    }
+
+    @Test fun unblockingRestartsPaginationToAvoidSkippingShiftedRows() {
+        vm.attachAccount(1)
+        vm.load()
+        dispatch()
+        lists.last().complete((1L..50L).map { BlockResponse(it) })
+        dispatch()
+        vm.load(reset = false)
+        dispatch()
+        lists.last().complete(listOf(BlockResponse(51), BlockResponse(52)))
+        dispatch()
+        vm.unblock(42) {}
+        deletion.complete(true)
+        dispatch()
+        assertEquals(listOf(0, 1, 0), pages)
+        lists.last().complete((1L..51L).filterNot { it == 42L }.map { BlockResponse(it) })
+        dispatch()
+        vm.load(reset = false)
+        dispatch()
+        lists.last().complete(listOf(BlockResponse(52)))
+        dispatch()
+        assertEquals((1L..52L).filterNot { it == 42L }, vm.users.map { it.id })
+        assertFalse(vm.hasMore)
     }
 }

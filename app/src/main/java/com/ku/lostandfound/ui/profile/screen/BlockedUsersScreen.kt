@@ -22,7 +22,7 @@ fun BlockedUsersScreen(vm: BlockedUsersViewModel, accountId: Long?, onBack: () -
         BackTitleBar(title = "차단한 사용자", onBackClick = onBack)
         vm.error?.let { message ->
             Text(message, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
-            TextButton(onClick = vm::load, enabled = !vm.loading) { Text("다시 시도") }
+            TextButton(onClick = vm::retry, enabled = !vm.loading) { Text("다시 시도") }
         }
         if (vm.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (vm.users.isEmpty() && !vm.loading && vm.error == null) {
@@ -40,6 +40,13 @@ fun BlockedUsersScreen(vm: BlockedUsersViewModel, accountId: Long?, onBack: () -
                     },
                 )
                 HorizontalDivider()
+            }
+            if (vm.hasMore && vm.error == null) item {
+                TextButton(
+                    onClick = { vm.load(reset = false) },
+                    enabled = !vm.loading,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (vm.loading) "불러오는 중…" else "더 보기") }
             }
         }
     }

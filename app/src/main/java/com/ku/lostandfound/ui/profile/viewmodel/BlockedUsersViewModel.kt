@@ -13,7 +13,7 @@ import com.ku.lostandfound.network.TokenManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-data class BlockedUserRow(val id: Long, val name: String)
+data class BlockedUserRow(val id: Long, val name: String, val createdAt: String? = null)
 
 class BlockedUsersViewModel @JvmOverloads constructor(
     application: Application,
@@ -22,9 +22,12 @@ class BlockedUsersViewModel @JvmOverloads constructor(
     private data class Account(val id: Long, val generation: Long)
     private var account: Account? = null
     private var requestId = 0
+    private var nextPage = 0
+    private var retryReset = true
     private val names = BlockedUserNames(application)
     var users by mutableStateOf<List<BlockedUserRow>>(emptyList()); private set
     var loading by mutableStateOf(false); private set
+    var hasMore by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set
     var unblocking by mutableStateOf<Set<Long>>(emptySet()); private set
 
@@ -38,23 +41,36 @@ class BlockedUsersViewModel @JvmOverloads constructor(
         users = emptyList()
         unblocking = emptySet()
         loading = false
+        hasMore = false
+        nextPage = 0
+        retryReset = true
         error = null
     }
 
-    fun load() {
+    fun retry() = load(retryReset)
+
+    fun load(reset: Boolean = true) {
         val owner = account ?: return
         if (!current(owner)) return
+        if (!reset && (loading || !hasMore)) return
+        val page = if (reset) 0 else nextPage
         val request = ++requestId
+        retryReset = reset
         loading = true
         error = null
         viewModelScope.launch {
             try {
-                val response = api.blockedUsers()
+                val response = api.blockedUsers(page)
                 if (!current(owner) || request != requestId) return@launch
                 val data = response.body()?.takeIf { response.isSuccessful && it.success }?.data
                 if (data == null) error = "차단한 사용자를 불러오지 못했습니다."
-                else users = data.distinctBy { it.blockedUserId }.map {
-                    BlockedUserRow(it.blockedUserId, names.displayName(owner.id, it.blockedUserId))
+                else {
+                    val rows = data.map {
+                        BlockedUserRow(it.blockedUserId, names.displayName(owner.id, it.blockedUserId), it.createdAt)
+                    }
+                    users = (if (reset) rows else users + rows).distinctBy { it.id }
+                    nextPage = page + 1
+                    hasMore = data.size == 50
                 }
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) {
@@ -84,6 +100,8 @@ class BlockedUsersViewModel @JvmOverloads constructor(
                 loading = false
                 users = users.filterNot { it.id == userId }
                 names.remove(owner.id, userId)
+                // Deleting shifts page offsets. Restart at page zero to avoid skipping a user.
+                load()
                 onSuccess()
             } else error = "차단 해제에 실패했습니다. 다시 시도해주세요."
         }
