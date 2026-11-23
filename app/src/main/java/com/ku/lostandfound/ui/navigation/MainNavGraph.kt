@@ -143,6 +143,7 @@ fun MainNavGraph(
     modifier: Modifier = Modifier,
     padding: PaddingValues,
     isFreshLaunch: Boolean,
+    chatViewModel: ChatViewModel,
 ) {
     val context = LocalContext.current
     val displayPreferences = remember(context.applicationContext) {
@@ -178,7 +179,9 @@ fun MainNavGraph(
     var lastAppliedFoundListVersion by remember { mutableIntStateOf(0) }
     var lastAppliedLostListVersion by remember { mutableIntStateOf(0) }
 
-    val chatViewModel = viewModel<ChatViewModel>()
+    LaunchedEffect(currentUserId) {
+        if (currentUserId != null) chatViewModel.loadRooms()
+    }
     var startDestination by remember(isFreshLaunch) {
         mutableStateOf<String?>(
             if (isFreshLaunch) {

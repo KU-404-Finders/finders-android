@@ -10,6 +10,8 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -26,6 +28,7 @@ private data class MainTab(
 fun AppBottomBar(
     currentRoute: String,
     onTabClick: (String) -> Unit,
+    unreadChatCount: Int = 0,
 ) {
     val tabs = listOf(
         MainTab(Route.Lost.route, "분실물", Icons.Outlined.Search),
@@ -47,10 +50,16 @@ fun AppBottomBar(
                     }
                 },
                 icon = {
+                    BadgedBox(badge = {
+                        if (tab.route == Route.ChatList.route && unreadChatCount > 0) {
+                            Badge { Text(if (unreadChatCount > 99) "99+" else unreadChatCount.toString()) }
+                        }
+                    }) {
                     Icon(
                         imageVector = tab.icon,
                         contentDescription = tab.title,
                     )
+                    }
                 },
                 label = {
                     Text(text = tab.title)

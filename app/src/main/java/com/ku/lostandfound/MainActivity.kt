@@ -112,6 +112,7 @@ class MainActivity : ComponentActivity() {
                 // screens whose content does not exceed the viewport.
                 CompositionLocalProvider(LocalOverscrollFactory provides null) {
                 val navController = androidx.compose.runtime.key(navigationKey) { rememberNavController() }
+                val chatViewModel = androidx.lifecycle.viewmodel.compose.viewModel<com.ku.lostandfound.ui.chat.viewmodel.ChatViewModel>()
                 androidx.compose.runtime.SideEffect { activeController = navController }
 
                 val backStackEntry by
@@ -244,6 +245,7 @@ class MainActivity : ComponentActivity() {
                     bottomBar = {
                         if (currentRoute in mainRoutes && !isImeVisible) {
                             AppBottomBar(
+                                unreadChatCount = chatViewModel.unreadMessageTotal,
                                 currentRoute = currentRoute.orEmpty(),
                                 onTabClick = { targetRoute ->
                                     navController.navigateToMainTab(targetRoute)
@@ -253,6 +255,7 @@ class MainActivity : ComponentActivity() {
                     },
                 ) { innerPadding ->
                     MainNavGraph(
+                        chatViewModel = chatViewModel,
                         navController = navController,
                         padding = innerPadding,
                         isFreshLaunch = savedInstanceState == null,

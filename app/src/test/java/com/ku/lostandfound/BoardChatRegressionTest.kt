@@ -7,12 +7,39 @@ import com.ku.lostandfound.ui.found.viewmodel.*
 import com.ku.lostandfound.ui.lost.viewmodel.*
 import com.ku.lostandfound.ui.post.viewmodel.PostCommentViewModel
 import kotlinx.coroutines.CompletableDeferred
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.cancel
 import org.junit.Assert.*
 import org.junit.Test
 import org.mockito.Mockito.mock
 import retrofit2.Response
 
 class BoardChatRegressionTest : StabilityFixture() {
+    @Test fun chatBadgeRefreshesOnPushAndClearsWithSession() {
+        var calls = 0
+        val api = object : ChatApiService by mock(ChatApiService::class.java) {
+            override suspend fun getRooms(page: Int): Response<ApiResponse<List<ChatRoomResponse>>> {
+                calls++
+                return ok(listOf(
+                    ChatRoomResponse(1, 3, 4, "", unreadMessageCount = if (calls == 1) 2 else 0),
+                    ChatRoomResponse(2, 3, 4, "", unreadMessageCount = 5),
+                    ChatRoomResponse(3, 3, 4, "", unreadMessageCount = null),
+                ))
+            }
+        }
+        val vm = ChatViewModel(api, mock(LostItemApiService::class.java), mock(FoundItemApiService::class.java))
+        vm.loadRooms()
+        dispatch()
+        assertEquals(7, vm.unreadMessageTotal)
+        com.ku.lostandfound.notification.NotificationInboxRefreshBus.notifyArrival()
+        dispatch()
+        assertEquals(2, calls)
+        assertEquals(5, vm.unreadMessageTotal)
+        vm.clearSession()
+        assertEquals(0, vm.unreadMessageTotal)
+        vm.viewModelScope.cancel()
+    }
+
     @Test fun staleLostListCannotReplaceLatestResultOrError() {
         val responses = List(3) { CompletableDeferred<LostItemListResponse>() }
         var index = 0
