@@ -59,6 +59,7 @@ import com.ku.lostandfound.ui.login.viewmodel.LoginViewModel
 @Composable
 fun LoginScreen(
     viewModel: LoginViewModel,
+    canRetrySession: Boolean = false,
     onLoginSuccess: () -> Unit = {},
     onNavigateToSignUp: () -> Unit = {},
     onNavigateToPasswordReset: () -> Unit = {},
@@ -221,6 +222,11 @@ fun LoginScreen(
         }
 
         Spacer(modifier = Modifier.height(8.dp))
+        if (canRetrySession) {
+            androidx.compose.material3.TextButton(onClick = viewModel::retrySavedSession, enabled = !isLoading) {
+                Text("기존 로그인 다시 연결", color = Color(0xFF4A6741))
+            }
+        }
         if (loginErrorMessage != null) {
             Text(
                 text = loginErrorMessage,
@@ -257,7 +263,7 @@ fun LoginScreen(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-        Text(text = "비밀번호를 잊으셨나요?", color = Color(0xFF4A6741), fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.clickable { onNavigateToPasswordReset() })
+        Text(text = "비밀번호를 잊으셨나요?", color = Color(0xFF4A6741), fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.clickable(enabled = !isLoading) { onNavigateToPasswordReset() })
 
         Spacer(modifier = Modifier.height(20.dp))
 
@@ -276,7 +282,7 @@ fun LoginScreen(
                 color = Color(0xFF4A6741),
                 fontWeight = FontWeight.Bold,
                 fontSize = 12.sp,
-                modifier = Modifier.clickable {
+                modifier = Modifier.clickable(enabled = !isLoading) {
                     onNavigateToSignUp()
                 }
             )

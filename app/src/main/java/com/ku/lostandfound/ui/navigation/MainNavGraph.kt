@@ -1,6 +1,5 @@
 package com.ku.lostandfound.ui.navigation
 
-import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -58,6 +57,7 @@ import com.ku.lostandfound.ui.admin.screen.AdminUserDetailScreen
 import com.ku.lostandfound.ui.admin.screen.AdminUserListScreen
 import com.ku.lostandfound.ui.admin.viewmodel.AdminUiState
 import com.ku.lostandfound.ui.admin.viewmodel.AdminViewModel
+import com.ku.lostandfound.ui.admin.viewmodel.AdminViewModel.Section
 import com.ku.lostandfound.ui.board.screen.HomeScreen
 import com.ku.lostandfound.ui.chat.screen.ChatListScreen
 import com.ku.lostandfound.ui.chat.screen.ChatRoomScreen
@@ -164,7 +164,7 @@ fun MainNavGraph(
     val notificationViewModel = viewModel<NotificationViewModel>()
 
     val currentUserId = userViewModel.me?.id
-    LaunchedEffect(currentUserId) { notificationViewModel.attachAccount(currentUserId); if (currentUserId != null) notificationViewModel.refreshUnreadCount() }
+    LaunchedEffect(currentUserId) { notificationViewModel.attachAccount(currentUserId) }
     val currentUserName = userViewModel.me?.name ?: signupViewModel.name
     val currentUserEmail = userViewModel.me?.email ?: signupViewModel.email
 
@@ -200,9 +200,12 @@ fun MainNavGraph(
     // newly verified start destination is Login.
     var clearRestoredAuthenticatedStack by remember { mutableStateOf(false) }
 
+    var retrySession by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(Unit) {
+        val credentials = TokenManager.credentials()
         startDestination = when {
-            !TokenManager.hasTokens() -> {
+            credentials.access.isNullOrBlank() || credentials.refresh.isNullOrBlank() -> {
+                TokenManager.expireSession(credentials)
                 clearRestoredAuthenticatedStack = !isFreshLaunch
                 Route.Login.route
             }
@@ -214,10 +217,9 @@ fun MainNavGraph(
                     clearRestoredAuthenticatedStack = true
                     Route.Login.route
                 }
-                // Keep credentials on transient failures. A later app launch or an authenticated
-                // request can retry automatically, but private screens stay inaccessible until
-                // verification succeeds.
+                // Preserve the saved session so the login screen can explicitly retry.
                 RefreshSessionResult.RetryableFailure -> {
+                    retrySession = credentials.generation
                     clearRestoredAuthenticatedStack = true
                     Route.Login.route
                 }
@@ -249,7 +251,7 @@ fun MainNavGraph(
         buildings = repo.loadBuildings()
         referencePaths = repo.loadPaths()
 
-        if (TokenManager.isLoggedIn()) {
+        if (verifiedStartDestination != Route.Login.route && TokenManager.isLoggedIn()) {
             userViewModel.loadMe()
         }
     }
@@ -318,10 +320,6 @@ fun MainNavGraph(
 
     fun navigateMainTab(route: String) {
         if (navController.currentBackStackEntry?.destination?.route == route) return
-        when (route) {
-            Route.Found.route -> foundItemViewModel.loadFoundItems()
-            Route.Lost.route -> lostItemViewModel.loadLostItems()
-        }
         navController.navigateToMainTab(route)
     }
 
@@ -358,6 +356,7 @@ fun MainNavGraph(
                 ?: currentUserEmail
             writeViewModel.createFoundItem(context)
                 .onSuccess { createdPost ->
+                    foundItemViewModel.retryFoundItems()
                     posts = listOf(
                         createdPost.copy(
                             authorName = authorName,
@@ -401,9 +400,15 @@ fun MainNavGraph(
     }
 
     fun clearAuthenticatedUiState() {
+        retrySession = null
         userViewModel.clearSession()
         chatViewModel.clearSession()
         adminViewModel.clearSession()
+        notificationViewModel.attachAccount(null)
+        foundItemViewModel.clearSession()
+        lostItemViewModel.clearSession()
+        lastAppliedFoundListVersion = 0
+        lastAppliedLostListVersion = 0
         postCommentViewModel.clear()
         writeViewModel.reset()
         posts = emptyList()
@@ -414,7 +419,9 @@ fun MainNavGraph(
         TokenManager.sessionExpired.collect { expiredGeneration ->
             // A replayed event can outlive a configuration change. Do not let it end a
             // newer session created after the expiry was reported.
-            if (!TokenManager.isCurrentSession(expiredGeneration)) return@collect
+            if (!TokenManager.consumeExpiry(expiredGeneration)) return@collect
+            loginViewModel.resetUiState()
+            Toast.makeText(context, "로그인 세션이 만료되었습니다. 다시 로그인해주세요.", Toast.LENGTH_SHORT).show()
             clearAuthenticatedUiState()
             navigateToLoginClearingBackStack()
         }
@@ -463,7 +470,7 @@ fun MainNavGraph(
             clearRestoredAuthenticatedStack &&
             verifiedStartDestination == Route.Login.route
         ) {
-            navigateToLoginClearingBackStack()
+            if (!isPublicRoute(navController.currentDestination?.route)) navigateToLoginClearingBackStack()
             clearRestoredAuthenticatedStack = false
         }
     }
@@ -485,6 +492,7 @@ fun MainNavGraph(
         composable(route = Route.Login.route) {
             LoginScreen(
                 viewModel = loginViewModel,
+                canRetrySession = retrySession?.let { TokenManager.isCurrentSession(it) && TokenManager.hasTokens() } == true,
                 onLoginSuccess = {
                     clearAuthenticatedUiState()
                     userViewModel.loadMe()
@@ -591,29 +599,21 @@ fun MainNavGraph(
                 Text("지도 데이터를 불러오는 중입니다.")
             } else {
                 val serverFoundPosts = foundItemViewModel.asBoardPosts()
-                LaunchedEffect(foundItemViewModel.listVersion) {
-                    if (foundItemViewModel.listVersion > lastAppliedFoundListVersion) {
-                        syncLocalPostsWithServer(PostType.FOUND, serverFoundPosts)
-                        lastAppliedFoundListVersion = foundItemViewModel.listVersion
+                val successfulList = foundItemViewModel.successfulList
+                LaunchedEffect(successfulList) {
+                    if (successfulList != null && successfulList.buildingName == null && successfulList.version > lastAppliedFoundListVersion) {
+                        syncLocalPostsWithServer(PostType.FOUND, foundItemViewModel.asBoardPosts(successfulList.items))
+                        lastAppliedFoundListVersion = successfulList.version
                     }
                 }
-                val foundPosts = if (foundItemViewModel.selectedBuildingName != null) {
-                    (serverFoundPosts + publicLocalPosts(PostType.FOUND)).distinctBy { it.id }
-                } else {
-                    (serverFoundPosts + publicLocalPosts(PostType.FOUND)).distinctBy { it.id }
-                }
+                val foundPosts = serverFoundPosts
                 FoundBoardScreen(
                     posts = foundPosts,
+                    selectedBuilding = buildings.firstOrNull { it.name == foundItemViewModel.selectedBuildingName },
                     boundary = b,
                     buildings = buildings,
                     referencePaths = referencePaths,
                     onPostClick = { post ->
-
-                        Log.d(
-                            "DeepLinkTest",
-                            "게시글 ID: ${post.id}, 게시글 타입: ${post.type.name}"
-                        )
-
                         if (posts.none { it.id == post.id && it.type == post.type }) {
                             posts = listOf(post) + posts
                         }
@@ -631,13 +631,13 @@ fun MainNavGraph(
                     notificationCount = notificationViewModel.unreadCount,
                     onBuildingSelected = { building ->
                         if (building == null) {
-                            foundItemViewModel.loadFoundItems(force = true)
+                            foundItemViewModel.clearBuildingFilter()
                         } else {
                             foundItemViewModel.loadFoundItemsByBuilding(building.name)
                         }
                     },
-                    isLoading = foundItemViewModel.uiState is FoundItemUiState.Loading,
-                    errorMessage = (foundItemViewModel.uiState as? FoundItemUiState.Error)?.message,
+                    isLoading = foundItemViewModel.listState is FoundItemUiState.Loading,
+                    errorMessage = (foundItemViewModel.listState as? FoundItemUiState.Error)?.message,
                     onRetryClick = { foundItemViewModel.retryFoundItems() },
                     onRefresh = { foundItemViewModel.retryFoundItems() },
                 )
@@ -671,8 +671,8 @@ fun MainNavGraph(
                 onSearchClick = { navigateSingleTop(Route.Search.route) },
                 onNotificationClick = { navController.navigate(Route.Notifications.route) },
                 notificationCount = notificationViewModel.unreadCount,
-                isLoading = lostItemViewModel.uiState is LostItemListUiState.Loading,
-                errorMessage = (lostItemViewModel.uiState as? LostItemListUiState.Error)?.message,
+                isLoading = lostItemViewModel.listState is LostItemListUiState.Loading,
+                errorMessage = (lostItemViewModel.listState as? LostItemListUiState.Error)?.message,
                 onRetryClick = { lostItemViewModel.loadLostItems() },
                 onRefresh = { lostItemViewModel.loadLostItems() },
             )
@@ -768,13 +768,16 @@ fun MainNavGraph(
                 },
 
                 onRoomClick = { roomId ->
-                    Log.d("DeepLinkTest", "채팅방 ID: $roomId")
                     navController.navigate(Route.ChatRoom.create(roomId))
                 },
                 authorInfoByRoomId = chatViewModel.authorInfoByRoomId,
                 currentUserId = currentUserId,
                 currentUserName = userViewModel.me?.name,
-                onLeaveRoom = { roomId -> chatViewModel.leaveRoom(roomId) {} },
+                onLeaveRoom = { roomId ->
+                    chatViewModel.leaveRoom(roomId) { success ->
+                        if (!success) Toast.makeText(context, "채팅방 나가기에 실패했습니다.", Toast.LENGTH_SHORT).show()
+                    }
+                },
             )
         }
 
@@ -922,17 +925,16 @@ fun MainNavGraph(
                 onBlockUser = {
                     val userId = otherUserId ?: return@ChatRoomScreen
                     userViewModel.blockUser(userId) { success ->
-                        if (success && navController.currentDestination?.route == Route.ChatRoom.route) {
+                        if (success) {
                             chatViewModel.loadRooms()
-                            navController.popBackStack()
+                            navController.popIfCurrent(backStackEntry)
                         }
                     }
                 },
                 onLeaveRoom = {
                     chatViewModel.leaveRoom(roomId) { success ->
-                        if (success && navController.currentDestination?.route == Route.ChatRoom.route) {
-                            navController.popBackStack()
-                        }
+                        if (!success) Toast.makeText(context, "채팅방 나가기에 실패했습니다.", Toast.LENGTH_SHORT).show()
+                        if (success) navController.popIfCurrent(backStackEntry)
                     }
                 },
                 onBackClick = {
@@ -944,15 +946,21 @@ fun MainNavGraph(
 
 
 
-        composable(route = Route.Notifications.route) {
+        composable(route = Route.Notifications.route) { entry ->
             NotificationInboxScreen(
+                accountError = (userViewModel.uiState as? UserUiState.Error)?.message,
+                onRetryAccount = { userViewModel.loadMe() },
                 vm = notificationViewModel,
                 onBack = { navController.popBackStack() },
-                onOpenRoom = { roomId -> navController.navigate(Route.ChatRoom.create(roomId)) },
+                onOpenRoom = { roomId ->
+                    if (navController.currentBackStackEntry === entry) navController.navigate(Route.ChatRoom.create(roomId))
+                },
             )
         }
         composable(route = Route.NotificationSettings.route) {
-            NotificationSettingsScreen(vm = notificationViewModel, onBack = { navController.popBackStack() })
+            NotificationSettingsScreen(vm = notificationViewModel, onBack = { navController.popBackStack() },
+                accountError = (userViewModel.uiState as? UserUiState.Error)?.message,
+                onRetryAccount = { userViewModel.loadMe() })
         }
 
         composable(route = Route.Profile.route) {
@@ -1022,14 +1030,27 @@ fun MainNavGraph(
         }
 
         composable(route = Route.Search.route) {
+            val searchFound = if (foundItemViewModel.selectedBuildingName == null) foundItemViewModel
+                else viewModel<FoundItemViewModel>()
+            LaunchedEffect(searchFound) {
+                lostItemViewModel.ensureLoaded()
+                searchFound.loadFoundItems()
+            }
             val searchablePosts = (
                     lostItemViewModel.asBoardPosts() +
-                            foundItemViewModel.asBoardPosts() +
+                            searchFound.asBoardPosts() +
                             posts.filter { it.status == PostStatus.OPEN }
                     ).filter { it.status == PostStatus.OPEN }
                 .distinctBy { it.type to it.id }
             SearchScreen(
                 posts = searchablePosts,
+                loading = lostItemViewModel.listState == LostItemListUiState.Loading || searchFound.listState == FoundItemUiState.Loading,
+                error = (lostItemViewModel.listState as? LostItemListUiState.Error)?.message
+                    ?: (searchFound.listState as? FoundItemUiState.Error)?.message,
+                onRetry = {
+                    lostItemViewModel.ensureLoaded()
+                    searchFound.loadFoundItems()
+                },
                 onBackClick = { navController.popBackStack() },
                 onPostClick = { post ->
                     if (posts.none { it.id == post.id && it.type == post.type }) {
@@ -1343,11 +1364,6 @@ fun MainNavGraph(
                     onBackClick = { navController.popBackStack() },
                     onChatClick = {
                         val recipientId = post.authorUserId
-                        android.util.Log.d(
-                            "KUFindersChat",
-                            "myId=$currentUserId, recipientId=$recipientId, " +
-                                    "postType=${post.type.name}, postId=${post.id}"
-                        )
 
                         when {
                             recipientId == null -> {
@@ -1417,12 +1433,7 @@ fun MainNavGraph(
 
                     onUserBlocked = { _ ->
                         // 사용자가 완료 팝업을 닫았을 때만 이동
-                        if (
-                            navController.currentBackStackEntry
-                                ?.destination?.route == Route.PostDetail.route
-                        ) {
-                            navController.popBackStack()
-                        }
+                        navController.popIfCurrent(backStackEntry)
                     },
                     showOwnerActions = (currentUserId != null && post.authorUserId == currentUserId) ||
                             (post.authorEmail.isNotBlank() && post.authorEmail == currentUserEmail) ||
@@ -1560,7 +1571,7 @@ fun MainNavGraph(
                 LaunchedEffect(Unit) { adminViewModel.loadDashboard() }
                 AdminDashboardScreen(
                 pendingReportCount = adminViewModel.dashboard?.pendingReportCount?.toInt() ?: 0,
-                errorMessage = (adminViewModel.uiState as? AdminUiState.Error)?.message,
+                errorMessage = (adminViewModel.state(Section.Dashboard) as? AdminUiState.Error)?.message,
 
                 onBackClick = {
                     navController.popBackStack()
@@ -1592,8 +1603,10 @@ fun MainNavGraph(
                 LaunchedEffect(Unit) { adminViewModel.loadUsers() }
                 AdminUserListScreen(
                 users = adminViewModel.users,
-                isLoading = adminViewModel.uiState is AdminUiState.Loading,
-                errorMessage = (adminViewModel.uiState as? AdminUiState.Error)?.message,
+                hasNext = adminViewModel.hasNext(Section.Users),
+                onMore = { adminViewModel.loadUsers(more = true) },
+                isLoading = adminViewModel.state(Section.Users) is AdminUiState.Loading,
+                errorMessage = (adminViewModel.state(Section.Users) as? AdminUiState.Error)?.message,
                 onBackClick = { navController.popBackStack() },
                 onSearch = { adminViewModel.loadUsers(it) },
                 onUserClick = { navController.navigate(Route.AdminUserDetail.create(it)) },
@@ -1614,8 +1627,9 @@ fun MainNavGraph(
                 }
                 AdminUserDetailScreen(
                 user = adminViewModel.selectedUser?.takeIf { it.id == userId },
-                isLoading = adminViewModel.uiState is AdminUiState.Loading,
-                errorMessage = (adminViewModel.uiState as? AdminUiState.Error)?.message,
+                isLoading = adminViewModel.state(Section.User) is AdminUiState.Loading,
+                errorMessage = (adminViewModel.state(Section.User) as? AdminUiState.Error)?.message,
+                onRetry = { userId?.let(adminViewModel::loadUser) },
                 onBackClick = { navController.popBackStack() },
                 onSuspensionChange = { suspended ->
                     if (userId != null) adminViewModel.setUserSuspension(
@@ -1632,10 +1646,14 @@ fun MainNavGraph(
             AdminAccessGate(userViewModel.me, userViewModel.uiState, navController) {
                 LaunchedEffect(adminPostType) { adminViewModel.loadPosts(adminPostType) }
                 AdminPostListScreen(
+                isDeleting = adminViewModel.state(Section.Delete) is AdminUiState.Loading,
                 posts = adminViewModel.posts,
                 postType = adminPostType,
-                isLoading = adminViewModel.uiState is AdminUiState.Loading,
-                errorMessage = (adminViewModel.uiState as? AdminUiState.Error)?.message,
+                hasNext = adminViewModel.hasNext(Section.Posts),
+                onMore = { adminViewModel.loadPosts(adminPostType, more = true) },
+                isLoading = adminViewModel.state(Section.Posts) is AdminUiState.Loading,
+                errorMessage = (adminViewModel.state(Section.Posts) as? AdminUiState.Error)?.message
+                    ?: (adminViewModel.state(Section.Delete) as? AdminUiState.Error)?.message,
                 onBackClick = { navController.popBackStack() },
                 onTypeChange = { adminPostType = it },
                 onDelete = { deleted ->
@@ -1643,6 +1661,10 @@ fun MainNavGraph(
                         val deletedType =
                             runCatching { PostType.valueOf(deleted.postType) }.getOrNull()
                         if (deletedType != null) {
+                            when (deletedType) {
+                                PostType.FOUND -> foundItemViewModel.retryFoundItems()
+                                PostType.LOST -> lostItemViewModel.loadLostItems()
+                            }
                             posts =
                                 posts.filterNot { it.type == deletedType && it.id == deleted.id.toString() }
                         }
@@ -1656,9 +1678,12 @@ fun MainNavGraph(
             AdminAccessGate(userViewModel.me, userViewModel.uiState, navController) {
                 LaunchedEffect(Unit) { adminViewModel.loadAudits() }
                 AdminAuditLogScreen(
+                onRetry = { adminViewModel.loadAudits(more = adminViewModel.hasNext(Section.Audits)) },
                 audits = adminViewModel.audits,
-                isLoading = adminViewModel.uiState is AdminUiState.Loading,
-                errorMessage = (adminViewModel.uiState as? AdminUiState.Error)?.message,
+                hasNext = adminViewModel.hasNext(Section.Audits),
+                onMore = { adminViewModel.loadAudits(more = true) },
+                isLoading = adminViewModel.state(Section.Audits) is AdminUiState.Loading,
+                errorMessage = (adminViewModel.state(Section.Audits) as? AdminUiState.Error)?.message,
                 onBackClick = { navController.popBackStack() },
                 )
             }
@@ -1670,9 +1695,12 @@ fun MainNavGraph(
             AdminAccessGate(userViewModel.me, userViewModel.uiState, navController) {
                 LaunchedEffect(Unit) { adminViewModel.loadReports() }
                 AdminReportListScreen(
+                onRetry = { adminViewModel.loadReports(more = adminViewModel.hasNext(Section.Reports)) },
                 reports = adminViewModel.reports.map { it.toUiModel() },
-                isLoading = adminViewModel.uiState is AdminUiState.Loading,
-                errorMessage = (adminViewModel.uiState as? AdminUiState.Error)?.message,
+                hasNext = adminViewModel.hasNext(Section.Reports),
+                onMore = { adminViewModel.loadReports(more = true) },
+                isLoading = adminViewModel.state(Section.Reports) is AdminUiState.Loading,
+                errorMessage = (adminViewModel.state(Section.Reports) as? AdminUiState.Error)?.message,
 
                 onBackClick = {
                     navController.popBackStack()
@@ -1711,9 +1739,10 @@ fun MainNavGraph(
 
                 AdminReportDetailScreen(
                 report = report,
-                isLoading = adminViewModel.uiState is AdminUiState.Loading,
-                errorMessage = (adminViewModel.uiState as? AdminUiState.Error)?.message,
+                isLoading = adminViewModel.state(Section.Report) is AdminUiState.Loading,
+                errorMessage = (adminViewModel.state(Section.Report) as? AdminUiState.Error)?.message,
 
+                onRetry = { numericReportId?.let(adminViewModel::loadReport) },
                 onBackClick = {
                     navController.popBackStack()
                 },
@@ -1727,9 +1756,7 @@ fun MainNavGraph(
                     }
                     if (numericReportId != null) {
                         adminViewModel.processReport(numericReportId, apiAction) {
-                            if (navController.currentDestination?.route == Route.AdminReportDetail.route) {
-                                navController.popBackStack()
-                            }
+                            navController.popIfCurrent(backStackEntry)
                         }
                     }
                 }
@@ -1738,4 +1765,9 @@ fun MainNavGraph(
         }
 
     }
+}
+
+
+internal fun androidx.navigation.NavController.popIfCurrent(entry: androidx.navigation.NavBackStackEntry) {
+    if (currentBackStackEntry === entry) popBackStack()
 }

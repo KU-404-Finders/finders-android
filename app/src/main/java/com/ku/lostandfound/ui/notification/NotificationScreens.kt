@@ -28,23 +28,32 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NotificationInboxScreen(vm: NotificationViewModel, onBack: () -> Unit, onOpenRoom: (Long) -> Unit) {
-    LaunchedEffect(Unit) { vm.load(true) }
+fun NotificationInboxScreen(vm: NotificationViewModel, onBack: () -> Unit, onOpenRoom: (Long) -> Unit,
+    accountError: String? = null, onRetryAccount: () -> Unit = {}) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    androidx.compose.runtime.DisposableEffect(vm) {
+        vm.setInboxOpen(true)
+        onDispose { vm.setInboxOpen(false) }
+    }
     Column(Modifier.fillMaxSize().background(Color.White)) {
         BackTitleBar(title = "알림함", onBackClick = onBack)
+        vm.refreshError?.let { Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error) }
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
             if (vm.items.any { it.readAt == null }) TextButton(onClick = vm::markAllRead) { Text("모두 읽음") }
             if (vm.items.isNotEmpty()) TextButton(onClick = vm::hideAll) { Text("현재 목록 숨기기", color = Color(0xFF647568)) }
         }
-        PullToRefreshBox(isRefreshing = vm.state is InboxState.Loading, onRefresh = { vm.load(true) }, modifier = Modifier.weight(1f)) {
+        PullToRefreshBox(isRefreshing = vm.state is InboxState.Loading, onRefresh = { if (vm.account == null) onRetryAccount() else vm.load(true) }, modifier = Modifier.weight(1f)) {
             when (val state = vm.state) {
                 is InboxState.Unsupported -> InboxMessage("알림함을 사용할 수 없습니다", state.message)
                 is InboxState.Error -> InboxMessage("알림을 불러오지 못했습니다", state.message, vm::load)
                 else -> LazyColumn(Modifier.fillMaxSize()) {
-                    if (vm.items.isEmpty() && state !is InboxState.Loading) item { InboxMessage("받은 알림이 없습니다", "새 채팅이 오면 여기에 표시됩니다.") }
+                    if (vm.account == null) item { InboxMessage("계정 정보", accountError ?: "계정 정보를 기다리고 있습니다.", onRetryAccount) }
+                    else if (vm.items.isEmpty() && state !is InboxState.Loading) item {
+                        InboxMessage("받은 알림이 없습니다", "새 채팅이 오면 여기에 표시됩니다.")
+                    }
                     items(vm.items, key = { it.id }) { item ->
                         SwipeToHideNotification(item = item, onHide = { vm.hide(item) }) {
-                            InboxRow(item, onClick = { vm.markRead(item) { item.roomId?.let(onOpenRoom) } })
+                            InboxRow(item, onClick = { vm.markRead(item, onError = { android.widget.Toast.makeText(context, "알림 읽음 처리에 실패했습니다.", android.widget.Toast.LENGTH_SHORT).show() }) { item.roomId?.let(onOpenRoom) } })
                         }
                     }
                     if (vm.nextBeforeSequence != null) item { TextButton(onClick = { vm.load(false) }, modifier = Modifier.fillMaxWidth(), enabled = !vm.loadingMore) { Text(if (vm.loadingMore) "불러오는 중…" else "이전 알림 더 보기") } }
@@ -93,12 +102,13 @@ private fun SwipeToHideNotification(
 @Composable private fun InboxMessage(title: String, message: String, retry: (() -> Unit)? = null) = Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally) { Text(title, fontWeight = FontWeight.Bold); Spacer(Modifier.height(8.dp)); Text(message, color = Color.Gray, fontSize = 13.sp); retry?.let { TextButton(onClick = it) { Text("다시 시도") } } } }
 
 @Composable
-fun NotificationSettingsScreen(vm: NotificationViewModel, onBack: () -> Unit) {
-    LaunchedEffect(Unit) { vm.loadSettings() }
+fun NotificationSettingsScreen(vm: NotificationViewModel, onBack: () -> Unit,
+    accountError: String? = null, onRetryAccount: () -> Unit = {}) {
+    LaunchedEffect(vm.account) { vm.loadSettings() }
     Column(Modifier.fillMaxSize().background(Color(0xFFF4F4F4))) {
         BackTitleBar(title = "알림 설정", onBackClick = onBack)
         val settings = vm.settings
-        if (settings == null) InboxMessage("알림 설정", vm.settingsError ?: "불러오는 중입니다.", if (vm.settingsError != null) ({ vm.loadSettings() }) else null)
+        if (settings == null) InboxMessage("알림 설정", accountError ?: vm.settingsError ?: if (vm.account == null) "계정 정보를 기다리고 있습니다." else "불러오는 중입니다.", if (vm.account == null) onRetryAccount else if (vm.settingsError != null) ({ vm.loadSettings() }) else null)
         else Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             vm.settingsError?.let { Text(it, color = Color(0xFFD32F2F)) }
             SettingSwitch("채팅 알림", settings.chatEnabled) { vm.updateSettings(NotificationSettingsPatch(chatEnabled = it)) }

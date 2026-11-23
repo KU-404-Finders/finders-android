@@ -31,6 +31,7 @@ import com.ku.lostandfound.notification.FindersNotificationHelper
 import com.ku.lostandfound.notification.PushDeviceManager
 import com.ku.lostandfound.ui.navigation.AppBottomBar
 import com.ku.lostandfound.ui.navigation.MainNavGraph
+import com.ku.lostandfound.ui.navigation.isPublicRoute
 import com.ku.lostandfound.ui.navigation.Route
 import com.ku.lostandfound.ui.navigation.navigateToMainTab
 import com.ku.lostandfound.ui.theme.KUfindersTheme
@@ -60,16 +61,43 @@ class MainActivity : ComponentActivity() {
     private var pendingNotificationTarget
             by mutableStateOf<NotificationTarget?>(null)
 
+    private var navigationKey = 0
+    private var pendingNotificationOwner: String? = null
+    private var activeController: androidx.navigation.NavHostController? = null
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt("navigationKey", navigationKey)
+        outState.putBoolean("publicDestination", isPublicRoute(activeController?.currentDestination?.route))
+        pendingNotificationTarget?.let { target ->
+            outState.putBundle("pendingNotification", Intent().also { target.putInto(it) }.extras)
+            outState.putString("pendingNotificationOwner", pendingNotificationOwner)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
 
+        TokenManager.init(applicationContext)
         if (savedInstanceState == null) {
             pendingNotificationTarget =
                 NotificationTarget.fromIntent(intent)
+            pendingNotificationOwner = com.ku.lostandfound.notification.notificationAccountKey(TokenManager.accessToken, TokenManager.sessionGeneration())
+        } else {
+            pendingNotificationTarget = savedInstanceState.getBundle("pendingNotification")?.let {
+                NotificationTarget.fromIntent(Intent().putExtras(it))
+            }
+            pendingNotificationOwner = savedInstanceState.getString("pendingNotificationOwner")
         }
 
         TokenManager.init(applicationContext)
+        if (savedInstanceState != null) {
+            navigationKey = savedInstanceState.getInt("navigationKey")
+            if (!savedInstanceState.getBoolean("publicDestination") &&
+                (!TokenManager.hasTokens() || TokenManager.isAccessTokenExpired())
+            ) navigationKey++
+        }
         PushDeviceManager.init(applicationContext)
         FindersNotificationHelper.createChannel(applicationContext)
 
@@ -85,8 +113,7 @@ class MainActivity : ComponentActivity() {
                 if (!task.isSuccessful) {
                     Log.w(
                         "FindersFCM",
-                        "FCM FID 등록 시작 실패",
-                        task.exception
+                        "FCM FID 등록 시작 실패"
                     )
                 }
             }
@@ -96,7 +123,8 @@ class MainActivity : ComponentActivity() {
                 // Keep scroll ranges intact while suppressing visual bounce/glow on
                 // screens whose content does not exceed the viewport.
                 CompositionLocalProvider(LocalOverscrollFactory provides null) {
-                val navController = rememberNavController()
+                val navController = androidx.compose.runtime.key(navigationKey) { rememberNavController() }
+                androidx.compose.runtime.SideEffect { activeController = navController }
 
                 val backStackEntry by
                 navController.currentBackStackEntryAsState()
@@ -123,13 +151,16 @@ class MainActivity : ComponentActivity() {
                     if (
                         !TokenManager.isLoggedIn() ||
                         currentRoute == null ||
-                        currentRoute == Route.Login.route
+                        isPublicRoute(currentRoute)
                     ) {
                         return@LaunchedEffect
                     }
 
                     // 중복 이동 방지
                     pendingNotificationTarget = null
+                    val owner = pendingNotificationOwner
+                    pendingNotificationOwner = null
+                    if (owner != null && owner != com.ku.lostandfound.notification.notificationAccountKey(TokenManager.accessToken, TokenManager.sessionGeneration())) return@LaunchedEffect
 
                     when (target) {
 
@@ -253,5 +284,6 @@ class MainActivity : ComponentActivity() {
 
         pendingNotificationTarget =
             NotificationTarget.fromIntent(intent)
+        pendingNotificationOwner = com.ku.lostandfound.notification.notificationAccountKey(TokenManager.accessToken, TokenManager.sessionGeneration())
     }
 }

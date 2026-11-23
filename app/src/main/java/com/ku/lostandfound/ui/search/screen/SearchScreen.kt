@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -42,6 +43,9 @@ import com.ku.lostandfound.ui.component.CompactPostCard
 @Composable
 fun SearchScreen(
     posts: List<BoardPost>,
+    loading: Boolean,
+    error: String?,
+    onRetry: () -> Unit,
     onBackClick: () -> Unit,
     onPostClick: (BoardPost) -> Unit,
 ) {
@@ -72,6 +76,10 @@ fun SearchScreen(
             onSearch = { focusManager.clearFocus() }
         )
 
+        if (error != null) {
+            Text(error, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 16.dp))
+            androidx.compose.material3.TextButton(onClick = onRetry) { Text("다시 시도") }
+        }
         when {
             trimmedKeyword.isBlank() -> {
                 EmptySearchGuide(
@@ -83,19 +91,26 @@ fun SearchScreen(
             searchedPosts.isEmpty() -> {
                 EmptySearchGuide(
                     iconText = "",
-                    message = "검색 결과가 없습니다."
+                    message = when {
+                        loading -> "게시글을 불러오는 중입니다."
+                        error != null -> "전체 게시글을 검색할 수 없습니다."
+                        else -> "검색 결과가 없습니다."
+                    }
                 )
             }
 
             else -> {
+                if (loading) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 18.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(
                         items = searchedPosts,
-                        key = { it.id }
+                        key = { "${it.type}-${it.id}" }
                     ) { post ->
                         CompactPostCard(
                             post = post,

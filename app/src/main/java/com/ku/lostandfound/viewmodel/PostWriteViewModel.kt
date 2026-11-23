@@ -4,8 +4,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
-import android.net.Uri
-import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -114,7 +112,7 @@ class PostWriteViewModel {
             val response = RetrofitClient.lostItemApi.createLostItem(
                 authorization = bearerTokenOrThrow(),
                 request = createJsonPart(toLostItemCreateRequest()),
-                image = imageUri?.let { createImagePart(context, it).part },
+                image = imageUri?.let { createImagePart(context, it) },
             )
 
             if (response.isSuccessful) {
@@ -127,7 +125,7 @@ class PostWriteViewModel {
                 }
             } else {
                 val errorBody = response.errorBody()?.string()
-                NetworkLog.httpError("createLostItem", response.code(), errorBody)
+                NetworkLog.httpError("createLostItem", response.code())
                 Result.failure(
                     IllegalStateException(
                         httpErrorMessage(
@@ -156,21 +154,16 @@ class PostWriteViewModel {
             val uploadImage = imageUri?.let { createImagePart(context, it) }
                 ?: throw IllegalStateException("습득물 사진은 필수입니다.")
 
-            Log.d(FOUND_ITEM_UPLOAD_TAG, "requestJson=$requestJson")
-            Log.d(FOUND_ITEM_UPLOAD_TAG, "imageUri=${uploadImage.uri}")
-            Log.d(FOUND_ITEM_UPLOAD_TAG, "mimeType=${uploadImage.mimeType}")
-            Log.d(FOUND_ITEM_UPLOAD_TAG, "fileName=${uploadImage.fileName}")
-            Log.d(FOUND_ITEM_UPLOAD_TAG, "byteSize=${uploadImage.byteSize}")
-            Log.d(FOUND_ITEM_UPLOAD_TAG, "requestPartName=request")
-            Log.d(FOUND_ITEM_UPLOAD_TAG, "imagePartName=image")
-            Log.d(FOUND_ITEM_UPLOAD_TAG, "hasAuthorization=${token.isNotBlank()}")
+
+
+
+
 
             val response = RetrofitClient.foundItemApi.createFoundItem(
                 authorization = "Bearer $token",
                 request = requestBody,
-                image = uploadImage.part,
+                image = uploadImage,
             )
-            Log.d(FOUND_ITEM_UPLOAD_TAG, "responseCode=${response.code()}")
 
             if (response.isSuccessful) {
                 val body = response.body()
@@ -182,8 +175,8 @@ class PostWriteViewModel {
                 }
             } else {
                 val errorBody = response.errorBody()?.string()
-                Log.e(FOUND_ITEM_UPLOAD_TAG, "errorBody=$errorBody")
-                NetworkLog.httpError("createFoundItem", response.code(), errorBody)
+
+                NetworkLog.httpError("createFoundItem", response.code())
                 Result.failure(
                     IllegalStateException(
                         httpErrorMessage(
@@ -289,7 +282,7 @@ class PostWriteViewModel {
         )
     }
 
-    private fun createImagePart(context: Context, uriString: String): UploadImage {
+    private fun createImagePart(context: Context, uriString: String): MultipartBody.Part {
         val uri = uriString.toUri()
         val contentResolver = context.contentResolver
         val sourceBytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
@@ -327,17 +320,7 @@ class PostWriteViewModel {
         val requestBody = uploadBytes.toRequestBody(uploadMimeType.toMediaTypeOrNull())
         val fileLabel = if (postType == PostType.FOUND) "found-item" else "lost-item"
         val fileName = "${fileLabel}_${System.currentTimeMillis()}.$extension"
-        return UploadImage(
-            uri = uri,
-            mimeType = uploadMimeType,
-            fileName = fileName,
-            byteSize = uploadBytes.size,
-            part = MultipartBody.Part.createFormData(
-                name = "image",
-                filename = fileName,
-                body = requestBody,
-            ),
-        )
+        return MultipartBody.Part.createFormData(name = "image", filename = fileName, body = requestBody)
     }
 
     private suspend fun updateLostItem(context: Context, id: Long): Result<BoardPost> {
@@ -347,7 +330,7 @@ class PostWriteViewModel {
                 id = id,
                 request = createJsonPart(toLostItemCreateRequest()),
                 image = imageUri?.takeIf { it.isLocalImageUri() }
-                    ?.let { createImagePart(context, it).part },
+                    ?.let { createImagePart(context, it) },
             )
             if (response.isSuccessful) {
                 val body = response.body()
@@ -359,7 +342,7 @@ class PostWriteViewModel {
                 }
             } else {
                 val errorBody = response.errorBody()?.string()
-                NetworkLog.httpError("updateLostItem", response.code(), errorBody)
+                NetworkLog.httpError("updateLostItem", response.code())
                 Result.failure(
                     IllegalStateException(
                         httpErrorMessage(
@@ -382,7 +365,7 @@ class PostWriteViewModel {
                 id = id,
                 request = createJsonPart(toFoundItemCreateRequest()),
                 image = imageUri?.takeIf { it.isLocalImageUri() }
-                    ?.let { createImagePart(context, it).part },
+                    ?.let { createImagePart(context, it) },
             )
             if (response.isSuccessful) {
                 val body = response.body()
@@ -394,7 +377,7 @@ class PostWriteViewModel {
                 }
             } else {
                 val errorBody = response.errorBody()?.string()
-                NetworkLog.httpError("updateFoundItem", response.code(), errorBody)
+                NetworkLog.httpError("updateFoundItem", response.code())
                 Result.failure(
                     IllegalStateException(
                         httpErrorMessage(
@@ -575,16 +558,7 @@ class PostWriteViewModel {
     private fun FoundItemDetailData.displayUserName(): String =
         userName?.takeIf { it.isNotBlank() } ?: authorName?.takeIf { it.isNotBlank() } ?: "익명"
 
-    private data class UploadImage(
-        val uri: Uri,
-        val mimeType: String,
-        val fileName: String,
-        val byteSize: Int,
-        val part: MultipartBody.Part,
-    )
-
     private companion object {
-        const val FOUND_ITEM_UPLOAD_TAG = "FoundItemUpload"
         const val MAX_IMAGE_BYTES = 10 * 1024 * 1024
         const val UPLOAD_IMAGE_MIME_TYPE = "image/jpeg"
         val ALLOWED_IMAGE_MIME_TYPES = setOf("image/jpeg", "image/png", "image/webp")
