@@ -18,7 +18,7 @@ from PIL import Image, ImageChops, ImageDraw
 ROOT = Path(__file__).resolve().parents[1]
 RES = ROOT / "app/src/main/res"
 QA = ROOT / "build/branding"
-BACKUP_REF = "backup/before-text-logo-20261123"
+BACKUP_REF = "c135c4f326498a5de01a514aa1db873a8ce19df8"
 DENSITIES = {"mdpi": 1, "hdpi": 1.5, "xhdpi": 2, "xxhdpi": 3, "xxxhdpi": 4}
 
 
@@ -146,6 +146,7 @@ def generate(input_dir):
 
 
 def audit_packages(packages):
+    QA.mkdir(parents=True, exist_ok=True)
     baseline = baseline_manifest()
     (QA / "baseline-assets.json").write_text(json.dumps(baseline, indent=2), encoding="utf-8")
     old_bytes = {entry["sha256"] for entry in baseline}
