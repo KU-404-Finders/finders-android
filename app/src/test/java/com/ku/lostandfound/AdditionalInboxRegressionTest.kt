@@ -21,6 +21,7 @@ class AdditionalInboxRegressionTest : StabilityFixture() {
     private var badges = 0
     private var gets = 0
     private var markedThrough: Long? = null
+    private var readCalls = 0
     private val settings = NotificationSettingsData(true, true, true, 0.5)
     private lateinit var vm: NotificationViewModel
     private fun item(sequence: Long) = InboxNotificationData("$sequence", "CHAT", roomId = sequence, sequence = sequence)
@@ -32,7 +33,10 @@ class AdditionalInboxRegressionTest : StabilityFixture() {
                     calls += PageCall(snapshotSequence, beforeSequence, it)
                 }.await()
             override suspend fun unreadCount() = ok(NotificationUnreadCountData(++badges))
-            override suspend fun markRead(id: String) = Response.success(ApiResponse(read.await(), "", Unit))
+            override suspend fun markRead(id: String): Response<ApiResponse<Unit>> {
+                readCalls++
+                return Response.success(ApiResponse(read.await(), "", Unit))
+            }
             override suspend fun markAllRead(request: MarkAllNotificationsReadRequest): Response<ApiResponse<MarkAllNotificationsReadData>> {
                 markedThrough = request.throughSequence
                 return ok(MarkAllNotificationsReadData(1))
@@ -159,5 +163,81 @@ class AdditionalInboxRegressionTest : StabilityFixture() {
         patch.complete(settings.copy(chatEnabled = false))
         dispatch()
         assertEquals(settings, vm.settings)
+    }
+
+    @Test fun firstPageReadIsImmediateAndSurvivesStaleArrivalWithoutDuplicatePatch() {
+        finish()
+        vm.markRead(vm.items.single(), { fail() }, {})
+        dispatch()
+        assertNull(vm.items.single().readAt)
+        read.complete(true)
+        dispatch()
+        assertNotNull(vm.items.single().readAt)
+        finish() // The arrival response still contains the old unread row.
+        assertNotNull(vm.items.single().readAt)
+        vm.markRead(vm.items.single(), { fail() }, {})
+        dispatch()
+        assertEquals(1, readCalls)
+    }
+
+    @Test fun oldPageReadSurvivesNewArrivalsAndPreservesCursor() {
+        finish()
+        vm.load(false)
+        dispatch()
+        finish(next = 60, rows = listOf(item(79)))
+        vm.markRead(vm.items.last(), { fail() }, {})
+        dispatch()
+        read.complete(true)
+        dispatch()
+        assertNotNull(vm.items.last().readAt)
+        finish(snapshot = 120, rows = listOf(item(120), item(100)))
+        assertEquals(listOf(120L, 100L, 79L), vm.items.map { it.sequence })
+        assertNotNull(vm.items.last().readAt)
+        assertEquals(100L, vm.snapshotSequence)
+        assertEquals(60L, vm.nextBeforeSequence)
+        vm.markRead(vm.items.last(), { fail() }, {})
+        dispatch()
+        assertEquals(1, readCalls)
+    }
+
+    @Test fun failedReadLeavesUnreadAndAllowsRetry() {
+        finish()
+        var errors = 0
+        var opens = 0
+        vm.markRead(vm.items.single(), { errors++ }, { opens++ })
+        dispatch()
+        read.complete(false)
+        dispatch()
+        assertNull(vm.items.single().readAt)
+        assertEquals(1, errors)
+        assertEquals(1, opens)
+        vm.markRead(vm.items.single(), {}, {})
+        dispatch()
+        assertEquals(2, readCalls)
+    }
+
+    @Test fun concurrentReadClicksShareConfirmedReadWithoutDuplicatePatch() {
+        finish()
+        val row = vm.items.single()
+        repeat(2) { vm.markRead(row, { fail() }, {}) }
+        dispatch()
+        assertEquals(1, readCalls)
+        read.complete(true)
+        dispatch()
+        assertEquals(1, readCalls)
+        assertNotNull(vm.items.single().readAt)
+    }
+
+    @Test fun previousAccountsReadSuccessCannotMarkNewAccountsSameId() {
+        finish()
+        vm.markRead(vm.items.single(), { fail() }, { fail() })
+        dispatch()
+        login("b")
+        vm.attachAccount(2)
+        dispatch()
+        finish()
+        read.complete(true)
+        dispatch()
+        assertNull(vm.items.single().readAt)
     }
 }

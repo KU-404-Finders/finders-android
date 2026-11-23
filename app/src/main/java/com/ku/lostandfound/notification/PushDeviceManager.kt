@@ -171,49 +171,58 @@ internal class PushRegistration(
 
     // 로그아웃 전에 서버 등록 해제
     suspend fun unregisterBeforeLogout(authorization: String, expectedGeneration: Long) {
-        val installationId = synchronized(TokenManager) {
+        val installationIds = synchronized(TokenManager) {
             if (!TokenManager.isCurrentSession(expectedGeneration)) return
-            val targetId = registered?.installationId ?: getRegisteredId() ?: active?.installationId ?: getInstallationId()
+            // Snapshot both owners before cancellation can discard the in-flight registration.
+            val targetIds = listOfNotNull(registered?.installationId, getRegisteredId(), active?.installationId)
+                .ifEmpty { listOfNotNull(getInstallationId()) }.distinct()
             closedGeneration = expectedGeneration
             registrationJob?.cancel()
             registrationJob = null
             active = null
             registered = null
-            targetId
-        } ?: return
+            targetIds
+        }
 
         withContext(dispatcher) {
             requestMutex.withLock {
-                repeat(MAX_REGISTER_ATTEMPTS) { index ->
-                    if (!TokenManager.isCurrentSession(expectedGeneration)) return@withLock
-                    val attempt = index + 1
-                    val retryable = try {
-                        val response = api.unregisterDevice(
-                            authorization = authorization,
-                            installationId = installationId
-                        )
-
-                        if (response.isSuccessful) {
-                            synchronized(TokenManager) {
-                                if (getRegisteredId() == installationId) saveRegisteredId(null)
-                            }
-                            Log.d(TAG, "서버 기기 등록 해제 성공")
-                            return@withLock
-                        }
-
-                        Log.w(TAG, "서버 기기 등록 해제 실패: ${response.code()} (attempt=$attempt)")
-                        response.code() == 429 || response.code() in 500..599
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Log.w(TAG, "서버 기기 등록 해제 오류 (attempt=$attempt): ${e.javaClass.simpleName}")
-                        true
-                    }
-
-                    if (!retryable || attempt == MAX_REGISTER_ATTEMPTS) return@withLock
-                    delay(1_000L shl index)
+                for (installationId in installationIds) {
+                    unregisterId(authorization, expectedGeneration, installationId)
                 }
             }
+        }
+    }
+
+    // Called under requestMutex, so a new session cannot register between cleanup requests.
+    private suspend fun unregisterId(authorization: String, expectedGeneration: Long, installationId: String) {
+        repeat(MAX_REGISTER_ATTEMPTS) { index ->
+            if (!TokenManager.isCurrentSession(expectedGeneration)) return
+            val attempt = index + 1
+            val retryable = try {
+                val response = api.unregisterDevice(
+                    authorization = authorization,
+                    installationId = installationId
+                )
+
+                if (response.isSuccessful) {
+                    synchronized(TokenManager) {
+                        if (TokenManager.isCurrentSession(expectedGeneration) && getRegisteredId() == installationId) saveRegisteredId(null)
+                    }
+                    Log.d(TAG, "서버 기기 등록 해제 성공")
+                    return
+                }
+
+                Log.w(TAG, "서버 기기 등록 해제 실패: ${response.code()} (attempt=$attempt)")
+                response.code() == 429 || response.code() in 500..599
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "서버 기기 등록 해제 오류 (attempt=$attempt): ${e.javaClass.simpleName}")
+                true
+            }
+
+            if (!retryable || attempt == MAX_REGISTER_ATTEMPTS) return
+            delay(1_000L shl index)
         }
     }
 }

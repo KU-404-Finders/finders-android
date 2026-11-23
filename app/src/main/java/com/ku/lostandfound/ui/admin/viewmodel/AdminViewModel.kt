@@ -35,6 +35,7 @@ class AdminViewModel(
     private var cacheGeneration = 0L
     enum class Section { Dashboard, Reports, Report, Users, User, Posts, Audits, Delete }
     private val requests = mutableMapOf<Section, Long>()
+    private val mutations = mutableSetOf<String>()
     private val states = androidx.compose.runtime.mutableStateMapOf<Section, AdminUiState>()
     private val nextPages = androidx.compose.runtime.mutableStateMapOf<Section, Int>()
     private var searchKeyword: String? = null
@@ -68,21 +69,20 @@ class AdminViewModel(
 
     fun processReport(id: Long, action: String, onSuccess: () -> Unit) {
         if (selectedReport?.id != id || state(Section.Report) == AdminUiState.Loading) return
-        request(Section.Report, { adminApi.processReport(id, ProcessAdminReportRequest(action)) }) { updated ->
+        request(Section.Report, { adminApi.processReport(id, ProcessAdminReportRequest(action)) },
+            mutationKey = "report:$id", confirmed = { loadReports(); loadDashboard() }) { updated ->
             selectedReport = updated
             reports = reports.map { if (it.id == updated.id) updated else it }
-            loadReports()
-            loadDashboard()
             onSuccess()
         }
     }
 
     fun setUserSuspension(id: Long, suspended: Boolean, onSuccess: () -> Unit) {
         if (selectedUser?.id != id || state(Section.User) == AdminUiState.Loading) return
-        request(Section.User, { adminApi.setSuspension(id, AdminSuspensionRequest(suspended)) }) { updated ->
+        request(Section.User, { adminApi.setSuspension(id, AdminSuspensionRequest(suspended)) },
+            mutationKey = "user:$id", confirmed = { loadUsers(keyword = searchKeyword) }) { updated ->
             selectedUser = updated
             users = users.map { if (it.id == id) updated else it }
-            loadUsers(keyword = searchKeyword)
             onSuccess()
         }
     }
@@ -136,7 +136,7 @@ class AdminViewModel(
 
     fun deletePost(post: AdminPost, onSuccess: () -> Unit) {
         if (state(Section.Delete) == AdminUiState.Loading) return
-        execute(Section.Delete, { adminApi.deletePost(post.postType, post.id) }) {
+        execute(Section.Delete, { adminApi.deletePost(post.postType, post.id) }) { _, _ ->
             posts = posts.filterNot { it.postType == post.postType && it.id == post.id }
             onSuccess()
         }
@@ -153,22 +153,33 @@ class AdminViewModel(
         audits = emptyList()
         states.clear()
         requests.clear()
+        mutations.clear()
         nextPages.clear()
         searchKeyword = null
     }
 
-    private fun <T> request(section: Section, fetch: suspend () -> Response<ApiResponse<T>>, accept: (T) -> Unit) =
-        execute(section, fetch) { body ->
+    private fun <T> request(
+        section: Section, fetch: suspend () -> Response<ApiResponse<T>>,
+        mutationKey: String? = null, confirmed: () -> Unit = {}, accept: (T) -> Unit,
+    ) =
+        execute(section, fetch, mutationKey) { body, current ->
             val data = body.data
-            if (data == null) states[section] = AdminUiState.Error("응답에 데이터가 없습니다.")
-            else accept(data)
+            if (data == null) {
+                if (current) states[section] = AdminUiState.Error("응답에 데이터가 없습니다.")
+            } else {
+                confirmed()
+                if (current) accept(data)
+            }
         }
 
     private fun <T> execute(
-        section: Section, fetch: suspend () -> Response<ApiResponse<T>>, accept: (ApiResponse<T>) -> Unit,
+        section: Section, fetch: suspend () -> Response<ApiResponse<T>>,
+        mutationKey: String? = null, accept: (ApiResponse<T>, Boolean) -> Unit,
     ) {
         val cache = cacheGeneration
         val session = TokenManager.sessionGeneration()
+        val mutation = mutationKey?.let { "$cache:$session:$it" }
+        if (mutation != null && !mutations.add(mutation)) return
         val id = (requests[section] ?: 0L) + 1
         requests[section] = id
         states[section] = AdminUiState.Loading
@@ -176,12 +187,13 @@ class AdminViewModel(
         viewModelScope.launch {
             try {
                 val response = fetch()
-                if (!current()) return@launch
+                if (!isCurrentRequest(cache, session)) return@launch
                 val body = response.body()
                 if (response.isSuccessful && body?.success == true) {
-                    states[section] = AdminUiState.Idle
-                    accept(body)
-                } else {
+                    val visible = current()
+                    if (visible) states[section] = AdminUiState.Idle
+                    if (visible || mutation != null) accept(body, visible)
+                } else if (current()) {
                     states[section] = AdminUiState.Error(body?.message ?: parseError(response.errorBody()?.string()))
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -190,6 +202,8 @@ class AdminViewModel(
                 if (!current()) return@launch
                 NetworkLog.exception("adminApi", e)
                 states[section] = AdminUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
+            } finally {
+                mutation?.let { mutations.remove(it) }
             }
         }
     }

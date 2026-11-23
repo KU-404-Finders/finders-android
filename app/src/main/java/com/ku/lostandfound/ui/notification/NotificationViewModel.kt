@@ -43,6 +43,8 @@ class NotificationViewModel @JvmOverloads constructor(
     var refreshError by mutableStateOf<String?>(null); private set
     internal data class Account(val id: Long, val generation: Long) {
         val settingsMutex = Mutex()
+        val readMutex = Mutex()
+        val confirmedReads = mutableMapOf<String, String>()
     }
     internal var account by mutableStateOf<Account?>(null)
         private set
@@ -193,8 +195,17 @@ class NotificationViewModel @JvmOverloads constructor(
         val visit = inboxVisit
         viewModelScope.launch {
             val success = try {
-                item.readAt != null || notificationApi.markRead(item.id).let {
-                    it.isSuccessful && it.body()?.success == true
+                owner.readMutex.withLock {
+                    if (!current(owner)) return@launch
+                    item.readAt != null || owner.confirmedReads.containsKey(item.id) || notificationApi.markRead(item.id).let {
+                        val success = it.isSuccessful && it.body()?.success == true
+                        if (success && current(owner)) {
+                            // The API returns ApiResponse<Void>, without a server read timestamp.
+                            owner.confirmedReads[item.id] = java.time.Instant.now().toString()
+                            items = visible(items)
+                        }
+                        success
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -268,7 +279,10 @@ class NotificationViewModel @JvmOverloads constructor(
         }
     }
 
-    private fun visible(source: List<InboxNotificationData>) = source.filterNot { isHidden(it.id) }
+    private fun visible(source: List<InboxNotificationData>) = source.filterNot { isHidden(it.id) }.map { item ->
+        val confirmed = account?.confirmedReads?.get(item.id)
+        if (item.readAt == null && confirmed != null) item.copy(readAt = confirmed) else item
+    }
     private fun hiddenKey() = "notification_hidden_${account?.id ?: "anonymous"}"
     private fun isHidden(id: String) = getApplication<Application>().getSharedPreferences("finders_notifications", 0).getStringSet(hiddenKey(), emptySet()).orEmpty().contains(id)
     private fun saveHidden(id: String) { val prefs = getApplication<Application>().getSharedPreferences("finders_notifications", 0); prefs.edit().putStringSet(hiddenKey(), prefs.getStringSet(hiddenKey(), emptySet()).orEmpty() + id).apply() }
