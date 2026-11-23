@@ -85,7 +85,7 @@ class ChatViewModel(
     private val lastReadByUserId = mutableMapOf<Long, Long>()
 
     private var messageLoadRequestId = 0
-    private val pendingLeaves = mutableMapOf<Long, Any>()
+    private val pendingLeaves = mutableMapOf<Long, MutableList<(Boolean) -> Unit>>()
 
 
     fun loadRooms() {
@@ -379,12 +379,13 @@ class ChatViewModel(
     }
 
     fun leaveRoom(roomId: Long, onFinished: (Boolean) -> Unit) {
-        if (roomId in pendingLeaves) return
-        val action = Any()
+        pendingLeaves[roomId]?.let { it += onFinished; return }
+        val action = mutableListOf(onFinished)
         pendingLeaves[roomId] = action
         val requestGeneration = cacheGeneration
         val sessionGeneration = TokenManager.sessionGeneration()
         viewModelScope.launch {
+            if (!isCurrentRequest(requestGeneration, sessionGeneration)) return@launch
             val success = try {
                 val response = chatApi.leaveRoom(roomId)
                 response.isSuccessful && response.body()?.success == true
@@ -402,7 +403,9 @@ class ChatViewModel(
                 pendingCreatedRoomIds.remove(roomId)
                 loadRooms()
             }
-            onFinished(success)
+            action.forEach { callback ->
+                if (isCurrentRequest(requestGeneration, sessionGeneration)) callback(success)
+            }
         }
     }
 

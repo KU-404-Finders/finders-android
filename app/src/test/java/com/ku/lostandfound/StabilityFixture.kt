@@ -50,8 +50,10 @@ open class StabilityFixture {
     protected fun dispatch() = main.scheduler.runCurrent()
 
     @After fun teardownSession() {
-        TokenManager.clear()
-        log.close()
-        Dispatchers.resetMain()
+        try { TokenManager.clear() }
+        finally {
+            try { if (::log.isInitialized) log.close() }
+            finally { Dispatchers.resetMain() }
+        }
     }
 }

@@ -62,21 +62,33 @@ class MainActivity : ComponentActivity() {
             by mutableStateOf<NotificationTarget?>(null)
 
     private var navigationKey = 0
+    private var pendingNotificationOwner: String? = null
     private var activeController: androidx.navigation.NavHostController? = null
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putInt("navigationKey", navigationKey)
         outState.putBoolean("publicDestination", isPublicRoute(activeController?.currentDestination?.route))
+        pendingNotificationTarget?.let { target ->
+            outState.putBundle("pendingNotification", Intent().also { target.putInto(it) }.extras)
+            outState.putString("pendingNotificationOwner", pendingNotificationOwner)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
 
+        TokenManager.init(applicationContext)
         if (savedInstanceState == null) {
             pendingNotificationTarget =
                 NotificationTarget.fromIntent(intent)
+            pendingNotificationOwner = com.ku.lostandfound.notification.notificationAccountKey(TokenManager.accessToken, TokenManager.sessionGeneration())
+        } else {
+            pendingNotificationTarget = savedInstanceState.getBundle("pendingNotification")?.let {
+                NotificationTarget.fromIntent(Intent().putExtras(it))
+            }
+            pendingNotificationOwner = savedInstanceState.getString("pendingNotificationOwner")
         }
 
         TokenManager.init(applicationContext)
@@ -147,6 +159,9 @@ class MainActivity : ComponentActivity() {
 
                     // 중복 이동 방지
                     pendingNotificationTarget = null
+                    val owner = pendingNotificationOwner
+                    pendingNotificationOwner = null
+                    if (owner != null && owner != com.ku.lostandfound.notification.notificationAccountKey(TokenManager.accessToken, TokenManager.sessionGeneration())) return@LaunchedEffect
 
                     when (target) {
 
@@ -272,5 +287,6 @@ class MainActivity : ComponentActivity() {
 
         pendingNotificationTarget =
             NotificationTarget.fromIntent(intent)
+        pendingNotificationOwner = com.ku.lostandfound.notification.notificationAccountKey(TokenManager.accessToken, TokenManager.sessionGeneration())
     }
 }

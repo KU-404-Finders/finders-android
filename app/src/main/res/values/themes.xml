@@ -17,7 +17,7 @@
         <item name="windowSplashScreenBackground">#FFFFFFFF</item>
 
         <item name="windowSplashScreenAnimatedIcon">
-            @mipmap/ic_launcher_round
+            @mipmap/ic_launcher
         </item>
 
         <item name="postSplashScreenTheme">

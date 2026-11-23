@@ -54,8 +54,10 @@ class FoundItemViewModel(
     var foundItems by mutableStateOf<List<FoundItemSummaryData>>(emptyList())
         private set
 
-    var listVersion by mutableStateOf(0)
+    data class SuccessfulList(val buildingName: String?, val items: List<FoundItemSummaryData>, val version: Int)
+    var successfulList by mutableStateOf<SuccessfulList?>(null)
         private set
+    val listVersion get() = successfulList?.version ?: 0
 
     private var hasLoadedFoundItemList = false
     private var lastLoadedBuildingName: String? = null
@@ -98,7 +100,7 @@ class FoundItemViewModel(
                         foundItems = body.data.orEmpty().filter { it.itemStatus == ItemStatus.SEARCHING }
                         hasLoadedFoundItemList = true
                         lastLoadedBuildingName = buildingName
-                        listVersion++
+                        successfulList = SuccessfulList(buildingName, foundItems, listVersion + 1)
                         listState = FoundItemUiState.Idle
                     } else {
                         listState = FoundItemUiState.Error(body?.message ?: "습득물 목록을 불러오지 못했습니다.")
@@ -122,7 +124,7 @@ class FoundItemViewModel(
 
     fun clearSession() {
         listRequestId++
-        listVersion = 0
+        successfulList = null
         selectedBuildingName = null
         lastLoadedBuildingName = null
         hasLoadedFoundItemList = false
@@ -192,7 +194,7 @@ class FoundItemViewModel(
                         val updatedPost = body.data.toBoardPost()
                         detailPost = updatedPost
                         foundItems = foundItems.filterNot { it.id == id }
-                        listVersion++
+                        successfulList = successfulList?.let { it.copy(items = it.items.filterNot { item -> item.id == id }, version = it.version + 1) }
                         uiState = FoundItemUiState.Idle
                         onSuccess(updatedPost)
                     } else {
@@ -224,6 +226,7 @@ class FoundItemViewModel(
                     val body = response.body()
                     if (body == null || body.success) {
                         foundItems = foundItems.filterNot { it.id == id }
+                        successfulList = successfulList?.let { it.copy(items = it.items.filterNot { item -> item.id == id }, version = it.version + 1) }
                         if (detailPost?.id == id.toString()) {
                             detailPost = null
                         }
@@ -297,8 +300,8 @@ class FoundItemViewModel(
             }
     }
 
-    fun asBoardPosts(): List<BoardPost> {
-        return foundItems.map { item ->
+    fun asBoardPosts(items: List<FoundItemSummaryData> = foundItems): List<BoardPost> {
+        return items.map { item ->
             BoardPost(
                 id = item.id.toString(),
                 type = PostType.FOUND,

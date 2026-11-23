@@ -167,7 +167,7 @@ object RetrofitClient {
             val response = refreshClient.newCall(request).execute()
             response.use {
                 if (!it.isSuccessful) {
-                    if (RefreshSessionPolicy.isConfirmedInvalid(it.code, it.body?.string())) {
+                    if (RefreshSessionPolicy.isConfirmedInvalid(it.code, if (it.code == 400) it.body?.string() else null)) {
                         TokenManager.expireSession(credentials)
                     }
                     return null

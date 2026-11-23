@@ -74,6 +74,7 @@ internal val sampleAdminReports = listOf(
 
 @Composable
 fun AdminReportListScreen(
+    onRetry: () -> Unit,
     reports: List<AdminReportUiModel>,
     hasNext: Boolean,
     onMore: () -> Unit,
@@ -118,7 +119,10 @@ fun AdminReportListScreen(
                     color = TextGray,
                 )
                 if (isLoading) Text("신고 목록을 불러오는 중입니다.", fontSize = 13.sp, color = TextGray)
-                if (errorMessage != null) Text(errorMessage, fontSize = 13.sp, color = PendingRed)
+                if (errorMessage != null) {
+                    Text(errorMessage, fontSize = 13.sp, color = PendingRed)
+                    androidx.compose.material3.TextButton(onClick = onRetry, enabled = !isLoading) { Text("다시 시도") }
+                }
             }
 
             items(

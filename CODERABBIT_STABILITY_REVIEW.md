@@ -9,7 +9,7 @@
 | 항목 | 시작 코드에서 확인한 상태 | 변경 파일과 결과 |
 |---|---|---|
 | 1. FCM 기기 등록 | 로그아웃 시 등록 취소, 명시적 인증 헤더 해제, 최대 세 번의 재시도는 이미 있었다. 등록 Job과 성공 표시는 여러 스레드가 별도로 변경했다. | `PushDeviceManager.kt`의 `PushRegistration`이 세션 세대와 설치 ID로 소유자를 정한다. 세션 잠금 안에서만 Job을 교체한다. 네트워크 Mutex 안에서는 시도마다 소유권을 검사하고 성공 기록도 재검증한다. `PushDeviceApiService.kt`의 Retrofit 태그는 HTTP 본문을 바꾸지 않는다. 로그아웃은 캡처한 인증 헤더로 해제하며 탈퇴 실패로 세션이 유지되면 다시 동기화한다. |
-| 2. 인증 만료 | 갱신 결과의 세대 확인, 일시적 네트워크 오류 구분, 만료 이벤트 replay는 이미 있었다. 검사와 삭제가 분리돼 있었고 중복 만료가 세대를 다시 올렸다. | `TokenManager.kt`는 요청 시점의 세대와 두 토큰을 비교한다. 일치하는 요청만 같은 잠금 안에서 삭제·세대 증가·이벤트 발행을 수행한다. `RetrofitClient.kt`에서 시작 시 갱신과 인터셉터 갱신이 같은 요청 결과를 공유한다. HTTP 401·403 이외의 갱신 실패로 토큰을 삭제하지 않는다. |
+| 2. 인증 만료 | 갱신 결과의 세대 확인, 일시적 네트워크 오류 구분, 만료 이벤트 replay는 이미 있었다. 검사와 삭제가 분리돼 있었고 중복 만료가 세대를 다시 올렸다. | `TokenManager.kt`는 요청 시점의 세대와 두 토큰을 비교한다. 일치하는 요청만 같은 잠금 안에서 삭제·세대 증가·이벤트 발행을 수행한다. `RetrofitClient.kt`에서 시작 시 갱신과 인터셉터 갱신이 같은 요청 결과를 공유한다. HTTP 401·403은 상태 코드로 만료시킨다. HTTP 400은 JSON 불리언 success=false와 아래 두 가지 토큰 거절 문구 중 하나가 문자열로 정확히 일치할 때만 만료시키며, 일반 HTTP 400과 일시적 오류에서는 세션을 보존한다. |
 | 3. 알림함과 설정 | 로컬 숨기기·스와이프·슬라이더와 정규화는 있었다. 계정 연결 전 조회와 각종 응답·열린 알림함의 푸시 갱신은 경합했다. | `NotificationViewModel.kt`, `NotificationScreens.kt`, `FindersFirebaseMessagingService.kt`, `MainNavGraph.kt`가 계정 연결 및 화면 열림에 맞춰 조회한다. 계정 전환 시 목록·설정·배지·오류·페이지 상태를 초기화한다. 설정 요청은 대기 후와 응답 후 소유자를 확인한다. 읽음 실패를 알린 뒤 같은 화면·계정이면 채팅방을 연다. Release에서 Gson이 PATCH 필드명을 유지하도록 `app/proguard-rules.pro`를 수정했다. |
 | 4. 채팅방 나가기 | 방 전체에 공통 요청 번호를 써 다른 방의 완료가 무시됐다. 기존 목록이 응답하면 방이 다시 나타날 수 있었다. | `ChatViewModel.kt`에서 방별 요청을 관리하고 완료 후 목록을 다시 조회한다. 새 목록 요청이 이전 응답을 무효화한다. `MainNavGraph.kt`는 실패를 Toast로 표시하고 시작한 backStackEntry만 닫는다. 서버의 최신 목록에 방이 다시 나타나면 표시한다. |
 | 5. 작성자와 시간 | 일부 작성자 조회의 영구적인 시도 표시가 재진입 재시도도 막았다. 잘못된 시간 값이 섞이면 비교 기준이 달라졌다. | `ChatViewModel.kt`는 진행 중인 요청과 성공 캐시를 구분하고 이전 세션의 finally를 차단한다. `ChatTimeFormatter.kt`는 오프셋 또는 기존 KST 로컬 시간을 Instant로 비교하고 파싱 실패 값에는 같은 최저 순위를 부여한다. |
@@ -72,3 +72,104 @@ Android의 타임아웃이나 요청 취소는 서버에서 이미 시작된 Red
 추가 회귀 테스트는 정상 정리 전 로그인 대기, 정리 타임아웃 및 실패 뒤 로그인 진행, 두 가지 HTTP 400 무효 메시지와 일반 400·429·5xx 보존을 검사한다. 실서버에서는 로그아웃 처리 지연 후 같은 계정 재로그인과 재발급, 타임아웃 뒤 지연 삭제, 다른 기기 동시 로그인을 확인해야 한다.
 
 추가 수정 후 검증 결과는 Debug 컴파일·APK·단위 테스트 명령 BUILD SUCCESSFUL 및 종료 코드 0, Release APK·AAB 명령 BUILD SUCCESSFUL 및 종료 코드 0이다. JUnit 결과는 총 49개, 실패·오류·건너뜀 모두 0개다. 기존 45개를 유지하고 4개를 추가했다.
+
+## PR #11 추가 리뷰 검토 (eb2cf7c 기준)
+
+[리뷰 원문](https://github.com/KU-404-Finders/finders-android/pull/11#pullrequestreview-5957697610)을 현재 소스와 대조했다. 작업 시작 시 `fix/coderabbit-stability`, HEAD `eb2cf7c`, 깨끗한 작업 트리였으며 PR의 head SHA와도 일치했다. `feat/android-ios-parity`의 HEAD `2dd6d26d5d71e52ef06ee139c8c31167b676fe7c` 및 해당 기능 추가 커밋은 수정하지 않는다. 앱 버전 `6 / 1.0.5`, 서버 및 iOS 코드도 변경하지 않는다. 이 추가 작업은 commit, push, merge 없이 작업 트리에 남긴다.
+
+### Major 4건
+
+| 문제 | 확인한 결함과 수정 |
+|---|---|
+| 중복 채팅방 나가기 | 기존 가드는 두 번째 호출자의 콜백을 버렸다. 방별 진행 요청에 모든 완료 콜백을 등록하여 DELETE 한 번의 성공·실패를 함께 전달한다. 세션·요청 소유권과 `popIfCurrent` 보호는 유지한다. |
+| 습득물 목록 캐시 정합성 | 표시 목록을 필터 전환 때 비우면서 이전 성공 버전과 새 선택 범위를 함께 사용했다. 성공한 조회의 건물 범위·데이터·버전을 `SuccessfulList` 한 값으로 보관하고, MainNavGraph는 해당 값이 전체 범위일 때만 로컬 사본을 정리한다. 실패·전환 중 빈 표시 목록은 성공으로 처리하지 않는다. |
+| 최초 조회 중 댓글 등록 | 등록이 이전 조회를 무효화한 뒤 신규 댓글만 남길 수 있었다. 완전한 목록의 조회 성공 여부를 추적하고, 목록이 불완전하면 등록 후 다시 조회한다. 아직 조회 결과에서 확인되지 않은 신규 댓글을 합쳐 A·B·C가 유지되게 한다. |
+| 동일 댓글 연속 수정 | 최신 요청 번호만 채택하면 A 성공이 무시되고 B 실패 때 원문이 남았다. 게시글 종류·ID·댓글·세션별 Mutex로 PATCH를 직렬화하여 각 성공을 차례로 반영한다. A 성공/B 실패는 A, 둘 다 성공하면 B를 유지하며 이전 세션의 실행·응답은 무시한다. |
+
+### Minor 26건 개별 판정
+
+기준 코드에서 26건 모두 아직 유효했다. 이미 해결됐거나 재현 근거가 부족하여 제외한 Minor는 없다. 운영 결함 22건, 테스트의 잘못된 통과·정리 문제 3건, 문서 불일치 1건을 수정한다.
+
+| 번호 | 원문 위치·의견 | 판정 및 조치 |
+|---|---|---|
+| 1 | LoginViewModel:41 잠금 뒤 로그인 유효성 | 유효. 잠금 안의 API 전송 직전에 시도 번호·세대를 다시 검사한다. |
+| 2 | LoginViewModel:148 탈퇴 토큰 | 유효. 푸시 해제 대기 후 같은 세션의 최신 액세스 토큰으로 탈퇴한다. |
+| 3 | MainActivity:69–70 미소비 알림 목적지 | 유효. 목적지와 소유자를 Bundle로 복원하고 소비한 목적지는 복원하지 않는다. JWT sub가 같은 계정이면 토큰 갱신·재로그인 뒤에도 유지하며 다른 계정은 버린다. sub를 확인할 수 없는 토큰은 세대 변경 시 보수적으로 폐기한다. |
+| 4 | RetrofitClient:170 401·403 본문 읽기 | 유효. 본문은 400에서만 읽으며 401·403은 본문 수신 실패와 무관하게 만료로 판정한다. |
+| 5 | RefreshSessionPolicy:11 JSON 타입 | 유효. success는 불리언 false, message는 문자열일 때만 두 토큰 거절 문구와 비교한다. |
+| 6 | LoginScreen:226 재연결 중 이동 | 유효. 재연결을 포함한 로그인 로딩 중 회원가입·비밀번호 재설정 링크를 비활성화한다. |
+| 7 | MainNavGraph:607 상세 캐시 재병합 | 유효. 습득물 게시판은 서버 표시 목록을 사용한다. 상세용 로컬 사본을 재병합하지 않으며, 작성 성공 후 목록을 강제 재조회한다. |
+| 8 | PushDeviceManager:169 실제 등록 ID | 유효. 등록된 Owner/마지막 성공한 등록 ID를 우선하여 해제하고, 성공한 등록 ID를 기기에 보존한다. 메모리 소유자가 없는 재시작도 처리하며 다른 기기로 이 ID가 복원되지 않게 백업에서 제외한다. |
+| 9 | BoardChatRegressionTest:72 DELETE 횟수 | 유효한 테스트 결함. API에 진입한 호출 수를 방별로 직접 단언하여 catch된 예외가 중복 호출을 감추지 못하게 한다. |
+| 10 | BoardChatRegressionTest:109–110 작성자 조회 횟수 | 유효한 테스트 결함. 첫 응답 완료 전 1회, 실패 후 재시도에서 2회임을 확인한다. |
+| 11 | NotificationViewModel:57 설정 Mutex | 유효. 계정/세대별 잠금으로 새 계정이 이전 계정의 PATCH를 기다리지 않게 한다. 같은 계정의 GET/PATCH 순서는 유지한다. |
+| 12 | NotificationViewModel:151 읽음 방문 식별 | 유효. 클릭한 알림함 방문 ID와 완료 시 방문이 같을 때만 화면 콜백을 실행한다. |
+| 13 | NotificationViewModel:151–152 닫힌 알림함 배지 | 유효. 현재 계정의 읽음 성공은 화면이 닫혔어도 미읽음 수를 갱신한다. |
+| 14 | NotificationViewModel:63 자동 갱신 시 이전 페이지 | 유효. 새 알림 조회의 스냅샷을 별도로 사용하고 기존 탐색 스냅샷·커서 쌍은 유지한다. 신규 항목이 여러 페이지이면 기존 스냅샷과 만날 때까지 조회한다. 모두 읽음의 범위는 최신 스냅샷을 사용한다. |
+| 15 | NotificationViewModel:63 자동 갱신 오류 | 유효. 기존 행과 커서를 유지하고 별도 오류를 표시한다. 목록이 없는 최초 오류는 전체 오류 화면을 유지한다. |
+| 16 | NotificationScreens:48/108 계정 조회 재시도 | 유효. 두 화면에 `/me` 오류와 재시도를 전달하고 계정이 없으면 새로고침도 `/me`를 다시 요청한다. |
+| 17 | AdminManagementScreens:388 감사 이력 재시도 | 유효. 첫 페이지는 0, 다음 페이지는 보존한 실패 페이지를 재시도한다. 오류 시 hasNext와 무관하게 버튼을 표시한다. |
+| 18 | AdminReportDetailScreen:49 신고 본문 유지 | 유효. 신고가 있으면 로딩·오류 중에도 본문을 표시한다. 재시도는 처리 명령이 아닌 GET이며 상태 확인 전 처리 버튼을 비활성화한다. |
+| 19 | AdminReportListScreen:135 신고 목록 재시도 | 유효. 첫 페이지 또는 실패한 다음 페이지 재시도를 연결하며 다음 페이지 실패 시 기존 행을 유지한다. |
+| 20 | AdminViewModel:136 게시글 삭제 무시 | 유효. Delete 로딩을 목록·확인 버튼에 전달해 다른 삭제 요청이 조용히 버려지지 않게 한다. |
+| 21 | AdminViewModel:95 제한 전 사용자 목록 응답 | 유효. 제한 변경 성공 시 현재 검색어로 목록을 다시 요청하여 이전 목록 요청을 무효화한다. |
+| 22 | AdminViewModel:102 처리 전 신고 목록 응답 | 유효. 신고 처리 성공 시 목록을 다시 요청하고 기존 대시보드 갱신·성공 콜백을 유지한다. |
+| 23 | PostDetailScreen:826 이미지 첫 프레임 경계 | 유효. graphicsLayer 내부에서 실제 레이어 size와 현재 scale로 이동 경계를 계산한다. |
+| 24 | SearchScreen:79 긴 오류 | 유효. 오류는 최대 2줄 말줄임, 버튼은 ‘다시 시도’로 분리하여 부분 결과를 유지한다. |
+| 25 | 검증 문서:12 HTTP 400 설명 | 유효한 문서 불일치. 요약에 JSON 타입·두 거절 문구·일반 400 보존 조건을 명시했다. |
+| 26 | StabilityFixture:53–55 정리 실패 | 유효한 테스트 결함. 독립적인 finally와 log 초기화 검사로 Main 디스패처 복원을 보장한다. |
+
+별도 Nitpick 3건 중 계정 연결 없이 토큰 세대만 바뀌는 읽음 회귀 테스트와 stale unregister 호출 횟수 직접 단언은 테스트 보강에 포함했다. 사용되지 않는 채팅 오류 본문 읽기 제거는 이번 Major/Minor 수정에 필요하지 않아 그대로 두었다.
+
+### 검증 범위
+
+기존 테스트를 유지하고 `AdditionalMajorRegressionTest`, `AdditionalInboxRegressionTest`, `AdditionalAuthRegressionTest`, `AdditionalAdminRegressionTest` 및 기존 테스트 확장으로 지연 응답, 중복 호출, 성공·실패 순서와 세션 전환을 검증했다. 실기기의 화면 회전·터치 및 운영 서버 통합 검증은 수행하지 않았다.
+
+최종 Debug 명령 `./gradlew.bat --no-daemon :app:compileDebugKotlin :app:assembleDebug :app:testDebugUnitTest --console=plain`은 종료 코드 0, BUILD SUCCESSFUL이다. JUnit XML 합계는 **77개, 실패 0, 오류 0, 건너뜀 0**이다. 기존 49개를 유지하고 28개를 추가했다. 추가 Major 9개, 알림 9개, 인증 4개, 관리자 3개, 푸시 2개, JSON 정책 1개다.
+
+최종 소스 상태에서 아래 명령을 다시 실행해 두 빌드 모두 종료 코드 0, BUILD SUCCESSFUL을 확인했다. Debug는 1분 24초, Release는 3분 11초였으며 Release의 R8 최적화와 필수 Lint도 통과했다. `git diff --check`는 종료 코드 0이다. 기존 Gradle 옵션 및 스와이프 API의 deprecated 경고는 이번 수정 범위에서 변경하지 않았다.
+
+```powershell
+.\gradlew.bat --no-daemon :app:compileDebugKotlin :app:assembleDebug :app:testDebugUnitTest --console=plain
+.\gradlew.bat --no-daemon :app:assembleRelease :app:bundleRelease --console=plain
+git diff --check
+```
+
+검증 후에도 HEAD는 `eb2cf7c396e200ce55f6fb9a88228ddaf4fb6b7f`, 기능 추가 브랜치 HEAD는 `2dd6d26d5d71e52ef06ee139c8c31167b676fe7c`다. 스테이징된 파일은 없고, 수정 26개와 신규 테스트 파일 4개를 미커밋 작업 트리에 남겼다.
+
+### 최종 변경 파일 목록 (30개)
+
+아래는 기준 `eb2cf7c` 이후 작업 트리의 수정·신규 파일이다. 빌드 산출물은 포함하지 않는다.
+
+```text
+CODERABBIT_STABILITY_REVIEW.md
+app/src/main/java/com/ku/lostandfound/MainActivity.kt
+app/src/main/java/com/ku/lostandfound/network/RefreshSessionPolicy.kt
+app/src/main/java/com/ku/lostandfound/network/RetrofitClient.kt
+app/src/main/java/com/ku/lostandfound/notification/NotificationTarget.kt
+app/src/main/java/com/ku/lostandfound/notification/PushDeviceManager.kt
+app/src/main/java/com/ku/lostandfound/ui/admin/screen/AdminManagementScreens.kt
+app/src/main/java/com/ku/lostandfound/ui/admin/screen/AdminReportDetailScreen.kt
+app/src/main/java/com/ku/lostandfound/ui/admin/screen/AdminReportListScreen.kt
+app/src/main/java/com/ku/lostandfound/ui/admin/viewmodel/AdminViewModel.kt
+app/src/main/java/com/ku/lostandfound/ui/chat/viewmodel/ChatViewModel.kt
+app/src/main/java/com/ku/lostandfound/ui/found/viewmodel/FoundItemViewModel.kt
+app/src/main/java/com/ku/lostandfound/ui/login/screen/LoginScreen.kt
+app/src/main/java/com/ku/lostandfound/ui/login/viewmodel/LoginViewModel.kt
+app/src/main/java/com/ku/lostandfound/ui/navigation/MainNavGraph.kt
+app/src/main/java/com/ku/lostandfound/ui/notification/NotificationScreens.kt
+app/src/main/java/com/ku/lostandfound/ui/notification/NotificationViewModel.kt
+app/src/main/java/com/ku/lostandfound/ui/post/screen/PostDetailScreen.kt
+app/src/main/java/com/ku/lostandfound/ui/post/viewmodel/PostCommentViewModel.kt
+app/src/main/java/com/ku/lostandfound/ui/search/screen/SearchScreen.kt
+app/src/main/res/xml/backup_rules.xml
+app/src/main/res/xml/data_extraction_rules.xml
+app/src/test/java/com/ku/lostandfound/AdditionalAdminRegressionTest.kt
+app/src/test/java/com/ku/lostandfound/AdditionalAuthRegressionTest.kt
+app/src/test/java/com/ku/lostandfound/AdditionalInboxRegressionTest.kt
+app/src/test/java/com/ku/lostandfound/AdditionalMajorRegressionTest.kt
+app/src/test/java/com/ku/lostandfound/BoardChatRegressionTest.kt
+app/src/test/java/com/ku/lostandfound/SessionPushRegressionTest.kt
+app/src/test/java/com/ku/lostandfound/StabilityFixture.kt
+app/src/test/java/com/ku/lostandfound/network/RefreshSessionPolicyTest.kt
+```

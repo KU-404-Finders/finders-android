@@ -5,4 +5,5 @@
     <exclude domain="sharedpref" path="auth_prefs.xml" />
     <exclude domain="sharedpref" path="finders_notifications.xml" />
     <exclude domain="sharedpref" path="blocked_user_names.xml" />
+    <exclude domain="sharedpref" path="push_registration.xml" />
 </full-backup-content>

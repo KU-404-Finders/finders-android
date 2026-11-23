@@ -29,6 +29,7 @@ class SessionPushRegressionTest : StabilityFixture() {
 
     @Test fun staleSyncAndLogoutCannotCancelNewRegistration() {
         val calls = mutableListOf<Long>()
+        var unregisterCalls = 0
         val release = CompletableDeferred<Unit>()
         val api = object : PushDeviceApiService {
             override suspend fun registerDevice(request: PushDeviceRequest, session: RequestSession): Response<Unit> {
@@ -36,8 +37,10 @@ class SessionPushRegressionTest : StabilityFixture() {
                 release.await()
                 return Response.success(Unit)
             }
-            override suspend fun unregisterDevice(authorization: String, installationId: String): Response<Unit> =
-                error("Old logout reached the server")
+            override suspend fun unregisterDevice(authorization: String, installationId: String): Response<Unit> {
+                unregisterCalls++
+                return Response.success(Unit)
+            }
         }
         val manager = PushRegistration(CoroutineScope(main), api) { "device" }
         val previous = TokenManager.sessionGeneration()
@@ -52,6 +55,51 @@ class SessionPushRegressionTest : StabilityFixture() {
         manager.syncIfLoggedIn(current)
         dispatch()
         assertEquals(listOf(current), calls)
+        assertEquals(0, unregisterCalls)
+    }
+
+    @Test fun logoutTargetsRegisteredIdEvenAfterCurrentFidChanged() {
+        var device = "A"
+        var saved: String? = null
+        val removed = mutableListOf<String>()
+        val api = object : PushDeviceApiService {
+            override suspend fun registerDevice(request: PushDeviceRequest, session: RequestSession) = Response.success(Unit)
+            override suspend fun unregisterDevice(authorization: String, installationId: String): Response<Unit> {
+                removed += installationId
+                return Response.success(Unit)
+            }
+        }
+        val scope = CoroutineScope(main)
+        val manager = PushRegistration(scope, api, getRegisteredId = { saved }, saveRegisteredId = { saved = it }, dispatcher = main) { device }
+        manager.syncIfLoggedIn(TokenManager.sessionGeneration())
+        dispatch()
+        assertEquals("A", saved)
+        val closed = TokenManager.clear()
+        device = "B"
+        scope.launch { manager.unregisterBeforeLogout("Bearer a", closed) }
+        dispatch()
+        assertEquals(listOf("A"), removed)
+        assertNull(saved)
+        scope.cancel()
+    }
+
+    @Test fun logoutAfterProcessRestartUsesPersistedRegisteredId() {
+        var saved: String? = "A"
+        val removed = mutableListOf<String>()
+        val api = object : PushDeviceApiService {
+            override suspend fun registerDevice(request: PushDeviceRequest, session: RequestSession) = Response.success(Unit)
+            override suspend fun unregisterDevice(authorization: String, installationId: String): Response<Unit> {
+                removed += installationId
+                return Response.success(Unit)
+            }
+        }
+        val scope = CoroutineScope(main)
+        val manager = PushRegistration(scope, api, getRegisteredId = { saved }, saveRegisteredId = { saved = it }, dispatcher = main) { "B" }
+        scope.launch { manager.unregisterBeforeLogout("Bearer a", TokenManager.clear()) }
+        dispatch()
+        assertEquals(listOf("A"), removed)
+        assertNull(saved)
+        scope.cancel()
     }
 
     @Test fun changedInstallationInvalidatesSleepingRetry() {
