@@ -82,7 +82,8 @@ class PostCommentViewModel(
                     val postKey = postKey(postId, postType)
                     val fetched = body.data.orEmpty().map { it.toBoardComment(postKey) }
                         .filterNot { it.id in deletedComments[postKey].orEmpty() }
-                    val pending = createdComments[postKey].orEmpty().filterNot { it in fetched }
+                    val pending = createdComments[postKey].orEmpty()
+                        .filterNot { it.id in deletedComments[postKey].orEmpty() || it in fetched }
                     createdComments[postKey] = pending
                     val merged = fetched.map { row -> pending.find { it.id == row.id } ?: row } +
                         pending.filterNot { row -> fetched.any { it.id == row.id } }
@@ -269,6 +270,7 @@ class PostCommentViewModel(
                     val body = response.body()
                     if (body?.success == true && body.data != null) {
                         val postKey = postKey(postId, postType)
+                        if (commentId.toString() in deletedComments[postKey].orEmpty()) return@launch
                         loadVersions[postKey] = (loadVersions[postKey] ?: 0L) + 1
                         createdComments[postKey] = createdComments[postKey].orEmpty()
                             .filterNot { it.id == commentId.toString() } + body.data.toBoardComment(postKey)

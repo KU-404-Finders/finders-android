@@ -12,6 +12,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -184,19 +187,39 @@ internal class PushRegistration(
             targetIds
         }
 
-        withContext(dispatcher) {
-            requestMutex.withLock {
-                for (installationId in installationIds) {
-                    unregisterId(authorization, expectedGeneration, installationId)
+        val attempted = java.util.concurrent.atomic.AtomicInteger()
+        val succeeded = java.util.concurrent.atomic.AtomicInteger()
+        try {
+            withContext(dispatcher) {
+                requestMutex.withLock {
+                    // Keep the registration barrier until ALL cleanup children finish or cancel.
+                    // Independent retries let every ID start within the caller's shared deadline.
+                    coroutineScope {
+                        installationIds.map { installationId ->
+                            async {
+                                if (!TokenManager.isCurrentSession(expectedGeneration)) return@async
+                                attempted.incrementAndGet()
+                                if (unregisterId(authorization, expectedGeneration, installationId)) {
+                                    succeeded.incrementAndGet()
+                                }
+                            }
+                        }.awaitAll()
+                    }
                 }
+            }
+        } finally {
+            val remaining = installationIds.size - succeeded.get()
+            if (remaining > 0) {
+                // Do not persist credentials or retry later using another account's credentials.
+                Log.w(TAG, "기기 해제 미확인: remaining=$remaining, unattempted=${installationIds.size - attempted.get()}")
             }
         }
     }
 
     // Called under requestMutex, so a new session cannot register between cleanup requests.
-    private suspend fun unregisterId(authorization: String, expectedGeneration: Long, installationId: String) {
+    private suspend fun unregisterId(authorization: String, expectedGeneration: Long, installationId: String): Boolean {
         repeat(MAX_REGISTER_ATTEMPTS) { index ->
-            if (!TokenManager.isCurrentSession(expectedGeneration)) return
+            if (!TokenManager.isCurrentSession(expectedGeneration)) return false
             val attempt = index + 1
             val retryable = try {
                 val response = api.unregisterDevice(
@@ -209,7 +232,7 @@ internal class PushRegistration(
                         if (TokenManager.isCurrentSession(expectedGeneration) && getRegisteredId() == installationId) saveRegisteredId(null)
                     }
                     Log.d(TAG, "서버 기기 등록 해제 성공")
-                    return
+                    return true
                 }
 
                 Log.w(TAG, "서버 기기 등록 해제 실패: ${response.code()} (attempt=$attempt)")
@@ -221,8 +244,9 @@ internal class PushRegistration(
                 true
             }
 
-            if (!retryable || attempt == MAX_REGISTER_ATTEMPTS) return
+            if (!retryable || attempt == MAX_REGISTER_ATTEMPTS) return false
             delay(1_000L shl index)
         }
+        return false
     }
 }
