@@ -154,6 +154,33 @@ class NotificationViewModel @JvmOverloads constructor(
         }
     }
 
+    fun openCommentPost(item: InboxNotificationData, onMessage: (String) -> Unit, onOpen: (String, Long) -> Unit) {
+        val owner = account ?: return
+        val postId = item.postId ?: return
+        val type = item.postType?.takeIf { it == "LOST" || it == "FOUND" } ?: return
+        viewModelScope.launch {
+            try {
+                val (code, success) = if (type == "LOST") {
+                    val response = RetrofitClient.lostItemApi.getLostItemDetail(postId)
+                    response.code() to (response.isSuccessful && response.body()?.success == true)
+                } else {
+                    val response = RetrofitClient.foundItemApi.getFoundItemDetail(postId)
+                    response.code() to (response.isSuccessful && response.body()?.success == true)
+                }
+                if (!current(owner) || !inboxOpen) return@launch
+                when {
+                    code == 404 -> {
+                        onMessage("삭제되었거나 찾을 수 없는 게시글입니다.")
+                        load()
+                    }
+                    success -> onOpen(type, postId)
+                    else -> onMessage("게시글을 불러오지 못했습니다.")
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { if (current(owner) && inboxOpen) onMessage("서버와 연결할 수 없습니다.") }
+        }
+    }
+
     fun markAllRead() {
         val owner = account ?: return
         val through = snapshotSequence ?: return

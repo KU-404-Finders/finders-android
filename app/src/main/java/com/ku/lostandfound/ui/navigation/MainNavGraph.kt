@@ -948,6 +948,9 @@ fun MainNavGraph(
             NotificationInboxScreen(
                 vm = notificationViewModel,
                 onBack = { navController.popBackStack() },
+                onOpenPost = { type, id ->
+                    if (navController.currentBackStackEntry === entry) navController.navigate(Route.PostDetail.create(id.toString(), type))
+                },
                 onOpenRoom = { roomId ->
                     if (navController.currentBackStackEntry === entry) navController.navigate(Route.ChatRoom.create(roomId))
                 },

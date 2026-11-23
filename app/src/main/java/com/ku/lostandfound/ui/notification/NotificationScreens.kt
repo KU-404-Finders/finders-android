@@ -28,7 +28,7 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NotificationInboxScreen(vm: NotificationViewModel, onBack: () -> Unit, onOpenRoom: (Long) -> Unit) {
+fun NotificationInboxScreen(vm: NotificationViewModel, onBack: () -> Unit, onOpenRoom: (Long) -> Unit, onOpenPost: (String, Long) -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     androidx.compose.runtime.DisposableEffect(vm) {
         vm.setInboxOpen(true)
@@ -47,11 +47,16 @@ fun NotificationInboxScreen(vm: NotificationViewModel, onBack: () -> Unit, onOpe
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     if (vm.account == null) item { InboxMessage("계정 정보를 기다리고 있습니다.", "") }
                     else if (vm.items.isEmpty() && state !is InboxState.Loading) item {
-                        InboxMessage("받은 알림이 없습니다", "새 채팅이 오면 여기에 표시됩니다.")
+                        InboxMessage("받은 알림이 없습니다", "새 채팅과 내 글에 달린 댓글이 여기에 모입니다.")
                     }
                     items(vm.items, key = { it.id }) { item ->
                         SwipeToHideNotification(item = item, onHide = { vm.hide(item) }) {
-                            InboxRow(item, onClick = { vm.markRead(item, onError = { android.widget.Toast.makeText(context, "알림 읽음 처리에 실패했습니다.", android.widget.Toast.LENGTH_SHORT).show() }) { item.roomId?.let(onOpenRoom) } })
+                            InboxRow(item, onClick = { vm.markRead(item, onError = { android.widget.Toast.makeText(context, "알림 읽음 처리에 실패했습니다.", android.widget.Toast.LENGTH_SHORT).show() }) {
+                                if (item.type == "COMMENT") vm.openCommentPost(item,
+                                    onMessage = { android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show() },
+                                    onOpen = onOpenPost)
+                                else item.roomId?.let(onOpenRoom)
+                            } })
                         }
                     }
                     if (vm.nextBeforeSequence != null) item { TextButton(onClick = { vm.load(false) }, modifier = Modifier.fillMaxWidth(), enabled = !vm.loadingMore) { Text(if (vm.loadingMore) "불러오는 중…" else "이전 알림 더 보기") } }
@@ -64,7 +69,7 @@ fun NotificationInboxScreen(vm: NotificationViewModel, onBack: () -> Unit, onOpe
 @Composable private fun InboxRow(item: InboxNotificationData, onClick: () -> Unit) {
     ListItem(
         headlineContent = { Text(item.title ?: "새 알림", fontWeight = if (item.readAt == null) FontWeight.Bold else FontWeight.Normal) },
-        supportingContent = { Text(listOfNotNull(item.body, item.unreadMessages?.takeIf { it > 1 }?.let { "새 메시지 ${it.coerceAtMost(99)}개" }).joinToString("\n")) },
+        supportingContent = { Text(listOfNotNull(item.body, item.unreadMessages?.takeIf { item.type != "COMMENT" && item.roomId != null && it > 1 }?.let { "새 메시지 ${it.coerceAtMost(99)}개" }).joinToString("\n")) },
         leadingContent = { Text(if (item.readAt == null) "●" else "○", color = if (item.readAt == null) Color(0xFF1B6425) else Color.Gray) },
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
     )
