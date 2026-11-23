@@ -24,7 +24,12 @@ sealed class LoginUiState {
     data class Error(val message: String) : LoginUiState()
 }
 
-class LoginViewModel : ViewModel() {
+class LoginViewModel(
+    private val authApi: com.ku.lostandfound.network.AuthApiService = RetrofitClient.authApi,
+    private val unregisterPush: suspend (String, Long) -> Unit = { authorization, generation ->
+        PushDeviceManager.unregisterBeforeLogout(authorization, generation)
+    },
+) : ViewModel() {
     var uiState by mutableStateOf<LoginUiState>(LoginUiState.Idle)
         private set
     private var loginAttemptId = 0L
@@ -38,14 +43,15 @@ class LoginViewModel : ViewModel() {
 
             try {
                 val response = com.ku.lostandfound.network.AuthRequestOrder.shared.login {
-                    RetrofitClient.authApi.login(
+                    if (attemptId != loginAttemptId || !TokenManager.isCurrentSession(sessionGeneration)) return@login null
+                    authApi.login(
                     LoginRequest(
                         email = toKonkukEmail(emailPrefix),
                         password = password,
                     )
                 )
                 }
-                if (attemptId != loginAttemptId) return@launch
+                if (response == null || attemptId != loginAttemptId || !TokenManager.isCurrentSession(sessionGeneration)) return@launch
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true && body.data != null) {
@@ -119,9 +125,9 @@ class LoginViewModel : ViewModel() {
                     cleanup = {
                         authorization?.let { header ->
                             withTimeoutOrNull(4000L.milliseconds) {
-                                PushDeviceManager.unregisterBeforeLogout(header, closedGeneration)
+                                unregisterPush(header, closedGeneration)
                             }
-                            RetrofitClient.authApi.logout(header)
+                            authApi.logout(header)
                         }
                     },
                 )
@@ -141,11 +147,12 @@ class LoginViewModel : ViewModel() {
                 // 실패해도 탈퇴 API는 진행하며, 서버는 탈퇴 처리 시 남은 토큰도 삭제해야 한다.
                 val authorization = "Bearer ${session.access ?: return@launch}"
                 withTimeoutOrNull(4000L.milliseconds) {
-                    PushDeviceManager.unregisterBeforeLogout(authorization, session.generation)
+                    unregisterPush(authorization, session.generation)
                 }
 
-                if (!TokenManager.isCurrentSession(session.generation)) return@launch
-                val response = RetrofitClient.authApi.withdraw(authorization)
+                val latest = TokenManager.credentials()
+                if (latest.generation != session.generation || latest.access.isNullOrBlank()) return@launch
+                val response = authApi.withdraw("Bearer ${latest.access}")
                 if (!TokenManager.isCurrentSession(session.generation)) return@launch
                 if (response.isSuccessful) {
                     val body = response.body()

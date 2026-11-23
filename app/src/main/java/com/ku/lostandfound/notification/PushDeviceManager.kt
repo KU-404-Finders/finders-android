@@ -21,6 +21,7 @@ object PushDeviceManager {
 
     private const val PREFS_NAME = "push_registration"
     private const val KEY_INSTALLATION_ID = "installation_id"
+    private const val KEY_REGISTERED_ID = "registered_installation_id"
 
     @Volatile private var appContext: Context? = null
 
@@ -30,7 +31,12 @@ object PushDeviceManager {
         SupervisorJob() + Dispatchers.IO
     )
 
-    private val registration by lazy { PushRegistration(scope, RetrofitClient.pushDeviceApi, ::getInstallationId) }
+    private val registration by lazy {
+        PushRegistration(scope, RetrofitClient.pushDeviceApi,
+            getRegisteredId = { appContext?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)?.getString(KEY_REGISTERED_ID, null) },
+            saveRegisteredId = { id -> appContext?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)?.edit { putString(KEY_REGISTERED_ID, id) } },
+            getInstallationId = ::getInstallationId)
+    }
 
     // 앱 실행 시 초기화
     fun init(context: Context) {
@@ -83,6 +89,9 @@ object PushDeviceManager {
 internal class PushRegistration(
     private val scope: CoroutineScope,
     private val api: com.ku.lostandfound.network.PushDeviceApiService,
+    private val getRegisteredId: () -> String? = { null },
+    private val saveRegisteredId: (String?) -> Unit = {},
+    private val dispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
     private val getInstallationId: () -> String?,
 ) {
     private companion object {
@@ -128,7 +137,10 @@ internal class PushRegistration(
 
                     if (response.isSuccessful) {
                         synchronized(TokenManager) {
-                            if (owns(owner)) registered = owner
+                            if (owns(owner)) {
+                                registered = owner
+                                saveRegisteredId(owner.installationId)
+                            }
                         }
                         Log.d(TAG, "서버 기기 등록 성공")
                         return@withLock
@@ -161,15 +173,16 @@ internal class PushRegistration(
     suspend fun unregisterBeforeLogout(authorization: String, expectedGeneration: Long) {
         val installationId = synchronized(TokenManager) {
             if (!TokenManager.isCurrentSession(expectedGeneration)) return
+            val targetId = registered?.installationId ?: getRegisteredId() ?: active?.installationId ?: getInstallationId()
             closedGeneration = expectedGeneration
             registrationJob?.cancel()
             registrationJob = null
             active = null
             registered = null
-            getInstallationId()
+            targetId
         } ?: return
 
-        withContext(Dispatchers.IO) {
+        withContext(dispatcher) {
             requestMutex.withLock {
                 repeat(MAX_REGISTER_ATTEMPTS) { index ->
                     if (!TokenManager.isCurrentSession(expectedGeneration)) return@withLock
@@ -181,6 +194,9 @@ internal class PushRegistration(
                         )
 
                         if (response.isSuccessful) {
+                            synchronized(TokenManager) {
+                                if (getRegisteredId() == installationId) saveRegisteredId(null)
+                            }
                             Log.d(TAG, "서버 기기 등록 해제 성공")
                             return@withLock
                         }

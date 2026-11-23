@@ -76,7 +76,8 @@ fun SearchScreen(
         )
 
         if (error != null) {
-            androidx.compose.material3.TextButton(onClick = onRetry) { Text("$error 다시 시도") }
+            Text(error, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 16.dp))
+            androidx.compose.material3.TextButton(onClick = onRetry) { Text("다시 시도") }
         }
         when {
             trimmedKeyword.isBlank() -> {

@@ -5,6 +5,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RefreshSessionPolicyTest {
+    @Test fun malformedPrimitiveTypesDoNotConfirmRejection() {
+        for (success in listOf("0", "\"false\"", "null", "[]", "{}")) {
+            assertFalse(RefreshSessionPolicy.isConfirmedInvalid(400,
+                "{\"success\":$success,\"message\":\"유효하지 않은 리프레시 토큰입니다.\"}"))
+        }
+        for (message in listOf("0", "false", "null", "[]", "{}")) {
+            assertFalse(RefreshSessionPolicy.isConfirmedInvalid(400, "{\"success\":false,\"message\":$message}"))
+        }
+    }
     @Test
     fun `expired or revoked refresh credentials are confirmed invalid`() {
         assertTrue(RefreshSessionPolicy.isConfirmedInvalid(401))

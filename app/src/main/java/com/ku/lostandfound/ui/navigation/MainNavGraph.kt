@@ -356,6 +356,7 @@ fun MainNavGraph(
                 ?: currentUserEmail
             writeViewModel.createFoundItem(context)
                 .onSuccess { createdPost ->
+                    foundItemViewModel.retryFoundItems()
                     posts = listOf(
                         createdPost.copy(
                             authorName = authorName,
@@ -598,13 +599,14 @@ fun MainNavGraph(
                 Text("지도 데이터를 불러오는 중입니다.")
             } else {
                 val serverFoundPosts = foundItemViewModel.asBoardPosts()
-                LaunchedEffect(foundItemViewModel.listVersion) {
-                    if (foundItemViewModel.selectedBuildingName == null && foundItemViewModel.listVersion > lastAppliedFoundListVersion) {
-                        syncLocalPostsWithServer(PostType.FOUND, serverFoundPosts)
-                        lastAppliedFoundListVersion = foundItemViewModel.listVersion
+                val successfulList = foundItemViewModel.successfulList
+                LaunchedEffect(successfulList) {
+                    if (successfulList != null && successfulList.buildingName == null && successfulList.version > lastAppliedFoundListVersion) {
+                        syncLocalPostsWithServer(PostType.FOUND, foundItemViewModel.asBoardPosts(successfulList.items))
+                        lastAppliedFoundListVersion = successfulList.version
                     }
                 }
-                val foundPosts = (serverFoundPosts + publicLocalPosts(PostType.FOUND)).distinctBy { it.id }
+                val foundPosts = serverFoundPosts
                 FoundBoardScreen(
                     posts = foundPosts,
                     selectedBuilding = buildings.firstOrNull { it.name == foundItemViewModel.selectedBuildingName },
@@ -946,6 +948,8 @@ fun MainNavGraph(
 
         composable(route = Route.Notifications.route) { entry ->
             NotificationInboxScreen(
+                accountError = (userViewModel.uiState as? UserUiState.Error)?.message,
+                onRetryAccount = { userViewModel.loadMe() },
                 vm = notificationViewModel,
                 onBack = { navController.popBackStack() },
                 onOpenRoom = { roomId ->
@@ -954,7 +958,9 @@ fun MainNavGraph(
             )
         }
         composable(route = Route.NotificationSettings.route) {
-            NotificationSettingsScreen(vm = notificationViewModel, onBack = { navController.popBackStack() })
+            NotificationSettingsScreen(vm = notificationViewModel, onBack = { navController.popBackStack() },
+                accountError = (userViewModel.uiState as? UserUiState.Error)?.message,
+                onRetryAccount = { userViewModel.loadMe() })
         }
 
         composable(route = Route.Profile.route) {
@@ -1640,6 +1646,7 @@ fun MainNavGraph(
             AdminAccessGate(userViewModel.me, userViewModel.uiState, navController) {
                 LaunchedEffect(adminPostType) { adminViewModel.loadPosts(adminPostType) }
                 AdminPostListScreen(
+                isDeleting = adminViewModel.state(Section.Delete) is AdminUiState.Loading,
                 posts = adminViewModel.posts,
                 postType = adminPostType,
                 hasNext = adminViewModel.hasNext(Section.Posts),
@@ -1671,6 +1678,7 @@ fun MainNavGraph(
             AdminAccessGate(userViewModel.me, userViewModel.uiState, navController) {
                 LaunchedEffect(Unit) { adminViewModel.loadAudits() }
                 AdminAuditLogScreen(
+                onRetry = { adminViewModel.loadAudits(more = adminViewModel.hasNext(Section.Audits)) },
                 audits = adminViewModel.audits,
                 hasNext = adminViewModel.hasNext(Section.Audits),
                 onMore = { adminViewModel.loadAudits(more = true) },
@@ -1687,6 +1695,7 @@ fun MainNavGraph(
             AdminAccessGate(userViewModel.me, userViewModel.uiState, navController) {
                 LaunchedEffect(Unit) { adminViewModel.loadReports() }
                 AdminReportListScreen(
+                onRetry = { adminViewModel.loadReports(more = adminViewModel.hasNext(Section.Reports)) },
                 reports = adminViewModel.reports.map { it.toUiModel() },
                 hasNext = adminViewModel.hasNext(Section.Reports),
                 onMore = { adminViewModel.loadReports(more = true) },

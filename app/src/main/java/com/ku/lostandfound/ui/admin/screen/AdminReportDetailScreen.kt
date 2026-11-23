@@ -46,7 +46,7 @@ fun AdminReportDetailScreen(
     onActionConfirmed: (String) -> Unit,
 ) {
 
-    if (isLoading || errorMessage != null) {
+    if (report == null && (isLoading || errorMessage != null)) {
         Column(
             modifier = Modifier.fillMaxSize().background(ScreenGray)
         ) {
@@ -105,6 +105,11 @@ fun AdminReportDetailScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(20.dp),
         ) {
+            if (isLoading) Text("신고 정보를 불러오는 중입니다.", color = TextGray)
+            if (errorMessage != null) {
+                Text(errorMessage, color = DangerRed)
+                TextButton(onClick = onRetry, enabled = !isLoading) { Text("다시 조회") }
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -209,7 +214,7 @@ fun AdminReportDetailScreen(
                 onClick = {
                     selectedAction = "신고 반려"
                 },
-                enabled = completedAction == null,
+                enabled = completedAction == null && !isLoading && errorMessage == null,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp),
@@ -232,7 +237,7 @@ fun AdminReportDetailScreen(
                 onClick = {
                     selectedAction = "게시글 삭제"
                 },
-                enabled = completedAction == null,
+                enabled = completedAction == null && !isLoading && errorMessage == null,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp),
@@ -255,7 +260,7 @@ fun AdminReportDetailScreen(
                 onClick = {
                     selectedAction = "사용자 이용 제한"
                 },
-                enabled = completedAction == null,
+                enabled = completedAction == null && !isLoading && errorMessage == null,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp),

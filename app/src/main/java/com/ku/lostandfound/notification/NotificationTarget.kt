@@ -2,6 +2,17 @@ package com.ku.lostandfound.notification
 
 import android.content.Intent
 
+/** Used only to discard a queued destination after an account switch, never for authorization. */
+internal fun notificationAccountKey(token: String?, generation: Long): String? {
+    if (token.isNullOrBlank()) return null
+    return runCatching {
+        val payload = String(java.util.Base64.getUrlDecoder().decode(token.split('.')[1]), Charsets.UTF_8)
+        val subject = com.google.gson.JsonParser.parseString(payload).asJsonObject.get("sub")
+        subject?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+            ?.takeIf { it.isNotBlank() }?.let { "subject:$it" }
+    }.getOrNull() ?: "session:$generation"
+}
+
 sealed interface NotificationTarget {
 
     data class Chat(

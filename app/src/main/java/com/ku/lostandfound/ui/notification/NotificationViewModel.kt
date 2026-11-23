@@ -40,27 +40,33 @@ class NotificationViewModel @JvmOverloads constructor(
     var loadingMore by mutableStateOf(false); private set
     var settings by mutableStateOf<NotificationSettingsData?>(null); private set
     var settingsError by mutableStateOf<String?>(null); private set
-    internal data class Account(val id: Long, val generation: Long)
+    var refreshError by mutableStateOf<String?>(null); private set
+    internal data class Account(val id: Long, val generation: Long) {
+        val settingsMutex = Mutex()
+    }
     internal var account by mutableStateOf<Account?>(null)
         private set
     private var inboxOpen = false
+    private var inboxVisit = 0L
+    private var arrivalRequestId = 0
+    private var latestSnapshotSequence: Long? = null
 
     private fun current(owner: Account?) =
         owner != null && account === owner && TokenManager.isCurrentSession(owner.generation)
 
     fun setInboxOpen(open: Boolean) {
+        if (inboxOpen != open) inboxVisit++
         inboxOpen = open
         if (open) load()
     }
     private var requestId = 0
     private var unreadRequestId = 0
-    private val settingsMutex = Mutex()
 
     init {
         viewModelScope.launch {
             NotificationInboxRefreshBus.events.collectLatest {
                 refreshUnreadCount()
-                if (inboxOpen) load()
+                if (inboxOpen) refreshArrivals()
             }
         }
     }
@@ -70,14 +76,17 @@ class NotificationViewModel @JvmOverloads constructor(
         if (account == next) return
         account = next
         requestId++
+        arrivalRequestId++
         unreadRequestId++
         items = emptyList()
         snapshotSequence = null
+        latestSnapshotSequence = null
         nextBeforeSequence = null
         unreadCount = 0
         loadingMore = false
         settings = null
         settingsError = null
+        refreshError = null
         state = InboxState.Ready
         if (next != null) {
             refreshUnreadCount()
@@ -90,6 +99,8 @@ class NotificationViewModel @JvmOverloads constructor(
         if (!current(owner)) return
         if (!reset && (state == InboxState.Loading || loadingMore || nextBeforeSequence == null || snapshotSequence == null)) return
         if (reset) loadingMore = false
+        if (reset) arrivalRequestId++
+        refreshError = null
         val id = ++requestId
         if (reset) state = InboxState.Loading else loadingMore = true
         viewModelScope.launch {
@@ -101,19 +112,60 @@ class NotificationViewModel @JvmOverloads constructor(
                 if (!current(owner) || id != requestId) return@launch
                 if (!response.isSuccessful) {
                     val error = response.errorBody()?.string().orEmpty()
-                    state = if (isUnsupported(response.code(), error)) InboxState.Unsupported("현재 서버에서는 알림함을 지원하지 않습니다.") else InboxState.Error("알림을 불러오지 못했습니다.")
+                    if (items.isNotEmpty()) showLoadError("알림을 불러오지 못했습니다.")
+                    else state = if (isUnsupported(response.code(), error)) InboxState.Unsupported("현재 서버에서는 알림함을 지원하지 않습니다.") else InboxState.Error("알림을 불러오지 못했습니다.")
                     return@launch
                 }
-                val page = response.body()?.takeIf { it.success }?.data ?: run { state = InboxState.Error(response.body()?.message ?: "알림을 불러오지 못했습니다."); return@launch }
+                val page = response.body()?.takeIf { it.success }?.data ?: run { showLoadError(response.body()?.message ?: "알림을 불러오지 못했습니다."); return@launch }
                 val merged = if (reset) page.items else (items + page.items).distinctBy { it.id }
                 items = visible(merged)
                 snapshotSequence = if (reset) page.snapshotSequence else snapshotSequence
+                latestSnapshotSequence = maxOf(latestSnapshotSequence ?: page.snapshotSequence, page.snapshotSequence)
                 nextBeforeSequence = page.nextBeforeSequence
                 state = InboxState.Ready
                 refreshUnreadCount()
             } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { if (current(owner) && id == requestId) state = InboxState.Error("서버와 연결할 수 없습니다.") }
+            catch (_: Exception) { if (current(owner) && id == requestId) showLoadError("서버와 연결할 수 없습니다.") }
             finally { if (current(owner) && id == requestId) loadingMore = false }
+        }
+    }
+
+    private fun showLoadError(message: String) {
+        if (items.isEmpty()) state = InboxState.Error(message)
+        else { state = InboxState.Ready; refreshError = message }
+    }
+
+    /** New arrivals use their own snapshot. The existing older-page cursor stays paired with its snapshot. */
+    fun refreshArrivals() {
+        val owner = account ?: return
+        val through = snapshotSequence ?: run { load(); return }
+        if (!current(owner)) return
+        val id = ++arrivalRequestId
+        refreshError = null
+        viewModelScope.launch {
+            try {
+                val incoming = mutableListOf<InboxNotificationData>()
+                var snapshot: Long? = null
+                var before: Long? = null
+                do {
+                    val response = notificationApi.notifications(snapshotSequence = snapshot, beforeSequence = before)
+                    if (!current(owner) || id != arrivalRequestId) return@launch
+                    val page = response.body()?.takeIf { response.isSuccessful && it.success }?.data
+                        ?: throw java.io.IOException("Inbox refresh failed")
+                    incoming += page.items
+                    snapshot = page.snapshotSequence
+                    val previous = before
+                    before = page.nextBeforeSequence
+                    if (page.items.any { it.sequence <= through } || before == null) break
+                    if (before == previous) throw java.io.IOException("Inbox cursor did not advance")
+                } while (true)
+                items = visible((incoming + items).distinctBy { it.id }.sortedByDescending { it.sequence })
+                latestSnapshotSequence = maxOf(latestSnapshotSequence ?: through, snapshot ?: through)
+                refreshError = null
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) {
+                if (current(owner) && id == arrivalRequestId) showLoadError("알림 새로고침에 실패했습니다.")
+            }
         }
     }
 
@@ -138,6 +190,7 @@ class NotificationViewModel @JvmOverloads constructor(
     fun markRead(item: InboxNotificationData, onError: () -> Unit, onOpen: () -> Unit) {
         val owner = account ?: return
         if (!current(owner) || items.none { it === item }) return
+        val visit = inboxVisit
         viewModelScope.launch {
             val success = try {
                 item.readAt != null || notificationApi.markRead(item.id).let {
@@ -148,15 +201,17 @@ class NotificationViewModel @JvmOverloads constructor(
             } catch (_: Exception) {
                 false
             }
-            if (!current(owner) || !inboxOpen) return@launch
-            if (success) load() else onError()
+            if (!current(owner)) return@launch
+            if (success) refreshUnreadCount()
+            if (!inboxOpen || visit != inboxVisit) return@launch
+            if (success) refreshArrivals() else onError()
             onOpen()
         }
     }
 
     fun markAllRead() {
         val owner = account ?: return
-        val through = snapshotSequence ?: return
+        val through = latestSnapshotSequence ?: snapshotSequence ?: return
         if (!current(owner)) return
         viewModelScope.launch {
             val success = try {
@@ -191,7 +246,7 @@ class NotificationViewModel @JvmOverloads constructor(
     private fun requestSettings(patch: NotificationSettingsPatch?) {
         val owner = account ?: return
         viewModelScope.launch {
-            settingsMutex.withLock {
+            owner.settingsMutex.withLock {
                 if (!current(owner)) return@withLock
                 val updated = try {
                     val api = notificationApi

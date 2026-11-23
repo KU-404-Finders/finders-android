@@ -263,7 +263,7 @@ fun LoginScreen(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-        Text(text = "비밀번호를 잊으셨나요?", color = Color(0xFF4A6741), fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.clickable { onNavigateToPasswordReset() })
+        Text(text = "비밀번호를 잊으셨나요?", color = Color(0xFF4A6741), fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.clickable(enabled = !isLoading) { onNavigateToPasswordReset() })
 
         Spacer(modifier = Modifier.height(20.dp))
 
@@ -282,7 +282,7 @@ fun LoginScreen(
                 color = Color(0xFF4A6741),
                 fontWeight = FontWeight.Bold,
                 fontSize = 12.sp,
-                modifier = Modifier.clickable {
+                modifier = Modifier.clickable(enabled = !isLoading) {
                     onNavigateToSignUp()
                 }
             )

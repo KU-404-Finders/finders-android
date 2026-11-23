@@ -823,8 +823,8 @@ private fun FullscreenPostImage(image: ImageBitmap, onDismiss: () -> Unit) {
     var offsetX by remember { mutableStateOf(0f) }
     var offsetY by remember { mutableStateOf(0f) }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
-    val bounds = imagePanBounds(image.width, image.height, viewport.width, viewport.height, scale)
-    LaunchedEffect(bounds) {
+    LaunchedEffect(viewport, scale) {
+        val bounds = imagePanBounds(image.width, image.height, viewport.width, viewport.height, scale)
         offsetX = offsetX.coerceIn(-bounds.first, bounds.first)
         offsetY = offsetY.coerceIn(-bounds.second, bounds.second)
     }
@@ -853,6 +853,7 @@ private fun FullscreenPostImage(image: ImageBitmap, onDismiss: () -> Unit) {
                     }
                     .pointerInput(Unit) { detectTapGestures(onTap = { onDismiss() }) }
                     .graphicsLayer {
+                        val bounds = imagePanBounds(image.width, image.height, size.width.toInt(), size.height.toInt(), scale)
                         scaleX = scale
                         scaleY = scale
                         translationX = offsetX.coerceIn(-bounds.first, bounds.first)

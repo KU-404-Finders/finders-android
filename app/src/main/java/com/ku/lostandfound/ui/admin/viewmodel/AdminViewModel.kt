@@ -57,7 +57,7 @@ class AdminViewModel(
     fun loadDashboard() = request(Section.Dashboard, { adminApi.dashboard() }) { dashboard = it }
 
     fun loadReport(id: Long) {
-        selectedReport = null
+        if (selectedReport?.id != id) selectedReport = null
         request(Section.Report, { adminApi.report(id) }) { selectedReport = it }
     }
 
@@ -71,6 +71,7 @@ class AdminViewModel(
         request(Section.Report, { adminApi.processReport(id, ProcessAdminReportRequest(action)) }) { updated ->
             selectedReport = updated
             reports = reports.map { if (it.id == updated.id) updated else it }
+            loadReports()
             loadDashboard()
             onSuccess()
         }
@@ -81,6 +82,7 @@ class AdminViewModel(
         request(Section.User, { adminApi.setSuspension(id, AdminSuspensionRequest(suspended)) }) { updated ->
             selectedUser = updated
             users = users.map { if (it.id == id) updated else it }
+            loadUsers(keyword = searchKeyword)
             onSuccess()
         }
     }

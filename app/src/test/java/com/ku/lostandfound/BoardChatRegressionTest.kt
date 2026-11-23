@@ -65,10 +65,12 @@ class BoardChatRegressionTest : StabilityFixture() {
 
     @Test fun concurrentLeavesRejectOldListAndAllowServerReappearance() {
         val leaves = mutableMapOf<Long, CompletableDeferred<Unit>>()
+        val leaveCalls = mutableMapOf<Long, Int>()
         val lists = mutableListOf<CompletableDeferred<List<ChatRoomResponse>>>()
         val api = object : ChatApiService by mock(ChatApiService::class.java) {
             override suspend fun getRooms(page: Int) = ok(CompletableDeferred<List<ChatRoomResponse>>().also(lists::add).await())
             override suspend fun leaveRoom(roomId: Long): Response<ApiResponse<Unit>> {
+                leaveCalls[roomId] = (leaveCalls[roomId] ?: 0) + 1
                 check(roomId !in leaves)
                 return ok(CompletableDeferred<Unit>().also { leaves[roomId] = it }.await())
             }
@@ -83,12 +85,13 @@ class BoardChatRegressionTest : StabilityFixture() {
         val completed = mutableListOf<Long>()
         for (id in listOf(1L, 2L, 1L)) vm.leaveRoom(id) { if (it) completed += id }
         dispatch()
+        assertEquals(mapOf(1L to 1, 2L to 1), leaveCalls)
         for (id in listOf(2L, 1L)) { leaves.getValue(id).complete(Unit); dispatch() }
         lists[1].complete(rooms)
         lists[2].complete(rooms)
         dispatch()
         assertTrue(vm.rooms.isEmpty())
-        assertEquals(listOf(2L, 1L), completed)
+        assertEquals(listOf(2L, 1L, 1L), completed)
         lists.last().complete(rooms.take(1))
         dispatch()
         assertEquals(rooms.take(1), vm.rooms)
@@ -107,8 +110,10 @@ class BoardChatRegressionTest : StabilityFixture() {
         val room = ChatRoomResponse(1, 2, 3, "", 3, "LOST")
         repeat(2) { vm.loadPostAuthorForRoom(room) }
         dispatch()
+        assertEquals(1, calls)
         first.complete(LostItemCreateResponse(false, "", null))
         dispatch()
+        assertEquals(1, calls)
         repeat(2) { vm.loadPostAuthorForRoom(room); dispatch() }
         assertEquals(2, calls)
         assertEquals(5L to "writer", vm.authorInfoByRoomId[1L])
