@@ -508,7 +508,8 @@ fun MainNavGraph(
                 },
                 onNavigateToSignUp = {
                     loginViewModel.resetUiState()
-                    navController.navigate(Route.SignupName.route)
+                    signupViewModel.reset()
+                    navController.navigate(Route.SignupTerms.route)
                 }
             )
         }
@@ -544,6 +545,13 @@ fun MainNavGraph(
                         }
                     }
                 },
+            )
+        }
+        composable(route = Route.SignupTerms.route) {
+            com.ku.lostandfound.ui.signup.screen.SignupTermsScreen(
+                vm = signupViewModel,
+                onBack = { navController.popBackStack() },
+                onContinue = { navController.navigate(Route.SignupName.route) },
             )
         }
         composable(route = Route.SignupName.route) {

@@ -21,6 +21,9 @@ sealed class SignupUiState {
 }
 
 class SignupViewmodel : ViewModel() {
+    var termsAccepted by mutableStateOf(false)
+    var privacyAccepted by mutableStateOf(false)
+    val hasRequiredConsent get() = termsAccepted && privacyAccepted
     var name by mutableStateOf("")
     var password by mutableStateOf("")
     var emailPrefix by mutableStateOf("")
@@ -70,6 +73,7 @@ class SignupViewmodel : ViewModel() {
     }
 
     fun register() {
+        if (!hasRequiredConsent) return
         viewModelScope.launch {
             uiState = SignupUiState.Loading
             try {
@@ -106,6 +110,8 @@ class SignupViewmodel : ViewModel() {
     }
 
     fun reset() {
+        termsAccepted = false
+        privacyAccepted = false
         name = ""
         password = ""
         emailPrefix = ""
