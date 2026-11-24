@@ -1038,7 +1038,7 @@ fun MainNavGraph(
                 onBack = { navController.popBackStack() },
                 onUnblocked = {
                     lostItemViewModel.loadLostItems()
-                    foundItemViewModel.loadFoundItems()
+                    foundItemViewModel.retryFoundItems()
                     chatViewModel.loadRooms()
                 },
             )

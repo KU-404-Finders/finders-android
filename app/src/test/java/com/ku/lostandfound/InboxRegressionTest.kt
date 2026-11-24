@@ -172,7 +172,8 @@ class InboxRegressionTest : StabilityFixture() {
         read.complete(false)
         dispatch()
         assertEquals(listOf(item), vm.items)
-        assertTrue(vm.state is InboxState.Error)
+        assertEquals(InboxState.Ready, vm.state)
+        assertNotNull(vm.refreshError)
     }
 
     @Test fun deleteAllFiltersOlderPagesButKeepsNewArrivals() {

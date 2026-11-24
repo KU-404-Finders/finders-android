@@ -58,7 +58,7 @@ class SignupViewmodel(
             uiState = SignupUiState.Loading
             try {
                 val response = signupApi.sendVerificationCode(email)
-                if (requestGeneration != generation || !hasRequiredConsent) return@launch
+                if (!acceptResponse(requestGeneration)) return@launch
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true) {
@@ -74,7 +74,7 @@ class SignupViewmodel(
                 }
             } catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (e: Exception) {
-                if (requestGeneration != generation || !hasRequiredConsent) return@launch
+                if (!acceptResponse(requestGeneration)) return@launch
                 NetworkLog.exception("sendVerificationCode", e)
                 uiState = SignupUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
             }
@@ -96,7 +96,7 @@ class SignupViewmodel(
                         name = name,
                     )
                 )
-                if (requestGeneration != generation || !hasRequiredConsent) return@launch
+                if (!acceptResponse(requestGeneration)) return@launch
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true) {
@@ -112,7 +112,7 @@ class SignupViewmodel(
                 }
             } catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (e: Exception) {
-                if (requestGeneration != generation || !hasRequiredConsent) return@launch
+                if (!acceptResponse(requestGeneration)) return@launch
                 NetworkLog.exception("register", e)
                 uiState = SignupUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
             }
@@ -127,6 +127,13 @@ class SignupViewmodel(
         if (hasRequiredConsent) return true
         uiState = SignupUiState.Error("필수 약관에 동의해주세요.")
         return false
+    }
+
+    private fun acceptResponse(requestGeneration: Long): Boolean {
+        // Old work cannot clear a newer flow's Loading state. Same-flow revocation
+        // must leave Loading and report the missing consent, including on exceptions.
+        if (requestGeneration != generation) return false
+        return requireConsent()
     }
 
     fun reset() {

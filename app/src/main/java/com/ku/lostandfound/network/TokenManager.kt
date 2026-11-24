@@ -29,6 +29,7 @@ object TokenManager {
 
     class Credentials internal constructor(val generation: Long, val access: String?, val refresh: String?)
 
+    // Snapshot and all session/token writers share this object's monitor.
     @Synchronized
     fun credentials() = Credentials(sessionGeneration.capture(), accessToken, refreshToken)
 

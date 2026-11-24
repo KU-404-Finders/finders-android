@@ -34,8 +34,9 @@ class NotificationNavigationRegressionTest : StabilityFixture() {
     private fun row(type: String = "MATCH", postType: String? = "LOST", postId: Long? = 77) =
         InboxNotificationData("one", type, postType = postType, postId = postId, sequence = 100)
     private fun lostOk() = Response.success(LostItemCreateResponse(true, "", mock(LostItemData::class.java)))
-    private inner class Inbox(val rows: List<InboxNotificationData> = listOf(row())) {
+    private inner class Inbox(var rows: List<InboxNotificationData> = listOf(row())) {
         var readOk = true
+        var allReadOk = true
         var readGate: CompletableDeferred<Boolean>? = null
         var readCalls = 0
         val details = mutableListOf<Pair<String, Long>>()
@@ -55,6 +56,8 @@ class NotificationNavigationRegressionTest : StabilityFixture() {
                 readCalls++
                 return Response.success(ApiResponse(readGate?.await() ?: readOk, "", Unit))
             }
+            override suspend fun markAllRead(request: MarkAllNotificationsReadRequest) =
+                Response.success(ApiResponse(allReadOk, "", MarkAllNotificationsReadData()))
         }
         val lostApi = object : LostItemApiService by mock(LostItemApiService::class.java) {
             override suspend fun getLostItemDetail(id: Long): Response<LostItemCreateResponse> {
@@ -186,5 +189,38 @@ class NotificationNavigationRegressionTest : StabilityFixture() {
         assertEquals(1, h.vm.items.size)
         h.vm.hide(h.vm.items.single()); dispatch()
         assertTrue(h.vm.items.isEmpty()); assertEquals(1, h.readCalls)
+    }
+
+    @Test fun failedSingleDeletionKeepsRowsAndAllowsAnotherChatToOpen() {
+        val h = Inbox(listOf(row(), row(type = "CHAT").copy(id = "chat", roomId = 42, sequence = 99)))
+        h.readOk = false; h.vm.hide(h.vm.items.first()); dispatch()
+        assertEquals(com.ku.lostandfound.ui.notification.InboxState.Ready, h.vm.state)
+        assertNotNull(h.vm.refreshError); assertEquals(2, h.vm.items.size)
+        h.readOk = true; h.click(1)
+        assertEquals(listOf(42L), h.rooms)
+        h.vm.load(); dispatch()
+        assertEquals(listOf("one", "chat"), h.vm.items.map { it.id })
+    }
+    @Test fun failedAllDeletionKeepsRowsAndAllowsMatchToOpen() {
+        val h = Inbox(); h.allReadOk = false; h.vm.hideAll(); dispatch()
+        assertEquals(com.ku.lostandfound.ui.notification.InboxState.Ready, h.vm.state)
+        assertNotNull(h.vm.refreshError); assertEquals(1, h.vm.items.size)
+        h.click()
+        assertEquals(listOf("LOST" to 77L), h.posts)
+        h.vm.load(); dispatch()
+        assertEquals(1, h.vm.items.size)
+    }
+    @Test fun failedAllDeletionWithoutRowsUsesFullErrorState() {
+        val h = Inbox(emptyList()); h.allReadOk = false; h.vm.hideAll(); dispatch()
+        assertTrue(h.vm.state is com.ku.lostandfound.ui.notification.InboxState.Error)
+        assertNull(h.vm.refreshError)
+    }
+    @Test fun failedSingleDeletionAfterListBecomesEmptyUsesFullErrorState() {
+        val h = Inbox(); val gate = CompletableDeferred<Boolean>(); h.readGate = gate
+        h.vm.hide(h.vm.items.first()); dispatch()
+        h.rows = emptyList(); h.vm.load(); dispatch()
+        gate.complete(false); dispatch()
+        assertTrue(h.vm.state is com.ku.lostandfound.ui.notification.InboxState.Error)
+        assertNull(h.vm.refreshError)
     }
 }

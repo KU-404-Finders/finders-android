@@ -304,7 +304,7 @@ class NotificationViewModel @JvmOverloads constructor(
                 catch (_: Exception) { false }
                 if (!current(owner)) return@withLock
                 if (!success) {
-                    state = InboxState.Error("알림 삭제에 실패했습니다. 다시 시도해주세요.")
+                    showLoadError("알림 삭제에 실패했습니다. 다시 시도해주세요.")
                     return@withLock
                 }
                 val key = hiddenKey() + "_sequences"
@@ -330,7 +330,7 @@ class NotificationViewModel @JvmOverloads constructor(
                 catch (_: Exception) { false }
                 if (!current(owner)) return@withLock
                 if (!success) {
-                    state = InboxState.Error("전체 삭제에 실패했습니다. 다시 시도해주세요.")
+                    showLoadError("전체 삭제에 실패했습니다. 다시 시도해주세요.")
                     return@withLock
                 }
                 val prefs = preferences()

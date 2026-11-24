@@ -22,6 +22,8 @@ class BlockedUsersRegressionTest : StabilityFixture() {
     private val deletion = CompletableDeferred<Boolean>()
     private var deletes = 0
     private val pages = mutableListOf<Int>()
+    private val listGenerations = mutableListOf<Long?>()
+    private val unblockGenerations = mutableListOf<Long?>()
 
     @Before fun createBlockedUsers() {
         val values = mutableMapOf<String, String>()
@@ -36,12 +38,14 @@ class BlockedUsersRegressionTest : StabilityFixture() {
         `when`(editor.remove(anyString())).thenAnswer { values.remove(it.getArgument<String>(0)); editor }
         names = BlockedUserNames(application)
         val api = object : ModerationApiService by mock(ModerationApiService::class.java) {
-            override suspend fun blockedUsers(page: Int): Response<ApiResponse<List<BlockResponse>>> {
+            override suspend fun blockedUsers(page: Int, session: RequestSession?): Response<ApiResponse<List<BlockResponse>>> {
                 pages += page
+                listGenerations += session?.generation
                 return ok(CompletableDeferred<List<BlockResponse>>().also(lists::add).await())
             }
-            override suspend fun unblock(userId: Long): Response<ApiResponse<Unit>> {
+            override suspend fun unblock(userId: Long, session: RequestSession?): Response<ApiResponse<Unit>> {
                 deletes++
+                unblockGenerations += session?.generation
                 return if (deletion.await()) Response.success<ApiResponse<Unit>>(204, null)
                 else Response.success(ApiResponse(false, "failed", Unit))
             }
@@ -220,5 +224,27 @@ class BlockedUsersRegressionTest : StabilityFixture() {
         lists.last().complete((1L..51L).filterNot { it == 42L }.map { BlockResponse(it) }); dispatch()
         vm.load(false); dispatch()
         assertEquals(listOf(0, 1, 0, 0, 1), pages)
+    }
+
+    @Test fun queuedPreviousAccountLoadDoesNotStartWithNewSession() {
+        vm.attachAccount(1); vm.load()
+        login("b"); vm.attachAccount(2); dispatch()
+        assertTrue(pages.isEmpty())
+        vm.load(); dispatch()
+        assertEquals(listOf(TokenManager.sessionGeneration()), listGenerations)
+    }
+    @Test fun queuedPreviousAccountUnblockDoesNotStartWithNewSession() {
+        load(); vm.unblock(42) { fail("Old callback") }
+        login("b"); vm.attachAccount(2); dispatch()
+        assertEquals(0, deletes)
+    }
+    @Test fun requestsCarryTheirOriginalAccountGeneration() {
+        val owner = TokenManager.sessionGeneration()
+        load(); vm.unblock(42) {}; dispatch()
+        assertEquals(listOf(owner), listGenerations)
+        assertEquals(listOf(owner), unblockGenerations)
+        login("b"); vm.attachAccount(2); deletion.complete(true); dispatch()
+        assertEquals(1, deletes)
+        assertTrue(vm.users.isEmpty())
     }
 }

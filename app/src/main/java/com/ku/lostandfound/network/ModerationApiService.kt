@@ -18,7 +18,13 @@ interface ModerationApiService {
     @POST("api/v1/reports") suspend fun report(@Body request: CreateReportRequest): Response<ApiResponse<ReportResponse>>
     @GET("api/v1/reports/me") suspend fun myReports(): Response<ApiResponse<List<ReportResponse>>>
     @POST("api/v1/users/{userId}/block") suspend fun block(@Path("userId") userId: Long): Response<ApiResponse<BlockResponse>>
-    @DELETE("api/v1/users/{userId}/block") suspend fun unblock(@Path("userId") userId: Long): Response<ApiResponse<Unit>>
+    @DELETE("api/v1/users/{userId}/block") suspend fun unblock(
+        @Path("userId") userId: Long,
+        @retrofit2.http.Tag session: RequestSession? = null,
+    ): Response<ApiResponse<Unit>>
     @GET("api/v1/users/me/blocks")
-    suspend fun blockedUsers(@Query("page") page: Int = 0): Response<ApiResponse<List<BlockResponse>>>
+    suspend fun blockedUsers(
+        @Query("page") page: Int = 0,
+        @retrofit2.http.Tag session: RequestSession? = null,
+    ): Response<ApiResponse<List<BlockResponse>>>
 }

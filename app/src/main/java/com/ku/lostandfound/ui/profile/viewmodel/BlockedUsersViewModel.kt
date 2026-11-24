@@ -65,7 +65,8 @@ class BlockedUsersViewModel @JvmOverloads constructor(
         error = null
         viewModelScope.launch {
             try {
-                val response = api.blockedUsers(page)
+                if (!current(owner) || request != requestId) return@launch
+                val response = api.blockedUsers(page, com.ku.lostandfound.network.RequestSession(owner.generation))
                 if (!current(owner) || request != requestId) return@launch
                 val data = response.body()?.takeIf { response.isSuccessful && it.success }?.data
                 if (data == null) error = "차단한 사용자를 불러오지 못했습니다."
@@ -92,8 +93,9 @@ class BlockedUsersViewModel @JvmOverloads constructor(
         unblocking = unblocking + userId
         error = null
         viewModelScope.launch {
+            if (!current(owner)) return@launch
             val success = try {
-                val response = api.unblock(userId)
+                val response = api.unblock(userId, com.ku.lostandfound.network.RequestSession(owner.generation))
                 response.isSuccessful && (response.code() == 204 || response.body()?.success == true)
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { false }
