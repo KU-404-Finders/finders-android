@@ -57,15 +57,17 @@ class WithdrawalMergeRegressionTest : StabilityFixture() {
     }
     @Test fun suspendedFailureEnvelopeOverHttpSuccessIsAlsoHandled() {
         val h = Account(); h.suspendLogin(code = 200)
-        assertTrue(h.vm.hasSuspendedWithdrawal); assertNull(TokenManager.accessToken)
+        assertTrue(h.vm.hasSuspendedWithdrawal); assertEquals("a", TokenManager.accessToken)
     }
     @Test fun suspendedLoginKeepsDedicatedCredentialOutOfOrdinaryStore() {
+        TokenManager.clear()
         val h = Account(); h.suspendLogin()
+        val generation = TokenManager.sessionGeneration()
         assertNull(TokenManager.accessToken); assertNull(TokenManager.refreshToken)
         assertTrue(h.vm.hasSuspendedWithdrawal)
         h.withdraw()
         assertEquals("Bearer withdraw-a", h.withdrawals.single().first)
-        assertEquals(WithdrawalTokenKind.DEDICATED, h.withdrawals.single().second.tokenKind)
+        assertEquals(WithdrawalRequest(generation, WithdrawalTokenKind.DEDICATED), h.withdrawals.single().second)
     }
     @Test fun suspendedSuccessEnvelopeCannotInstallOrdinaryTokens() {
         val h = Account()
@@ -73,14 +75,14 @@ class WithdrawalMergeRegressionTest : StabilityFixture() {
             suspended = true, withdrawalToken = "dedicated")))
         h.vm.login("suspended", "password"); dispatch()
         assertEquals(LoginUiState.Suspended, h.vm.uiState)
-        assertNull(TokenManager.accessToken); assertNull(TokenManager.refreshToken)
+        assertEquals("a", TokenManager.accessToken); assertEquals("refresh-a", TokenManager.refreshToken)
     }
     @Test fun suspendedResponseWithoutDedicatedTokenCannotFallBackToNormalLogin() {
         val h = Account()
         h.loginReply = Response.success(LoginResponse(true, "", TokenData("must-not-store", "must-not-store", suspended = true)))
         h.vm.login("suspended", "password"); dispatch(); h.withdraw()
         assertTrue(h.vm.uiState is LoginUiState.Error)
-        assertNull(TokenManager.accessToken); assertTrue(h.withdrawals.isEmpty())
+        assertEquals("a", TokenManager.accessToken); assertTrue(h.withdrawals.isEmpty())
     }
     @Test fun incompleteNormalLoginDoesNotInstallPartialTokens() {
         val h = Account(); h.loginReply = Response.success(LoginResponse(true, "", TokenData("partial", null)))
@@ -97,6 +99,7 @@ class WithdrawalMergeRegressionTest : StabilityFixture() {
         assertEquals(LoginUiState.Idle, h.vm.uiState)
     }
     @Test fun suspendedWithdrawalCompletesAndDropsMemoryCredential() {
+        TokenManager.clear()
         val h = Account(); h.suspendLogin(); h.withdraw()
         assertEquals(LoginUiState.WithdrawalComplete, h.vm.uiState)
         assertFalse(h.vm.hasSuspendedWithdrawal); assertFalse(h.vm.isWithdrawing)
@@ -112,6 +115,7 @@ class WithdrawalMergeRegressionTest : StabilityFixture() {
         assertEquals(1, h.finished)
     }
     @Test fun dedicatedNetworkFailureCanRetryWithoutOrdinarySession() {
+        TokenManager.clear()
         val h = Account(); h.suspendLogin(); h.withdrawal = { throw java.io.IOException() }; h.withdraw()
         assertFalse(h.vm.isWithdrawing); assertTrue(h.vm.hasSuspendedWithdrawal)
         assertNull(TokenManager.accessToken)

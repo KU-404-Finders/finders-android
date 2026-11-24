@@ -43,6 +43,26 @@ object TokenManager {
         return sessionGeneration.advance()
     }
 
+    /** Server JwtProvider/API-SPEC define sub as email, not the numeric userId.
+     * Decode only to protect local session ownership; server authentication still verifies JWTs.
+     * Unknown subjects must never authorize clearing an existing session.
+     */
+    internal fun tokenSubject(token: String?): String? = runCatching {
+        val parts = token?.split('.') ?: return null
+        if (parts.size != 3 || parts.any { it.isBlank() }) return null
+        val payload = String(java.util.Base64.getUrlDecoder().decode(parts[1]), Charsets.UTF_8)
+        val subject = com.google.gson.JsonParser.parseString(payload).asJsonObject.get("sub")
+        subject?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+            ?.takeIf { it.isNotBlank() && it == it.trim() }
+    }.getOrNull()
+
+    @Synchronized
+    internal fun clearIfOwnedBy(expectedGeneration: Long, subject: String?): Long? {
+        if (!sessionGeneration.isCurrent(expectedGeneration) || subject.isNullOrBlank() ||
+            tokenSubject(accessToken) != subject) return null
+        return clear()
+    }
+
     /** Accepts a completed login only when it belongs to the session that started it. */
     @Synchronized
     fun saveNewSessionTokens(expectedGeneration: Long, accessToken: String, refreshToken: String): Boolean {

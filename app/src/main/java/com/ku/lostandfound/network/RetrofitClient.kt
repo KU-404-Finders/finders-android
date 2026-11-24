@@ -123,13 +123,25 @@ object RetrofitClient {
         .addInterceptor(authInterceptor)
         .build()
 
+    // Application interceptors do not recheck redirect follow-ups. Dedicated credentials
+    // must never leave the original withdrawal URL, including same-host redirects.
+    private val dedicatedWithdrawalClient = okHttpClient.newBuilder()
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .build()
+
+    internal fun newCall(original: Request): okhttp3.Call {
+        val owner = original.tag(RequestSession::class.java) ?: RequestSession(TokenManager.sessionGeneration())
+        val request = original.newBuilder().tag(RequestSession::class.java, owner).build()
+        val client = if (original.tag(WithdrawalRequest::class.java)?.tokenKind == WithdrawalTokenKind.DEDICATED)
+            dedicatedWithdrawalClient else okHttpClient
+        return client.newCall(request)
+    }
+
     private val retrofit = Retrofit.Builder()
         .baseUrl(BASE_URL)
-        .callFactory { original ->
-            // Capture ownership before OkHttp queues the request on a worker thread.
-            val owner = original.tag(RequestSession::class.java) ?: RequestSession(TokenManager.sessionGeneration())
-            okHttpClient.newCall(original.newBuilder().tag(RequestSession::class.java, owner).build())
-        }
+        // Capture ownership before OkHttp queues the request on a worker thread.
+        .callFactory(::newCall)
         .addConverterFactory(GsonConverterFactory.create())
         .build()
 

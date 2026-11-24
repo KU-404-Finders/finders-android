@@ -31,7 +31,7 @@ class LoginViewModel(
     },
 ) : ViewModel() {
     // Regular classes deliberately have no generated toString containing credentials.
-    private class SuspendedAccount(val generation: Long, val userId: Long?, val token: String)
+    private class SuspendedAccount(val generation: Long, val subject: String?, val token: String)
     private class WithdrawalOperation(val attempt: Long, val generation: Long,
         val suspended: SuspendedAccount?, val authorization: String) {
         val request = WithdrawalRequest(generation,
@@ -41,6 +41,8 @@ class LoginViewModel(
     private var suspendedAccount by mutableStateOf<SuspendedAccount?>(null)
     private var activeWithdrawal: WithdrawalOperation? = null
     private var withdrawalJob: Job? = null
+    // Losing/cancelling a dedicated credential must never fall back to a preserved ordinary session.
+    private var requiresDedicatedWithdrawal = false
     var isWithdrawing by mutableStateOf(false)
         private set
     val hasSuspendedWithdrawal: Boolean get() = suspendedAccount?.let {
@@ -81,12 +83,19 @@ class LoginViewModel(
                 synchronized(TokenManager) {
                     if (!valid()) return@launch
                     if (data?.suspended == true) {
-                        val closed = TokenManager.clear()
+                        requiresDedicatedWithdrawal = true
                         val dedicated = data.withdrawalToken?.takeIf { it.isNotBlank() }
                         if (dedicated == null) {
                             uiState = LoginUiState.Error("탈퇴 인증정보를 받지 못했습니다. 다시 로그인해주세요.")
                         } else {
-                            suspendedAccount = SuspendedAccount(closed, data.userId, dedicated)
+                            val subject = TokenManager.tokenSubject(dedicated)
+                            if (subject != null && subject != toKonkukEmail(emailPrefix)) {
+                                uiState = LoginUiState.Error("탈퇴 인증정보의 계정이 일치하지 않습니다. 다시 로그인해주세요.")
+                                return@launch
+                            }
+                            val generation = TokenManager.clearIfOwnedBy(sessionGeneration, subject)
+                                ?: sessionGeneration
+                            suspendedAccount = SuspendedAccount(generation, subject, dedicated)
                             uiState = LoginUiState.Suspended
                         }
                         return@launch
@@ -98,6 +107,7 @@ class LoginViewModel(
                             return@launch
                         }
                         PushDeviceManager.onLoginSucceeded()
+                        requiresDedicatedWithdrawal = false
                         uiState = LoginUiState.Success
                     } else {
                         if (!response.isSuccessful) NetworkLog.httpError("login", response.code())
@@ -124,6 +134,7 @@ class LoginViewModel(
             val result = RetrofitClient.refreshSession()
             if (attempt != loginAttemptId || !TokenManager.isCurrentSession(session)) return@launch
             uiState = if (result == RefreshSessionResult.Success) {
+                requiresDedicatedWithdrawal = false
                 PushDeviceManager.onLoginSucceeded()
                 LoginUiState.Success
             } else LoginUiState.Idle
@@ -170,6 +181,10 @@ class LoginViewModel(
         val operation = synchronized(TokenManager) {
             val session = TokenManager.credentials()
             val dedicated = suspendedAccount
+            if (requiresDedicatedWithdrawal && dedicated == null) {
+                uiState = LoginUiState.Error("탈퇴 인증정보가 없습니다. 다시 로그인해주세요.")
+                return
+            }
             if (dedicated != null && dedicated.generation != session.generation) {
                 abandonWithdrawal()
                 uiState = LoginUiState.Error("로그인 상태가 변경되었습니다. 다시 로그인해주세요.")
@@ -198,7 +213,8 @@ class LoginViewModel(
                 synchronized(TokenManager) {
                     if (!owns(operation)) return@launch
                     if (response.isSuccessful && response.body()?.success == true) {
-                        TokenManager.clear()
+                        if (operation.suspended == null) TokenManager.clear()
+                        else TokenManager.clearIfOwnedBy(operation.generation, operation.suspended.subject)
                         suspendedAccount = null
                         activeWithdrawal = null
                         withdrawalJob = null
