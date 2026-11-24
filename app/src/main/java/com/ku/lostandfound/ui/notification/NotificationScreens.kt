@@ -13,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,12 +60,11 @@ fun NotificationInboxScreen(vm: NotificationViewModel, onBack: () -> Unit, onOpe
                     }
                     items(vm.items, key = { it.id }) { item ->
                         SwipeToHideNotification(item = item, onHide = { vm.hide(item) }, onRead = { read(item) }) {
-                            InboxRow(item, onClick = { vm.markRead(item, onError = { android.widget.Toast.makeText(context, "알림 읽음 처리에 실패했습니다.", android.widget.Toast.LENGTH_SHORT).show() }) {
-                                if (item.type == "COMMENT") vm.openCommentPost(item,
-                                    onMessage = { android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show() },
-                                    onOpen = onOpenPost)
-                                else item.roomId?.let(onOpenRoom)
-                            } })
+                            InboxRow(item, onClick = { vm.openNotification(item,
+                                onReadError = { android.widget.Toast.makeText(context, "알림 읽음 처리에 실패했습니다.", android.widget.Toast.LENGTH_SHORT).show() },
+                                onMessage = { android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show() },
+                                onOpenPost = onOpenPost, onOpenRoom = onOpenRoom)
+                            })
                         }
                     }
                     if (vm.nextBeforeSequence != null) item { TextButton(onClick = { vm.load(false) }, modifier = Modifier.fillMaxWidth(), enabled = !vm.loadingMore) { Text(if (vm.loadingMore) "불러오는 중…" else "이전 알림 더 보기") } }
@@ -75,7 +75,7 @@ fun NotificationInboxScreen(vm: NotificationViewModel, onBack: () -> Unit, onOpe
     if (confirmDeleteAll) AlertDialog(
         onDismissRequest = { confirmDeleteAll = false },
         title = { Text("알림을 모두 삭제할까요?") },
-        text = { Text("지금 보이는 알림이 모두 읽음 처리되고 알림함에서 지워집니다.") },
+        text = { Text("목록의 기준 시점까지 받은 알림을 모두 읽음 처리하고 삭제합니다. 아직 불러오지 않은 이전 알림도 포함하며, 기준 시점 이후 새로 도착한 알림은 남을 수 있습니다.") },
         confirmButton = { TextButton(onClick = { confirmDeleteAll = false; vm.hideAll() }) { Text("전체 삭제", color = Color(0xFFD32F2F)) } },
         dismissButton = { TextButton(onClick = { confirmDeleteAll = false }) { Text("취소") } },
     )
@@ -93,16 +93,19 @@ fun NotificationInboxScreen(vm: NotificationViewModel, onBack: () -> Unit, onOpe
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SwipeToHideNotification(
+internal fun SwipeToHideNotification(
     item: InboxNotificationData,
     onHide: () -> Unit,
     onRead: () -> Unit,
     content: @Composable () -> Unit,
 ) {
+    val currentItem by rememberUpdatedState(item)
+    val currentHide by rememberUpdatedState(onHide)
+    val currentRead by rememberUpdatedState(onRead)
     val state = rememberSwipeToDismissBoxState(
         confirmValueChange = { target ->
-            if (target == SwipeToDismissBoxValue.EndToStart) onHide()
-            if (target == SwipeToDismissBoxValue.StartToEnd && item.readAt == null) onRead()
+            if (target == SwipeToDismissBoxValue.EndToStart) currentHide()
+            if (target == SwipeToDismissBoxValue.StartToEnd && currentItem.readAt == null) currentRead()
             false // The list updates only after the account-local hide state is persisted.
         },
     )

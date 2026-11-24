@@ -10,6 +10,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,9 +55,9 @@ fun SignupTermsScreen(vm: SignupViewmodel, onBack: () -> Unit, onContinue: () ->
 }
 
 @Composable
-private fun TermsCheck(label: String, checked: Boolean, onChange: (Boolean) -> Unit, onView: (() -> Unit)? = null) {
+internal fun TermsCheck(label: String, checked: Boolean, onChange: (Boolean) -> Unit, onView: (() -> Unit)? = null) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Checkbox(checked, onChange)
+        Checkbox(checked, onChange, modifier = Modifier.semantics { contentDescription = label })
         Text(label, Modifier.weight(1f))
         onView?.let { TextButton(onClick = it) { Text("보기") } }
     }

@@ -25,6 +25,7 @@ class InboxRegressionTest : StabilityFixture() {
     private val read = CompletableDeferred<Boolean>()
     private val saved = CompletableDeferred<NotificationSettingsData>()
     private val allRead = CompletableDeferred<Boolean>()
+    private var deletedThrough: Long? = null
     private val item = InboxNotificationData("one", "CHAT", roomId = 42, sequence = 1)
     private lateinit var vm: NotificationViewModel
 
@@ -51,8 +52,10 @@ class InboxRegressionTest : StabilityFixture() {
             }
             override suspend fun unreadCount() = ok(NotificationUnreadCountData(++badges))
             override suspend fun markRead(id: String) = Response.success(ApiResponse(read.await(), "", Unit))
-            override suspend fun markAllRead(request: MarkAllNotificationsReadRequest) =
-                Response.success(ApiResponse(allRead.await(), "", MarkAllNotificationsReadData()))
+            override suspend fun markAllRead(request: MarkAllNotificationsReadRequest): Response<ApiResponse<MarkAllNotificationsReadData>> {
+                deletedThrough = request.throughSequence
+                return Response.success(ApiResponse(allRead.await(), "", MarkAllNotificationsReadData()))
+            }
             override suspend fun settings() = ok(fetched.await())
             override suspend fun updateSettings(patch: NotificationSettingsPatch): Response<ApiResponse<NotificationSettingsData>> {
                 patches++
@@ -194,5 +197,16 @@ class InboxRegressionTest : StabilityFixture() {
         read.complete(true)
         dispatch()
         assertEquals(listOf(item), vm.items)
+    }
+
+    @Test fun deleteAllKeepsOriginalSnapshotBoundaryAfterArrivalRefresh() {
+        vm.attachAccount(1); dispatch()
+        assertEquals(1L, vm.snapshotSequence)
+        vm.refreshArrivals(); dispatch()
+        assertEquals(2, pages)
+        assertEquals(1L, vm.snapshotSequence)
+        vm.hideAll(); allRead.complete(true); dispatch()
+        assertEquals(1L, deletedThrough)
+        assertTrue(vm.items.isEmpty())
     }
 }

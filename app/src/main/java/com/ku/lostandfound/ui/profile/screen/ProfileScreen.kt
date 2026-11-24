@@ -187,12 +187,6 @@ fun ProfileScreen(
                     )
                     Spacer(Modifier.height(16.dp))
                     Text(
-                        text = "이메일: ___ (작성 필요)",
-                        color = Color(0xFF888888),
-                        fontSize = 12.sp,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
                         text = "앱 버전 $appVersion",
                         color = Color(0xFF888888),
                         fontSize = 12.sp,

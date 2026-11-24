@@ -31,6 +31,8 @@ sealed class InboxState {
 class NotificationViewModel @JvmOverloads constructor(
     application: Application,
     private val notificationApi: NotificationApiService = RetrofitClient.notificationApi,
+    private val lostItemApi: com.ku.lostandfound.network.LostItemApiService = RetrofitClient.lostItemApi,
+    private val foundItemApi: com.ku.lostandfound.network.FoundItemApiService = RetrofitClient.foundItemApi,
 ) : AndroidViewModel(application) {
     var state by mutableStateOf<InboxState>(InboxState.Ready); private set
     var items by mutableStateOf<List<InboxNotificationData>>(emptyList()); private set
@@ -52,6 +54,7 @@ class NotificationViewModel @JvmOverloads constructor(
     private var inboxVisit = 0L
     private var arrivalRequestId = 0
     private var latestSnapshotSequence: Long? = null
+    private var navigationRequestId = 0L
 
     private fun current(owner: Account?) =
         owner != null && account === owner && TokenManager.isCurrentSession(owner.generation)
@@ -221,30 +224,50 @@ class NotificationViewModel @JvmOverloads constructor(
         }
     }
 
-    fun openCommentPost(item: InboxNotificationData, onMessage: (String) -> Unit, onOpen: (String, Long) -> Unit) {
+    fun openNotification(item: InboxNotificationData, onReadError: () -> Unit,
+        onMessage: (String) -> Unit, onOpenRoom: (Long) -> Unit, onOpenPost: (String, Long) -> Unit) {
         val owner = account ?: return
-        val postId = item.postId ?: return
-        val type = item.postType?.takeIf { it == "LOST" || it == "FOUND" } ?: return
+        if (!current(owner) || !inboxOpen || items.none { it === item }) return
+        val visit = inboxVisit
+        val request = ++navigationRequestId
+        fun valid() = current(owner) && inboxOpen && visit == inboxVisit && request == navigationRequestId
+        markRead(item, onError = { if (valid()) onReadError() }) {
+            if (!valid()) return@markRead
+            val target = com.ku.lostandfound.notification.NotificationTarget.fromData(mapOf(
+                "type" to item.type, "roomId" to item.roomId.toString(),
+                "postId" to item.postId.toString(), "postType" to item.postType.orEmpty()))
+            when (target) {
+                is com.ku.lostandfound.notification.NotificationTarget.Chat -> onOpenRoom(target.roomId)
+                is com.ku.lostandfound.notification.NotificationTarget.Post ->
+                    openNotificationPost(target, ::valid, onMessage, onOpenPost)
+                null -> onMessage("알림의 이동 정보가 올바르지 않습니다.")
+            }
+        }
+    }
+
+    private fun openNotificationPost(target: com.ku.lostandfound.notification.NotificationTarget.Post,
+        valid: () -> Boolean, onMessage: (String) -> Unit, onOpen: (String, Long) -> Unit) {
         viewModelScope.launch {
+            if (!valid()) return@launch
             try {
-                val (code, success) = if (type == "LOST") {
-                    val response = RetrofitClient.lostItemApi.getLostItemDetail(postId)
-                    response.code() to (response.isSuccessful && response.body()?.success == true)
+                val (code, success) = if (target.postType == "LOST") {
+                    val response = lostItemApi.getLostItemDetail(target.postId)
+                    response.code() to (response.isSuccessful && response.body()?.success == true && response.body()?.data != null)
                 } else {
-                    val response = RetrofitClient.foundItemApi.getFoundItemDetail(postId)
-                    response.code() to (response.isSuccessful && response.body()?.success == true)
+                    val response = foundItemApi.getFoundItemDetail(target.postId)
+                    response.code() to (response.isSuccessful && response.body()?.success == true && response.body()?.data != null)
                 }
-                if (!current(owner) || !inboxOpen) return@launch
+                if (!valid()) return@launch
                 when {
                     code == 404 -> {
                         onMessage("삭제되었거나 찾을 수 없는 게시글입니다.")
                         load()
                     }
-                    success -> onOpen(type, postId)
+                    success -> onOpen(target.postType, target.postId)
                     else -> onMessage("게시글을 불러오지 못했습니다.")
                 }
             } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { if (current(owner) && inboxOpen) onMessage("서버와 연결할 수 없습니다.") }
+            catch (_: Exception) { if (valid()) onMessage("서버와 연결할 수 없습니다.") }
         }
     }
 

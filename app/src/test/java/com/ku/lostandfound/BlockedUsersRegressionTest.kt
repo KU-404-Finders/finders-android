@@ -203,4 +203,22 @@ class BlockedUsersRegressionTest : StabilityFixture() {
         assertEquals((1L..52L).filterNot { it == 42L }, vm.users.map { it.id })
         assertFalse(vm.hasMore)
     }
+
+    @Test fun failedResetAfterUnblockCannotReuseOldOffsetAndRetriesPageZero() {
+        vm.attachAccount(1); vm.load(); dispatch()
+        lists.last().complete((1L..50L).map { BlockResponse(it) }); dispatch()
+        vm.load(false); dispatch()
+        lists.last().complete((51L..100L).map { BlockResponse(it) }); dispatch()
+        assertTrue(vm.hasMore)
+        vm.unblock(42) {}; deletion.complete(true); dispatch()
+        assertFalse(vm.hasMore)
+        lists.last().completeExceptionally(java.io.IOException()); dispatch()
+        vm.load(false); dispatch()
+        assertEquals(listOf(0, 1, 0), pages)
+        vm.retry(); dispatch()
+        assertEquals(listOf(0, 1, 0, 0), pages)
+        lists.last().complete((1L..51L).filterNot { it == 42L }.map { BlockResponse(it) }); dispatch()
+        vm.load(false); dispatch()
+        assertEquals(listOf(0, 1, 0, 0, 1), pages)
+    }
 }

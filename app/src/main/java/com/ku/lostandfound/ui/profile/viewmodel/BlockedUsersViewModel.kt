@@ -53,6 +53,11 @@ class BlockedUsersViewModel @JvmOverloads constructor(
         val owner = account ?: return
         if (!current(owner)) return
         if (!reset && (loading || !hasMore)) return
+        if (reset) {
+            // A failed reset must not expose the old offset after an unblock shifted rows.
+            nextPage = 0
+            hasMore = false
+        }
         val page = if (reset) 0 else nextPage
         val request = ++requestId
         retryReset = reset

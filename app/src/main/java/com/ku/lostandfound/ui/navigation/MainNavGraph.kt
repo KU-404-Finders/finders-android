@@ -90,6 +90,7 @@ import com.ku.lostandfound.ui.notification.NotificationInboxScreen
 import com.ku.lostandfound.ui.notification.NotificationSettingsScreen
 import com.ku.lostandfound.ui.notification.NotificationViewModel
 import com.ku.lostandfound.ui.search.screen.SearchScreen
+import com.ku.lostandfound.ui.signup.screen.SignupConsentGuard
 import com.ku.lostandfound.ui.signup.screen.SignupCodeScreen
 import com.ku.lostandfound.ui.signup.screen.SignupEmailScreen
 import com.ku.lostandfound.ui.signup.screen.SignupFinishScreen
@@ -573,43 +574,82 @@ fun MainNavGraph(
             )
         }
         composable(route = Route.SignupName.route) {
-            SignupNameScreen(
-                viewModel = signupViewModel,
-                onNavigateToPw = { navController.navigate(Route.SignupPw.route) },
-                onNavigateToBack = { navController.popBackStack() },
-            )
-        }
-        composable(route = Route.SignupPw.route) {
-            SignupPwScreen(
-                viewModel = signupViewModel,
-                onNavigateToEmail = { navController.navigate(Route.SignupEmail.route) },
-                onNavigateToBack = { navController.popBackStack() },
-            )
-        }
-        composable(route = Route.SignupEmail.route) {
-            SignupEmailScreen(
-                viewModel = signupViewModel,
-                onNavigateToCode = { navController.navigate(Route.SignupCode.route) },
-                onNavigateToBack = { navController.popBackStack() },
-            )
-        }
-        composable(route = Route.SignupCode.route) {
-            SignupCodeScreen(
-                viewModel = signupViewModel,
-                onNavigateToFinish = { navController.navigate(Route.SignupFinish.route) },
-                onNavigateToBack = { navController.popBackStack() },
-            )
-        }
-        composable(route = Route.SignupFinish.route) {
-            SignupFinishScreen(
-                onNavigateToLogin = {
-                    loginViewModel.resetUiState()
-                    signupViewModel.reset()
-                    navController.navigate(Route.Login.route) {
-                        popUpTo(Route.Login.route) { inclusive = true }
-                    }
+            SignupConsentGuard(signupViewModel, onConsentRequired = {
+                navController.navigate(Route.SignupTerms.route) {
+                    popUpTo(Route.SignupTerms.route) { inclusive = true }
+                    launchSingleTop = true
                 }
-            )
+            }) {
+                SignupNameScreen(
+                    viewModel = signupViewModel,
+                    onNavigateToPw = { navController.navigate(Route.SignupPw.route) },
+                    onNavigateToBack = { navController.popBackStack() },
+                )
+            }
+        }
+
+        composable(route = Route.SignupPw.route) {
+            SignupConsentGuard(signupViewModel, onConsentRequired = {
+                navController.navigate(Route.SignupTerms.route) {
+                    popUpTo(Route.SignupTerms.route) { inclusive = true }
+                    launchSingleTop = true
+                }
+            }) {
+                SignupPwScreen(
+                    viewModel = signupViewModel,
+                    onNavigateToEmail = { navController.navigate(Route.SignupEmail.route) },
+                    onNavigateToBack = { navController.popBackStack() },
+                )
+            }
+        }
+
+        composable(route = Route.SignupEmail.route) {
+            SignupConsentGuard(signupViewModel, onConsentRequired = {
+                navController.navigate(Route.SignupTerms.route) {
+                    popUpTo(Route.SignupTerms.route) { inclusive = true }
+                    launchSingleTop = true
+                }
+            }) {
+                SignupEmailScreen(
+                    viewModel = signupViewModel,
+                    onNavigateToCode = { navController.navigate(Route.SignupCode.route) },
+                    onNavigateToBack = { navController.popBackStack() },
+                )
+            }
+        }
+
+        composable(route = Route.SignupCode.route) {
+            SignupConsentGuard(signupViewModel, onConsentRequired = {
+                navController.navigate(Route.SignupTerms.route) {
+                    popUpTo(Route.SignupTerms.route) { inclusive = true }
+                    launchSingleTop = true
+                }
+            }) {
+                SignupCodeScreen(
+                    viewModel = signupViewModel,
+                    onNavigateToFinish = { navController.navigate(Route.SignupFinish.route) },
+                    onNavigateToBack = { navController.popBackStack() },
+                )
+            }
+        }
+
+        composable(route = Route.SignupFinish.route) {
+            SignupConsentGuard(signupViewModel, onConsentRequired = {
+                navController.navigate(Route.SignupTerms.route) {
+                    popUpTo(Route.SignupTerms.route) { inclusive = true }
+                    launchSingleTop = true
+                }
+            }) {
+                SignupFinishScreen(
+                    onNavigateToLogin = {
+                        loginViewModel.resetUiState()
+                        signupViewModel.reset()
+                        navController.navigate(Route.Login.route) {
+                            popUpTo(Route.Login.route) { inclusive = true }
+                        }
+                    }
+                )
+            }
         }
 
         composable(route = Route.Found.route) {
