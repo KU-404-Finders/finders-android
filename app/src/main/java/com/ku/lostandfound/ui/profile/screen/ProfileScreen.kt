@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -80,7 +81,12 @@ fun ProfileScreen(
     showSimilarityScores: Boolean = false,
     onShowSimilarityScoresChange: (Boolean) -> Unit = {},
     onNotificationSettingsClick: () -> Unit = {},
+    onBlockedUsersClick: () -> Unit = {},
 ) {
+    val context = LocalContext.current
+    val appVersion = remember(context) {
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty()
+    }
     var showWithdrawConfirmDialog by remember { mutableStateOf(false) }
     var showWithdrawCompleteDialog by remember { mutableStateOf(false) }
     var showLogoutConfirmDialog by remember { mutableStateOf(false) }
@@ -138,6 +144,16 @@ fun ProfileScreen(
                 )
             }
 
+            item {
+                Card(
+                    shape = RoundedCornerShape(10.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    modifier = Modifier.fillMaxWidth().noRippleClickable(onBlockedUsersClick),
+                ) {
+                    Text("차단한 사용자", modifier = Modifier.padding(16.dp), fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+
             if (showAdminMenu) {
                 item {
                     AdminMenuCard(
@@ -161,7 +177,10 @@ fun ProfileScreen(
             }
             item {
                 Spacer(Modifier.height(58.dp))
-                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
                     Text(
                         text = if (isWithdrawing) "탈퇴 처리 중..." else "탈퇴하기",
                         color = Color(0xFF888888),
@@ -170,6 +189,12 @@ fun ProfileScreen(
                         modifier = Modifier.noRippleClickable {
                             if (!isWithdrawing) showWithdrawConfirmDialog = true
                         },
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        text = "앱 버전 $appVersion",
+                        color = Color(0xFF888888),
+                        fontSize = 12.sp,
                     )
                 }
             }

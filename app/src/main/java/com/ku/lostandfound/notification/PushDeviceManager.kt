@@ -12,6 +12,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -19,27 +22,24 @@ import androidx.core.content.edit
 
 object PushDeviceManager {
 
-    private const val TAG = "FindersFCM"
-
     private const val PREFS_NAME = "push_registration"
     private const val KEY_INSTALLATION_ID = "installation_id"
-    // Controls only the device-registration API. It does not enable/disable FCM.
-    private const val SERVER_SYNC_ENABLED = true
-    private const val MAX_REGISTER_ATTEMPTS = 3
+    private const val KEY_REGISTERED_ID = "registered_installation_id"
 
-    private var appContext: Context? = null
+    @Volatile private var appContext: Context? = null
+
+    private val installationCallbackId = java.util.concurrent.atomic.AtomicLong()
 
     private val scope = CoroutineScope(
         SupervisorJob() + Dispatchers.IO
     )
 
-    private val requestMutex = Mutex()
-    @Volatile
-    private var registrationJob: Job? = null
-
-    @Volatile
-    private var sessionClosed = false
-    private var registeredKey: Pair<String, String>? = null
+    private val registration by lazy {
+        PushRegistration(scope, RetrofitClient.pushDeviceApi,
+            getRegisteredId = { appContext?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)?.getString(KEY_REGISTERED_ID, null) },
+            saveRegisteredId = { id -> appContext?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)?.edit { putString(KEY_REGISTERED_ID, id) } },
+            getInstallationId = ::getInstallationId)
+    }
 
     // 앱 실행 시 초기화
     fun init(context: Context) {
@@ -52,6 +52,7 @@ object PushDeviceManager {
         installationId: String,
     ) {
         if (installationId.isBlank()) return
+        val callbackId = installationCallbackId.incrementAndGet()
 
         init(context)
         TokenManager.init(context.applicationContext)
@@ -60,19 +61,11 @@ object PushDeviceManager {
             PREFS_NAME,
             Context.MODE_PRIVATE
         )
-        // A new FID must bypass the previous same-session success marker.
-        if (preferences.getString(KEY_INSTALLATION_ID, null) != installationId) {
-            registeredKey = null
-            registrationJob?.cancel()
+        synchronized(TokenManager) {
+            if (callbackId != installationCallbackId.get()) return
+            preferences.edit { putString(KEY_INSTALLATION_ID, installationId) }
+            syncIfLoggedIn()
         }
-        preferences.edit {
-            putString(KEY_INSTALLATION_ID, installationId)
-        }
-
-        Log.d(TAG, "FCM installation ID 저장 완료")
-
-        // 로그인된 상태라면 서버에 동기화
-        syncIfLoggedIn()
     }
 
     private fun getInstallationId(): String? {
@@ -86,104 +79,174 @@ object PushDeviceManager {
     }
 
     // 로그인 성공 후 호출
-    fun onLoginSucceeded() {
-        sessionClosed = false
-        registeredKey = null
-        registrationJob?.cancel()
-        syncIfLoggedIn()
+    fun onLoginSucceeded() = syncIfLoggedIn()
+
+    fun syncIfLoggedIn() = registration.syncIfLoggedIn(TokenManager.sessionGeneration())
+
+    fun resumeAfterFailedWithdrawal(generation: Long) = registration.reopen(generation)
+
+    suspend fun unregisterBeforeLogout(authorization: String, expectedGeneration: Long) =
+        registration.unregisterBeforeLogout(authorization, expectedGeneration)
+}
+
+internal class PushRegistration(
+    private val scope: CoroutineScope,
+    private val api: com.ku.lostandfound.network.PushDeviceApiService,
+    private val getRegisteredId: () -> String? = { null },
+    private val saveRegisteredId: (String?) -> Unit = {},
+    private val dispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
+    private val getInstallationId: () -> String?,
+) {
+    private companion object {
+        const val TAG = "FindersFCM"
+        const val MAX_REGISTER_ATTEMPTS = 3
     }
 
-    // 서버에 현재 기기 등록
-    fun syncIfLoggedIn() {
-        if (!SERVER_SYNC_ENABLED || sessionClosed) return
-        val installationId = getInstallationId() ?: return
-        val accessToken = TokenManager.accessToken ?: return
-        val key = installationId to accessToken
-        if (registeredKey == key) return
+    private val requestMutex = Mutex()
+    // Ownership changes share the session monitor. Never suspend or acquire requestMutex under it.
+    private data class Owner(val generation: Long, val installationId: String)
+    private var registrationJob: Job? = null
+    private var active: Owner? = null
+    private var registered: Owner? = null
+    private var closedGeneration: Long? = null
 
-        registrationJob?.cancel()
-        registrationJob = scope.launch {
-            requestMutex.withLock {
-                if (
-                    sessionClosed ||
-                    TokenManager.accessToken != accessToken
-                ) {
-                    return@withLock
-                }
+    fun syncIfLoggedIn(generation: Long) {
+        synchronized(TokenManager) {
+            if (!TokenManager.isCurrentSession(generation)) return
+            if (closedGeneration == generation || !TokenManager.isLoggedIn()) return
+            val owner = Owner(generation, getInstallationId() ?: return)
+            if (registered == owner || (active == owner && registrationJob?.isActive == true)) return
+            registrationJob?.cancel()
+            active = owner
+            registered = null
+            registrationJob = scope.launch { register(owner) }
+        }
+    }
 
-                repeat(MAX_REGISTER_ATTEMPTS) { index ->
-                    val attempt = index + 1
-                    val retryable = try {
-                        val response = RetrofitClient.pushDeviceApi.registerDevice(
-                            PushDeviceRequest(installationId = installationId)
-                        )
+    private fun owns(owner: Owner) = synchronized(TokenManager) {
+        active === owner && closedGeneration != owner.generation && TokenManager.isCurrentSession(owner.generation)
+    }
 
-                        if (response.isSuccessful) {
-                            if (!sessionClosed && TokenManager.accessToken == accessToken) {
-                                registeredKey = key
+    private suspend fun register(owner: Owner) {
+        requestMutex.withLock {
+            repeat(MAX_REGISTER_ATTEMPTS) { index ->
+                if (!owns(owner)) return@withLock
+                val attempt = index + 1
+                val retryable = try {
+                    val response = api.registerDevice(
+                        PushDeviceRequest(installationId = owner.installationId),
+                        com.ku.lostandfound.network.RequestSession(owner.generation)
+                    )
+
+                    if (response.isSuccessful) {
+                        synchronized(TokenManager) {
+                            if (owns(owner)) {
+                                registered = owner
+                                saveRegisteredId(owner.installationId)
                             }
-                            Log.d(TAG, "서버 기기 등록 성공")
-                            return@withLock
                         }
-
-                        Log.w(TAG, "서버 기기 등록 실패: ${response.code()} (attempt=$attempt)")
-                        response.code() == 429 || response.code() in 500..599
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Log.w(TAG, "서버 기기 등록 오류 (attempt=$attempt)", e)
-                        true
+                        Log.d(TAG, "서버 기기 등록 성공")
+                        return@withLock
                     }
 
-                    if (!retryable || attempt == MAX_REGISTER_ATTEMPTS) return@withLock
-                    delay(1_000L shl index)
-                    if (sessionClosed || TokenManager.accessToken != accessToken) return@withLock
+                    Log.w(TAG, "서버 기기 등록 실패: ${response.code()} (attempt=$attempt)")
+                    response.code() == 429 || response.code() in 500..599
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "서버 기기 등록 오류 (attempt=$attempt): ${e.javaClass.simpleName}")
+                    true
                 }
+
+                if (!retryable || attempt == MAX_REGISTER_ATTEMPTS) return@withLock
+                delay(1_000L shl index)
             }
+        }
+    }
+
+    fun reopen(generation: Long) {
+        synchronized(TokenManager) {
+            if (closedGeneration != generation || !TokenManager.isCurrentSession(generation)) return
+            closedGeneration = null
+            syncIfLoggedIn(generation)
         }
     }
 
     // 로그아웃 전에 서버 등록 해제
-    suspend fun unregisterBeforeLogout(authorization: String) {
-        sessionClosed = true
-        // A registration retry may be waiting under requestMutex. Cancelling it releases the
-        // mutex immediately so the bounded unregistration attempt gets its own time budget.
-        registrationJob?.cancel()
-        registrationJob = null
+    suspend fun unregisterBeforeLogout(authorization: String, expectedGeneration: Long) {
+        val installationIds = synchronized(TokenManager) {
+            if (!TokenManager.isCurrentSession(expectedGeneration)) return
+            // Snapshot both owners before cancellation can discard the in-flight registration.
+            val targetIds = listOfNotNull(registered?.installationId, getRegisteredId(), active?.installationId)
+                .ifEmpty { listOfNotNull(getInstallationId()) }.distinct()
+            closedGeneration = expectedGeneration
+            registrationJob?.cancel()
+            registrationJob = null
+            active = null
+            registered = null
+            targetIds
+        }
 
-        if (!SERVER_SYNC_ENABLED) return
-
-        val installationId = getInstallationId() ?: return
-
-        withContext(Dispatchers.IO) {
-            requestMutex.withLock {
-                repeat(MAX_REGISTER_ATTEMPTS) { index ->
-                    val attempt = index + 1
-                    val retryable = try {
-                        val response = RetrofitClient.pushDeviceApi.unregisterDevice(
-                            authorization = authorization,
-                            installationId = installationId
-                        )
-
-                        if (response.isSuccessful) {
-                            registeredKey = null
-                            Log.d(TAG, "서버 기기 등록 해제 성공")
-                            return@withLock
-                        }
-
-                        Log.w(TAG, "서버 기기 등록 해제 실패: ${response.code()} (attempt=$attempt)")
-                        response.code() == 429 || response.code() in 500..599
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Log.w(TAG, "서버 기기 등록 해제 오류 (attempt=$attempt)", e)
-                        true
+        val attempted = java.util.concurrent.atomic.AtomicInteger()
+        val succeeded = java.util.concurrent.atomic.AtomicInteger()
+        try {
+            withContext(dispatcher) {
+                requestMutex.withLock {
+                    // Keep the registration barrier until ALL cleanup children finish or cancel.
+                    // Independent retries let every ID start within the caller's shared deadline.
+                    coroutineScope {
+                        installationIds.map { installationId ->
+                            async {
+                                if (!TokenManager.isCurrentSession(expectedGeneration)) return@async
+                                attempted.incrementAndGet()
+                                if (unregisterId(authorization, expectedGeneration, installationId)) {
+                                    succeeded.incrementAndGet()
+                                }
+                            }
+                        }.awaitAll()
                     }
-
-                    if (!retryable || attempt == MAX_REGISTER_ATTEMPTS) return@withLock
-                    delay(1_000L shl index)
                 }
             }
+        } finally {
+            val remaining = installationIds.size - succeeded.get()
+            if (remaining > 0) {
+                // Do not persist credentials or retry later using another account's credentials.
+                Log.w(TAG, "기기 해제 미확인: remaining=$remaining, unattempted=${installationIds.size - attempted.get()}")
+            }
         }
+    }
+
+    // Called under requestMutex, so a new session cannot register between cleanup requests.
+    private suspend fun unregisterId(authorization: String, expectedGeneration: Long, installationId: String): Boolean {
+        repeat(MAX_REGISTER_ATTEMPTS) { index ->
+            if (!TokenManager.isCurrentSession(expectedGeneration)) return false
+            val attempt = index + 1
+            val retryable = try {
+                val response = api.unregisterDevice(
+                    authorization = authorization,
+                    installationId = installationId
+                )
+
+                if (response.isSuccessful) {
+                    synchronized(TokenManager) {
+                        if (TokenManager.isCurrentSession(expectedGeneration) && getRegisteredId() == installationId) saveRegisteredId(null)
+                    }
+                    Log.d(TAG, "서버 기기 등록 해제 성공")
+                    return true
+                }
+
+                Log.w(TAG, "서버 기기 등록 해제 실패: ${response.code()} (attempt=$attempt)")
+                response.code() == 429 || response.code() in 500..599
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "서버 기기 등록 해제 오류 (attempt=$attempt): ${e.javaClass.simpleName}")
+                true
+            }
+
+            if (!retryable || attempt == MAX_REGISTER_ATTEMPTS) return false
+            delay(1_000L shl index)
+        }
+        return false
     }
 }

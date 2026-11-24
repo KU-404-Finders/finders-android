@@ -16,30 +16,31 @@ object TokenManager {
     private val sessionGeneration = SessionGeneration()
     // replay keeps an expiry observed while the navigation host is being recreated.
     // The emitted generation lets a later login ignore this stale event safely.
-    private val _sessionExpired = MutableSharedFlow<Long>(replay = 1, extraBufferCapacity = 1)
+    private val _sessionExpired = MutableSharedFlow<Long>(replay = 1, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
     val sessionExpired = _sessionExpired.asSharedFlow()
 
+    @Synchronized
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
 
-    var accessToken: String?
-        get() = prefs?.getString(KEY_ACCESS_TOKEN, null)
-        set(value) {
-            prefs?.edit()?.putString(KEY_ACCESS_TOKEN, value)?.apply()
-        }
+    val accessToken: String? get() = prefs?.getString(KEY_ACCESS_TOKEN, null)
+    val refreshToken: String? get() = prefs?.getString(KEY_REFRESH_TOKEN, null)
 
-    var refreshToken: String?
-        get() = prefs?.getString(KEY_REFRESH_TOKEN, null)
-        set(value) {
-            prefs?.edit()?.putString(KEY_REFRESH_TOKEN, value)?.apply()
-        }
+    class Credentials internal constructor(val generation: Long, val access: String?, val refresh: String?)
+
+    // Snapshot and all session/token writers share this object's monitor.
+    @Synchronized
+    fun credentials() = Credentials(sessionGeneration.capture(), accessToken, refreshToken)
+
+    private fun matches(expected: Credentials) =
+        sessionGeneration.isCurrent(expected.generation) && accessToken == expected.access && refreshToken == expected.refresh
 
     @Synchronized
-    fun clear() {
-        sessionGeneration.advance()
+    fun clear(): Long {
         prefs?.edit()?.clear()?.apply()
         expirationReported = false
+        return sessionGeneration.advance()
     }
 
     /** Accepts a completed login only when it belongs to the session that started it. */
@@ -57,8 +58,8 @@ object TokenManager {
 
     /** Accepts a refresh result only while its original authenticated session is still active. */
     @Synchronized
-    fun saveRefreshedTokens(expectedGeneration: Long, accessToken: String, refreshToken: String): Boolean {
-        if (!sessionGeneration.isCurrent(expectedGeneration) || this.accessToken.isNullOrBlank()) return false
+    fun saveRefreshedTokens(expected: Credentials, accessToken: String, refreshToken: String): Boolean {
+        if (!matches(expected) || expected.access.isNullOrBlank() || accessToken.isBlank() || refreshToken.isBlank()) return false
         prefs?.edit()
             ?.putString(KEY_ACCESS_TOKEN, accessToken)
             ?.putString(KEY_REFRESH_TOKEN, refreshToken)
@@ -80,15 +81,23 @@ object TokenManager {
      * not call this method because the user should be able to retry with the saved session.
      */
     @Synchronized
-    fun expireSession() {
+    fun expireSession(expected: Credentials): Boolean {
+        if (expirationReported || !matches(expected) || (expected.access == null && expected.refresh == null)) return false
         val expiredGeneration = sessionGeneration.advance()
         prefs?.edit()?.clear()?.apply()
-        if (!expirationReported) {
-            expirationReported = true
-            _sessionExpired.tryEmit(expiredGeneration)
-        }
+        expirationReported = true
+        _sessionExpired.tryEmit(expiredGeneration)
+        return true
     }
 
+    @Synchronized
+    fun consumeExpiry(generation: Long): Boolean {
+        if (!expirationReported || !isCurrentSession(generation)) return false
+        expirationReported = false
+        return true
+    }
+
+    @Synchronized
     fun hasTokens(): Boolean = !accessToken.isNullOrBlank() && !refreshToken.isNullOrBlank()
 
     fun isAccessTokenExpired(nowMillis: Long = System.currentTimeMillis()): Boolean =

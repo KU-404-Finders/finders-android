@@ -105,7 +105,7 @@ fun SignupEmailScreen(
                     ),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); if (viewModel.isEmailValid && !isLoading) viewModel.sendVerificationCode(onNavigateToCode) }),
+                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); if (viewModel.hasRequiredConsent && viewModel.isEmailValid && !isLoading) viewModel.sendVerificationCode(onNavigateToCode) }),
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = Color.Transparent,
                         unfocusedContainerColor = Color.Transparent,
@@ -141,7 +141,7 @@ fun SignupEmailScreen(
         BottomFixedButton(
             text = if (isLoading) "발송 중..." else "인증 메일 받기",
             onClick = { viewModel.sendVerificationCode(onNavigateToCode) },
-            enabled = viewModel.isEmailValid && !isLoading,
+            enabled = viewModel.hasRequiredConsent && viewModel.isEmailValid && !isLoading,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp)
         )
     }

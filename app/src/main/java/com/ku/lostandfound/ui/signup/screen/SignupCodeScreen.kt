@@ -43,7 +43,7 @@ fun SignupCodeScreen(
     val focusManager = LocalFocusManager.current
 
     LaunchedEffect(uiState) {
-        if (uiState is SignupUiState.Success) {
+        if (viewModel.hasRequiredConsent && uiState is SignupUiState.Success) {
             viewModel.resetUiState()
             onNavigateToFinish()
         }
@@ -108,7 +108,7 @@ fun SignupCodeScreen(
                 ),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); if (viewModel.isVerificationCodeValid && uiState !is SignupUiState.Loading) viewModel.register() }),
+                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); if (viewModel.hasRequiredConsent && viewModel.isVerificationCodeValid && uiState !is SignupUiState.Loading) viewModel.register() }),
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,
                     unfocusedContainerColor = Color.Transparent,
@@ -137,7 +137,7 @@ fun SignupCodeScreen(
         BottomFixedButton(
             text = if (uiState is SignupUiState.Loading) "처리 중..." else "인증하기",
             onClick = { viewModel.register() },
-            enabled = viewModel.isVerificationCodeValid && uiState !is SignupUiState.Loading,
+            enabled = viewModel.hasRequiredConsent && viewModel.isVerificationCodeValid && uiState !is SignupUiState.Loading,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp)
         )
     }

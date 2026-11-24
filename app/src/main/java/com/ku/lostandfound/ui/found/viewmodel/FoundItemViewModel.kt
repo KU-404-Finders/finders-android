@@ -21,6 +21,7 @@ import com.ku.lostandfound.network.FoundItemSummaryData
 import com.ku.lostandfound.network.ItemStatus
 import com.ku.lostandfound.network.MatchStatus
 import com.ku.lostandfound.network.NetworkLog
+import com.ku.lostandfound.network.FoundItemApiService
 import com.ku.lostandfound.network.RetrofitClient
 import com.ku.lostandfound.network.TokenManager
 import com.ku.lostandfound.network.httpErrorMessage
@@ -41,7 +42,9 @@ sealed class FoundItemMatchUiState {
     data class Error(val message: String) : FoundItemMatchUiState()
 }
 
-class FoundItemViewModel : ViewModel() {
+class FoundItemViewModel(
+    private val foundItemApi: FoundItemApiService = RetrofitClient.foundItemApi,
+) : ViewModel() {
     var uiState by mutableStateOf<FoundItemUiState>(FoundItemUiState.Idle)
         private set
 
@@ -51,8 +54,10 @@ class FoundItemViewModel : ViewModel() {
     var foundItems by mutableStateOf<List<FoundItemSummaryData>>(emptyList())
         private set
 
-    var listVersion by mutableStateOf(0)
+    data class SuccessfulList(val buildingName: String?, val items: List<FoundItemSummaryData>, val version: Int)
+    var successfulList by mutableStateOf<SuccessfulList?>(null)
         private set
+    val listVersion get() = successfulList?.version ?: 0
 
     private var hasLoadedFoundItemList = false
     private var lastLoadedBuildingName: String? = null
@@ -66,78 +71,68 @@ class FoundItemViewModel : ViewModel() {
     var matchUiState by mutableStateOf<FoundItemMatchUiState>(FoundItemMatchUiState.Idle)
         private set
 
-    fun loadFoundItemsByBuilding(buildingName: String, force: Boolean = false) {
-        if (uiState is FoundItemUiState.Loading ||
-            (!force && hasLoadedFoundItemList && lastLoadedBuildingName == buildingName)
+    var listState by mutableStateOf<FoundItemUiState>(FoundItemUiState.Idle)
+        private set
+
+    fun loadFoundItemsByBuilding(buildingName: String, force: Boolean = false) = loadList(buildingName, force)
+
+    fun loadFoundItems(force: Boolean = false) = loadList(null, force)
+
+    private fun loadList(buildingName: String?, force: Boolean) {
+        if (!force && selectedBuildingName == buildingName &&
+            (listState == FoundItemUiState.Loading ||
+                (listState == FoundItemUiState.Idle && hasLoadedFoundItemList && lastLoadedBuildingName == buildingName))
         ) return
+        if (selectedBuildingName != buildingName) foundItems = emptyList()
+        hasLoadedFoundItemList = false
+        lastLoadedBuildingName = null
         selectedBuildingName = buildingName
+        val session = TokenManager.sessionGeneration()
+        listState = FoundItemUiState.Loading
         val requestId = ++listRequestId
         viewModelScope.launch {
-            uiState = FoundItemUiState.Loading
             try {
-                val response = RetrofitClient.foundItemApi.getFoundItems(buildingName)
-                if (requestId != listRequestId || selectedBuildingName != buildingName) return@launch
+                val response = foundItemApi.getFoundItems(buildingName)
+                if (requestId != listRequestId || !TokenManager.isCurrentSession(session)) return@launch
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true) {
                         foundItems = body.data.orEmpty().filter { it.itemStatus == ItemStatus.SEARCHING }
                         hasLoadedFoundItemList = true
                         lastLoadedBuildingName = buildingName
-                        listVersion++
-                        uiState = FoundItemUiState.Idle
+                        successfulList = SuccessfulList(buildingName, foundItems, listVersion + 1)
+                        listState = FoundItemUiState.Idle
                     } else {
-                        uiState = FoundItemUiState.Error(body?.message ?: "습득물 목록을 불러오지 못했습니다.")
+                        listState = FoundItemUiState.Error(body?.message ?: "습득물 목록을 불러오지 못했습니다.")
                     }
                 } else {
                     val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("loadFoundItemsByBuilding", response.code(), errorBody)
-                    uiState = FoundItemUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
+                    NetworkLog.httpError("loadFoundItemsByBuilding", response.code())
+                    listState = FoundItemUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (requestId != listRequestId || !TokenManager.isCurrentSession(session)) return@launch
                 NetworkLog.exception("loadFoundItemsByBuilding", e)
-                uiState = FoundItemUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
+                listState = FoundItemUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
             }
         }
     }
 
-    fun loadFoundItems(force: Boolean = false) {
-        if (uiState is FoundItemUiState.Loading ||
-            (!force && hasLoadedFoundItemList && lastLoadedBuildingName == null)
-        ) return
-        selectedBuildingName = null
-        val requestId = ++listRequestId
-        viewModelScope.launch {
-            uiState = FoundItemUiState.Loading
-            try {
-                val response = RetrofitClient.foundItemApi.getFoundItems()
-                if (requestId != listRequestId || selectedBuildingName != null) return@launch
-                if (response.isSuccessful) {
-                    val body = response.body()
-                    if (body?.success == true) {
-                        foundItems = body.data.orEmpty().filter { it.itemStatus == ItemStatus.SEARCHING }
-                        hasLoadedFoundItemList = true
-                        lastLoadedBuildingName = null
-                        listVersion++
-                        uiState = FoundItemUiState.Idle
-                    } else {
-                        uiState = FoundItemUiState.Error(body?.message ?: "습득물 목록을 불러오지 못했습니다.")
-                    }
-                } else {
-                    val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("loadFoundItems", response.code(), errorBody)
-                    uiState = FoundItemUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
-                }
-            } catch (e: Exception) {
-                NetworkLog.exception("loadFoundItems", e)
-                uiState = FoundItemUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
-            }
-        }
-    }
+    fun clearBuildingFilter() = loadList(null, true)
 
-    fun clearBuildingFilter() {
+    fun clearSession() {
         listRequestId++
+        successfulList = null
         selectedBuildingName = null
-        loadFoundItems(force = true)
+        lastLoadedBuildingName = null
+        hasLoadedFoundItemList = false
+        foundItems = emptyList()
+        listState = FoundItemUiState.Idle
+        detailPost = null
+        uiState = FoundItemUiState.Idle
+        matchUiState = FoundItemMatchUiState.Idle
     }
 
     fun retryFoundItems() {
@@ -156,9 +151,11 @@ class FoundItemViewModel : ViewModel() {
     }
 
     suspend fun loadFoundItemDetailNow(id: Long): BoardPost? {
+            val session = TokenManager.sessionGeneration()
             uiState = FoundItemUiState.Loading
             try {
-                val response = RetrofitClient.foundItemApi.getFoundItemDetail(id)
+                val response = foundItemApi.getFoundItemDetail(id)
+                if (!TokenManager.isCurrentSession(session)) return null
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true && body.data != null) {
@@ -170,10 +167,13 @@ class FoundItemViewModel : ViewModel() {
                     }
                 } else {
                     val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("loadFoundItemDetail", response.code(), errorBody)
+                    NetworkLog.httpError("loadFoundItemDetail", response.code())
                     uiState = FoundItemUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (!TokenManager.isCurrentSession(session)) return null
                 NetworkLog.exception("loadFoundItemDetail", e)
                 uiState = FoundItemUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
             }
@@ -181,18 +181,20 @@ class FoundItemViewModel : ViewModel() {
     }
 
     fun updateFoundItemStatus(id: Long, onSuccess: (BoardPost) -> Unit) {
+        val session = TokenManager.sessionGeneration()
         viewModelScope.launch {
             uiState = FoundItemUiState.Loading
             try {
                 val authorization = bearerTokenOrThrow()
-                val response = RetrofitClient.foundItemApi.updateFoundItemStatus(authorization, id)
+                val response = foundItemApi.updateFoundItemStatus(authorization, id)
+                if (!TokenManager.isCurrentSession(session)) return@launch
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true && body.data != null) {
                         val updatedPost = body.data.toBoardPost()
                         detailPost = updatedPost
                         foundItems = foundItems.filterNot { it.id == id }
-                        listVersion++
+                        successfulList = successfulList?.let { it.copy(items = it.items.filterNot { item -> item.id == id }, version = it.version + 1) }
                         uiState = FoundItemUiState.Idle
                         onSuccess(updatedPost)
                     } else {
@@ -200,10 +202,13 @@ class FoundItemViewModel : ViewModel() {
                     }
                 } else {
                     val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("updateFoundItemStatus", response.code(), errorBody)
+                    NetworkLog.httpError("updateFoundItemStatus", response.code())
                     uiState = FoundItemUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (!TokenManager.isCurrentSession(session)) return@launch
                 NetworkLog.exception("updateFoundItemStatus", e)
                 uiState = FoundItemUiState.Error(e.message ?: "서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
             }
@@ -211,14 +216,17 @@ class FoundItemViewModel : ViewModel() {
     }
 
     fun deleteFoundItem(id: Long, onSuccess: () -> Unit) {
+        val session = TokenManager.sessionGeneration()
         viewModelScope.launch {
             uiState = FoundItemUiState.Loading
             try {
-                val response = RetrofitClient.foundItemApi.deleteFoundItem(bearerTokenOrThrow(), id)
+                val response = foundItemApi.deleteFoundItem(bearerTokenOrThrow(), id)
+                if (!TokenManager.isCurrentSession(session)) return@launch
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body == null || body.success) {
                         foundItems = foundItems.filterNot { it.id == id }
+                        successfulList = successfulList?.let { it.copy(items = it.items.filterNot { item -> item.id == id }, version = it.version + 1) }
                         if (detailPost?.id == id.toString()) {
                             detailPost = null
                         }
@@ -229,10 +237,13 @@ class FoundItemViewModel : ViewModel() {
                     }
                 } else {
                     val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("deleteFoundItem", response.code(), errorBody)
+                    NetworkLog.httpError("deleteFoundItem", response.code())
                     uiState = FoundItemUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (!TokenManager.isCurrentSession(session)) return@launch
                 NetworkLog.exception("deleteFoundItem", e)
                 uiState = FoundItemUiState.Error(e.message ?: "서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
             }
@@ -246,10 +257,13 @@ class FoundItemViewModel : ViewModel() {
     }
 
     suspend fun loadFoundItemMatchesNow(id: Long) {
+            val session = TokenManager.sessionGeneration()
             matchUiState = FoundItemMatchUiState.Calculating
             try {
                 repeat(MAX_MATCH_POLL_COUNT) { attempt ->
-                    val response = RetrofitClient.foundItemApi.getFoundItemMatches(id)
+                    if (!TokenManager.isCurrentSession(session)) return
+                    val response = foundItemApi.getFoundItemMatches(id)
+                    if (!TokenManager.isCurrentSession(session)) return
                     val body = response.body()
                     val result = body?.data
                     when {
@@ -268,7 +282,7 @@ class FoundItemViewModel : ViewModel() {
                         }
                         else -> {
                             val errorBody = response.errorBody()?.string()
-                            NetworkLog.httpError("loadFoundItemMatches", response.code(), errorBody)
+                            NetworkLog.httpError("loadFoundItemMatches", response.code())
                             matchUiState = FoundItemMatchUiState.Error(
                                 httpErrorMessage(response.code(), body?.message ?: parseErrorMessage(errorBody))
                             )
@@ -277,14 +291,17 @@ class FoundItemViewModel : ViewModel() {
                     }
                 }
                 matchUiState = FoundItemMatchUiState.Failed("매칭 계산이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (!TokenManager.isCurrentSession(session)) return
                 NetworkLog.exception("loadFoundItemMatches", e)
                 matchUiState = FoundItemMatchUiState.Failed("매칭 계산에 실패했습니다. 잠시 후 다시 시도해 주세요.")
             }
     }
 
-    fun asBoardPosts(): List<BoardPost> {
-        return foundItems.map { item ->
+    fun asBoardPosts(items: List<FoundItemSummaryData> = foundItems): List<BoardPost> {
+        return items.map { item ->
             BoardPost(
                 id = item.id.toString(),
                 type = PostType.FOUND,

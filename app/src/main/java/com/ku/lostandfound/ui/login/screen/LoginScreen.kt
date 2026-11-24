@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -43,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -63,6 +65,7 @@ import com.ku.lostandfound.ui.login.viewmodel.LoginViewModel
 @Composable
 fun LoginScreen(
     viewModel: LoginViewModel,
+    canRetrySession: Boolean = false,
     onLoginSuccess: () -> Unit = {},
     onNavigateToSignUp: () -> Unit = {},
     onNavigateToPasswordReset: () -> Unit = {},
@@ -81,17 +84,19 @@ fun LoginScreen(
     val isLoginEnabled = emailPrefix.isNotBlank() && password.isNotBlank() && !isLoading
 
     LaunchedEffect(uiState) {
+        if (uiState !is LoginUiState.Suspended) confirmWithdrawal = false
         if (uiState is LoginUiState.Success) {
             viewModel.resetUiState()
             onLoginSuccess()
         }
     }
 
-    if (uiState is LoginUiState.Suspended && !confirmWithdrawal && !viewModel.isWithdrawing) {
+    if (viewModel.hasSuspendedWithdrawal && !confirmWithdrawal && !viewModel.isWithdrawing &&
+        (uiState is LoginUiState.Suspended || uiState is LoginUiState.Error)) {
         AlertDialog(
             onDismissRequest = { viewModel.resetUiState() },
             title = { Text("이용이 정지된 계정입니다.") },
-            text = { Text("회원 탈퇴를 원하시면 아래 버튼을 눌러주세요.") },
+            text = { Text(loginErrorMessage ?: "회원 탈퇴를 원하시면 아래 버튼을 눌러주세요.") },
             confirmButton = {
                 TextButton(onClick = { confirmWithdrawal = true }) { Text("회원 탈퇴") }
             },
@@ -100,7 +105,8 @@ fun LoginScreen(
             },
         )
     }
-    if (confirmWithdrawal && uiState is LoginUiState.Suspended && !viewModel.isWithdrawing) {
+    if (confirmWithdrawal && viewModel.hasSuspendedWithdrawal && !viewModel.isWithdrawing &&
+        (uiState is LoginUiState.Suspended || uiState is LoginUiState.Error)) {
         WithdrawConfirmDialog(
             onCancelClick = { confirmWithdrawal = false; viewModel.resetUiState() },
             onWithdrawClick = { confirmWithdrawal = false; viewModel.withdraw {} },
@@ -130,11 +136,20 @@ fun LoginScreen(
     ) {
         Spacer(modifier = Modifier.height(28.dp))
 
-        Image(
-            painter = painterResource(id = R.drawable.img_lost_and_found_ku),
-            contentDescription = "찾을건대 로고",
-            modifier = Modifier.size(300.dp)
-        )
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxWidth().height(220.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            val logo = painterResource(id = R.drawable.img_finders_wordmark)
+            Image(
+                painter = logo,
+                contentDescription = "찾을건대 로고",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .width(minOf(maxWidth * 0.75f, 240.dp))
+                    .aspectRatio(logo.intrinsicSize.width / logo.intrinsicSize.height),
+            )
+        }
 
         Spacer(modifier = Modifier.height(22.dp))
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -252,6 +267,11 @@ fun LoginScreen(
         }
 
         Spacer(modifier = Modifier.height(8.dp))
+        if (canRetrySession) {
+            androidx.compose.material3.TextButton(onClick = viewModel::retrySavedSession, enabled = !isLoading) {
+                Text("기존 로그인 다시 연결", color = Color(0xFF4A6741))
+            }
+        }
         if (loginErrorMessage != null) {
             Text(
                 text = loginErrorMessage,
@@ -288,7 +308,7 @@ fun LoginScreen(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-        Text(text = "비밀번호를 잊으셨나요?", color = Color(0xFF4A6741), fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.clickable { onNavigateToPasswordReset() })
+        Text(text = "비밀번호를 잊으셨나요?", color = Color(0xFF4A6741), fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.clickable(enabled = !isLoading) { onNavigateToPasswordReset() })
 
         Spacer(modifier = Modifier.height(20.dp))
 
@@ -307,7 +327,7 @@ fun LoginScreen(
                 color = Color(0xFF4A6741),
                 fontWeight = FontWeight.Bold,
                 fontSize = 12.sp,
-                modifier = Modifier.clickable {
+                modifier = Modifier.clickable(enabled = !isLoading) {
                     onNavigateToSignUp()
                 }
             )

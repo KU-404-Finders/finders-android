@@ -89,7 +89,7 @@ fun SignupNameScreen(
                 ),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); if (viewModel.isNameValid) onNavigateToPw() }),
+                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); if (viewModel.hasRequiredConsent && viewModel.isNameValid) onNavigateToPw() }),
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,
                     unfocusedContainerColor = Color.Transparent,
@@ -117,8 +117,8 @@ fun SignupNameScreen(
 
         BottomFixedButton(
             text = "다음",
-            onClick = onNavigateToPw,
-            enabled = viewModel.isNameValid,
+            onClick = { if (viewModel.hasRequiredConsent && viewModel.isNameValid) onNavigateToPw() },
+            enabled = viewModel.hasRequiredConsent && viewModel.isNameValid,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp)
         )
     }

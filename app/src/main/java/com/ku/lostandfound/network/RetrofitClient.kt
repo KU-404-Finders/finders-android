@@ -1,12 +1,10 @@
 package com.ku.lostandfound.network
 
-import android.util.Log
 import com.google.gson.Gson
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.CompletableFuture
@@ -26,21 +24,32 @@ object RetrofitClient {
         val result: CompletableFuture<String?>,
     )
 
+    private val refreshClient = OkHttpClient()
     private val refreshLock = Any()
     private var activeRefresh: RefreshAttempt? = null
 
-    private val loggingInterceptor = HttpLoggingInterceptor { message ->
-        Log.d("KUFindersOkHttp", message)
-    }.apply {
-        level = HttpLoggingInterceptor.Level.HEADERS
-        redactHeader("Authorization")
-    }
-
     private val authInterceptor = okhttp3.Interceptor { chain ->
         val originalRequest = chain.request()
-        val sessionGeneration = TokenManager.sessionGeneration()
-        val token = TokenManager.accessToken
+        val credentials = TokenManager.credentials()
+        val sessionGeneration = credentials.generation
+        val token = credentials.access
+        val required = originalRequest.tag(RequestSession::class.java)
+        if (required != null && required.generation != sessionGeneration && originalRequest.header("Authorization") == null) {
+            throw java.io.IOException("Session changed")
+        }
         val path = originalRequest.url.encodedPath
+        val withdrawal = originalRequest.tag(WithdrawalRequest::class.java)
+        if (path == "/api/v1/auth/withdraw") {
+            if (withdrawal == null || withdrawal.generation != sessionGeneration ||
+                originalRequest.header("Authorization").isNullOrBlank()) {
+                throw java.io.IOException("Withdrawal owner changed or missing")
+            }
+            if (withdrawal.tokenKind == WithdrawalTokenKind.SESSION && token.isNullOrBlank()) {
+                throw java.io.IOException("Withdrawal session ended")
+            }
+        } else if (withdrawal != null) {
+            throw java.io.IOException("Withdrawal credential used outside withdrawal")
+        }
 
         val isAuthRequest =
             path.endsWith("/api/v1/auth/login") ||
@@ -52,8 +61,10 @@ object RetrofitClient {
         // 이 인터셉터가 인증 헤더를 추가한 요청만 자동 갱신 대상
         val shouldAttachToken =
             !token.isNullOrBlank() &&
-                    originalRequest.header("Authorization") == null &&
-                    !isAuthRequest
+                    !isAuthRequest &&
+                    withdrawal?.tokenKind != WithdrawalTokenKind.DEDICATED &&
+                    (originalRequest.header("Authorization") == null ||
+                        withdrawal?.tokenKind == WithdrawalTokenKind.SESSION)
 
         val request = if (shouldAttachToken) {
             originalRequest.newBuilder()
@@ -63,14 +74,10 @@ object RetrofitClient {
             originalRequest
         }
 
-        // 탈퇴 전용 토큰은 일반 세션의 갱신 대상이 아니다. 정상 탈퇴의 명시적 헤더만 예외로 허용한다.
-        val canRefresh = shouldAttachToken ||
-                (path == "/api/v1/auth/withdraw" && !token.isNullOrBlank() &&
-                        originalRequest.header("Authorization") == "Bearer $token")
         val response = chain.proceed(request)
 
         if (
-            canRefresh &&
+            shouldAttachToken &&
             isAuthenticationFailure(response) &&
             TokenManager.isCurrentSession(sessionGeneration)
         ) {
@@ -114,12 +121,15 @@ object RetrofitClient {
 
     private val okHttpClient = OkHttpClient.Builder()
         .addInterceptor(authInterceptor)
-        .addInterceptor(loggingInterceptor)
         .build()
 
     private val retrofit = Retrofit.Builder()
         .baseUrl(BASE_URL)
-        .client(okHttpClient)
+        .callFactory { original ->
+            // Capture ownership before OkHttp queues the request on a worker thread.
+            val owner = original.tag(RequestSession::class.java) ?: RequestSession(TokenManager.sessionGeneration())
+            okHttpClient.newCall(original.newBuilder().tag(RequestSession::class.java, owner).build())
+        }
         .addConverterFactory(GsonConverterFactory.create())
         .build()
 
@@ -139,48 +149,27 @@ object RetrofitClient {
 
     /** Used during app start only after an expired access token was detected. */
     suspend fun refreshSession(): RefreshSessionResult {
-        val sessionGeneration = TokenManager.sessionGeneration()
-        val refreshToken = TokenManager.refreshToken ?: run {
-            if (TokenManager.isCurrentSession(sessionGeneration)) TokenManager.expireSession()
-            return RefreshSessionResult.InvalidSession
+        val credentials = TokenManager.credentials()
+        val refreshed = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            refreshTokensCoalesced(credentials.generation, credentials.access)
         }
-        return try {
-            val response = authApi.refreshToken(RefreshTokenRequest(refreshToken))
-            if (!response.isSuccessful) {
-                if (RefreshSessionPolicy.isConfirmedInvalid(response.code())) {
-                    if (TokenManager.isCurrentSession(sessionGeneration)) TokenManager.expireSession()
-                    RefreshSessionResult.InvalidSession
-                } else {
-                    RefreshSessionResult.RetryableFailure
-                }
-            } else {
-                val body = response.body()
-                val tokens = body?.data
-                if (body?.success == true && tokens?.accessToken != null && tokens.refreshToken != null) {
-                    if (TokenManager.saveRefreshedTokens(sessionGeneration, tokens.accessToken, tokens.refreshToken)) {
-                        RefreshSessionResult.Success
-                    } else {
-                        RefreshSessionResult.InvalidSession
-                    }
-                } else {
-                    // A syntactically incomplete successful response is not proof that the
-                    // saved refresh token is invalid. Keep it so a later retry is possible.
-                    RefreshSessionResult.RetryableFailure
-                }
-            }
-        } catch (e: Exception) {
-            NetworkLog.exception("refreshSession", e)
-            RefreshSessionResult.RetryableFailure
+        val current = TokenManager.credentials()
+        return when {
+            current.access.isNullOrBlank() || current.refresh.isNullOrBlank() -> RefreshSessionResult.InvalidSession
+            refreshed != null && current.access == refreshed -> RefreshSessionResult.Success
+            (current.generation != credentials.generation || current.access != credentials.access) &&
+                !TokenManager.isAccessTokenExpired() -> RefreshSessionResult.Success
+            else -> RefreshSessionResult.RetryableFailure
         }
     }
 
     private fun refreshTokensBlocking(sessionGeneration: Long, accessToken: String?): String? {
-        val refreshToken = TokenManager.refreshToken ?: run {
+        val credentials = TokenManager.credentials()
+        if (credentials.generation != sessionGeneration || credentials.access != accessToken) return null
+        val refreshToken = credentials.refresh ?: run {
             // An access token without its refresh credential cannot recover from expiry.
             // Only clear when this is still the session that initiated the refresh.
-            if (TokenManager.isCurrentSession(sessionGeneration, accessToken)) {
-                TokenManager.expireSession()
-            }
+            TokenManager.expireSession(credentials)
             return null
         }
         return try {
@@ -189,15 +178,11 @@ object RetrofitClient {
                 .url("${BASE_URL}api/v1/auth/reissue")
                 .post(refreshRequestJson.toRequestBody("application/json".toMediaType()))
                 .build()
-            val response = OkHttpClient.Builder()
-                .addInterceptor(loggingInterceptor)
-                .build()
-                .newCall(request)
-                .execute()
+            val response = refreshClient.newCall(request).execute()
             response.use {
                 if (!it.isSuccessful) {
-                    if (RefreshSessionPolicy.isConfirmedInvalid(it.code)) {
-                        if (TokenManager.isCurrentSession(sessionGeneration, accessToken)) TokenManager.expireSession()
+                    if (RefreshSessionPolicy.isConfirmedInvalid(it.code, if (it.code == 400) it.body?.string() else null)) {
+                        TokenManager.expireSession(credentials)
                     }
                     return null
                 }
@@ -206,7 +191,7 @@ object RetrofitClient {
                 val tokens = parsed.data
                 if (parsed.success && tokens?.accessToken != null && tokens.refreshToken != null) {
                     tokens.accessToken.takeIf {
-                        TokenManager.saveRefreshedTokens(sessionGeneration, it, tokens.refreshToken)
+                        TokenManager.saveRefreshedTokens(credentials, it, tokens.refreshToken)
                     }
                 } else {
                     // A malformed or incomplete success response is not a confirmed
@@ -225,6 +210,9 @@ object RetrofitClient {
         val isOwner: Boolean
 
         synchronized(refreshLock) {
+            val current = TokenManager.credentials()
+            if (current.generation != sessionGeneration) return null
+            if (current.access != accessToken) return current.access
             val existing = activeRefresh
             if (
                 existing != null &&

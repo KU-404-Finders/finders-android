@@ -67,29 +67,14 @@ class UserViewModel : ViewModel() {
     suspend fun loadMeNow(): UserMeData? {
         val requestGeneration = cacheGeneration
         val sessionGeneration = TokenManager.sessionGeneration()
-        android.util.Log.d(
-            "KUFindersChat",
-            "loadMeNow 함수 실행됨"
-        )
 
         uiState = UserUiState.Loading
         return try {
             val response = RetrofitClient.userApi.getMe()
             if (!isCurrentRequest(requestGeneration, sessionGeneration)) return null
 
-            android.util.Log.d(
-                "KUFindersChat",
-                "getMe HTTP=${response.code()}"
-            )
             if (response.isSuccessful) {
                 val body = response.body()
-                android.util.Log.d(
-                    "KUFindersChat",
-                    "getMe HTTP=${response.code()}, " +
-                            "success=${body?.success}, " +
-                            "hasData=${body?.data != null}, " +
-                            "myId=${body?.data?.id}"
-                )
                 if (body?.success == true && body.data != null) {
                     me = body.data
                     uiState = UserUiState.Idle
@@ -100,17 +85,12 @@ class UserViewModel : ViewModel() {
                 }
             } else {
                 val errorBody = response.errorBody()?.string()
-                NetworkLog.httpError("loadMe", response.code(), errorBody)
+                NetworkLog.httpError("loadMe", response.code())
                 uiState = UserUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
                 null
             }
         } catch (e: Exception) {
             if (!isCurrentRequest(requestGeneration, sessionGeneration)) return null
-            android.util.Log.e(
-                "KUFindersChat",
-                "loadMeNow 오류: ${e.javaClass.simpleName}: ${e.message}",
-                e
-            )
 
             NetworkLog.exception("loadMe", e)
 
@@ -146,7 +126,7 @@ class UserViewModel : ViewModel() {
                 } else {
                     val response = listOf(lostResponse, foundResponse).first { !it.isSuccessful }
                     val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("loadMyPostCounts", response.code(), errorBody)
+                    NetworkLog.httpError("loadMyPostCounts", response.code())
                     myPostCountState = MyPostsUiState.Error(authAwareMessage(response.code(), parseErrorMessage(errorBody)))
                 }
             } catch (e: Exception) {
@@ -176,7 +156,7 @@ class UserViewModel : ViewModel() {
                     }
                 } else {
                     val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("loadMyLostItems", response.code(), errorBody)
+                    NetworkLog.httpError("loadMyLostItems", response.code())
                     myLostItemsState = MyPostsUiState.Error(authAwareMessage(response.code(), parseErrorMessage(errorBody)))
                 }
             } catch (e: Exception) {
@@ -206,7 +186,7 @@ class UserViewModel : ViewModel() {
                     }
                 } else {
                     val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("loadMyFoundItems", response.code(), errorBody)
+                    NetworkLog.httpError("loadMyFoundItems", response.code())
                     myFoundItemsState = MyPostsUiState.Error(authAwareMessage(response.code(), parseErrorMessage(errorBody)))
                 }
             } catch (e: Exception) {
@@ -232,9 +212,10 @@ class UserViewModel : ViewModel() {
 
     /** Keeps a block request alive when the detail composable leaves composition. */
     fun blockUser(userId: Long, onFinished: (Boolean) -> Unit) {
+        val requestGeneration = cacheGeneration
+        val sessionGeneration = TokenManager.sessionGeneration()
         viewModelScope.launch {
-            val requestGeneration = cacheGeneration
-            val sessionGeneration = TokenManager.sessionGeneration()
+            if (!isCurrentRequest(requestGeneration, sessionGeneration)) return@launch
             val success = try {
                 val response = RetrofitClient.moderationApi.block(userId)
                 response.isSuccessful && response.body()?.success == true

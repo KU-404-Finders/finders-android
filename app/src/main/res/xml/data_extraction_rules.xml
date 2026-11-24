@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
     <cloud-backup>
+        <exclude domain="sharedpref" path="blocked_user_names.xml" />
+        <exclude domain="sharedpref" path="finders_notifications.xml" />
+        <exclude domain="sharedpref" path="push_registration.xml" />
         <exclude domain="sharedpref" path="auth_prefs.xml" />
     </cloud-backup>
     <device-transfer>
+        <exclude domain="sharedpref" path="blocked_user_names.xml" />
+        <exclude domain="sharedpref" path="finders_notifications.xml" />
+        <exclude domain="sharedpref" path="push_registration.xml" />
         <exclude domain="sharedpref" path="auth_prefs.xml" />
     </device-transfer>
 </data-extraction-rules>

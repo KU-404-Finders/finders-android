@@ -39,6 +39,7 @@ private val DangerRed = Color(0xFFD32F2F)
 @Composable
 fun AdminReportDetailScreen(
     report: AdminReportUiModel?,
+    onRetry: () -> Unit,
     isLoading: Boolean = false,
     errorMessage: String? = null,
     onBackClick: () -> Unit,
@@ -55,6 +56,7 @@ fun AdminReportDetailScreen(
                 modifier = Modifier.padding(20.dp),
                 color = if (errorMessage != null) DangerRed else TextGray,
             )
+            if (errorMessage != null) TextButton(onClick = onRetry) { Text("다시 시도") }
         }
         return
     }
@@ -103,6 +105,11 @@ fun AdminReportDetailScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(20.dp),
         ) {
+            if (isLoading) Text("신고 정보를 불러오는 중입니다.", color = TextGray)
+            if (errorMessage != null) {
+                Text(errorMessage, color = DangerRed)
+                TextButton(onClick = onRetry, enabled = !isLoading) { Text("다시 조회") }
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -207,7 +214,7 @@ fun AdminReportDetailScreen(
                 onClick = {
                     selectedAction = "신고 반려"
                 },
-                enabled = completedAction == null,
+                enabled = completedAction == null && !isLoading && errorMessage == null,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp),
@@ -230,7 +237,7 @@ fun AdminReportDetailScreen(
                 onClick = {
                     selectedAction = "게시글 삭제"
                 },
-                enabled = completedAction == null,
+                enabled = completedAction == null && !isLoading && errorMessage == null,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp),
@@ -253,7 +260,7 @@ fun AdminReportDetailScreen(
                 onClick = {
                     selectedAction = "사용자 이용 제한"
                 },
-                enabled = completedAction == null,
+                enabled = completedAction == null && !isLoading && errorMessage == null,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp),

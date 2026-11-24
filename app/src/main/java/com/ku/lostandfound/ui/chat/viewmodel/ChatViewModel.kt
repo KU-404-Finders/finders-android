@@ -12,6 +12,9 @@ import com.ku.lostandfound.network.ChatRoomResponse
 import com.ku.lostandfound.network.ChatStompClient
 import com.ku.lostandfound.network.CreateChatRoomRequest
 import com.ku.lostandfound.network.NetworkLog
+import com.ku.lostandfound.network.ChatApiService
+import com.ku.lostandfound.network.LostItemApiService
+import com.ku.lostandfound.network.FoundItemApiService
 import com.ku.lostandfound.network.RetrofitClient
 import com.ku.lostandfound.network.TokenManager
 import com.ku.lostandfound.network.httpErrorMessage
@@ -20,6 +23,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.ku.lostandfound.notification.NotificationInboxRefreshBus
 
 sealed class ChatUiState {
     object Idle : ChatUiState()
@@ -27,7 +31,22 @@ sealed class ChatUiState {
     data class Error(val message: String) : ChatUiState()
 }
 
-class ChatViewModel : ViewModel() {
+class ChatViewModel(
+    private val chatApi: ChatApiService = RetrofitClient.chatApi,
+    private val lostItemApi: LostItemApiService = RetrofitClient.lostItemApi,
+    private val foundItemApi: FoundItemApiService = RetrofitClient.foundItemApi,
+) : ViewModel() {
+    val unreadMessageTotal: Int
+        get() = rooms.sumOf { (it.unreadMessageCount ?: 0).coerceAtLeast(0).toLong() }
+            .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+
+    init {
+        viewModelScope.launch {
+            NotificationInboxRefreshBus.events.collect {
+                if (TokenManager.isLoggedIn()) loadRooms()
+            }
+        }
+    }
     private var cacheGeneration = 0L
 
     var uiState by mutableStateOf<ChatUiState>(ChatUiState.Idle)
@@ -47,7 +66,6 @@ class ChatViewModel : ViewModel() {
 
 
     private val authorRequestsInFlight = mutableSetOf<Long>()
-    private val authorRequestsAttempted = mutableSetOf<Long>()
     private val pendingCreatedRoomIds = mutableSetOf<Long>()
     private var roomListRequestId = 0
     var messages by mutableStateOf<List<ChatMessageResponse>>(emptyList())
@@ -67,7 +85,7 @@ class ChatViewModel : ViewModel() {
     private val lastReadByUserId = mutableMapOf<Long, Long>()
 
     private var messageLoadRequestId = 0
-    private var roomActionRequestId = 0
+    private val pendingLeaves = mutableMapOf<Long, MutableList<(Boolean) -> Unit>>()
 
 
     fun loadRooms() {
@@ -79,7 +97,7 @@ class ChatViewModel : ViewModel() {
             uiState = ChatUiState.Loading
 
             try {
-                val response = RetrofitClient.chatApi.getRooms()
+                val response = chatApi.getRooms()
 
                 if (!isCurrentRequest(requestGeneration, sessionGeneration) || requestId != roomListRequestId) {
                     return@launch
@@ -120,8 +138,7 @@ class ChatViewModel : ViewModel() {
 
                     NetworkLog.httpError(
                         "loadChatRooms",
-                        response.code(),
-                        errorBody
+                        response.code()
                     )
 
                     uiState = ChatUiState.Error(
@@ -163,7 +180,7 @@ class ChatViewModel : ViewModel() {
             messageUiState = ChatUiState.Loading
 
             try {
-                val response = RetrofitClient.chatApi.getMessages(
+                val response = chatApi.getMessages(
                     roomId = roomId,
                     size = size,
                 )
@@ -196,8 +213,7 @@ class ChatViewModel : ViewModel() {
 
                     NetworkLog.httpError(
                         "loadChatMessages",
-                        response.code(),
-                        errorBody
+                        response.code()
                     )
 
                     messageUiState = ChatUiState.Error(
@@ -270,13 +286,8 @@ class ChatViewModel : ViewModel() {
             uiState = ChatUiState.Loading
 
             try {
-                android.util.Log.d(
-                    "KUFindersChat",
-                    "createRoom recipientId=$recipientId, " +
-                            "postType=$postType, postId=$postId"
-                )
 
-                val response = RetrofitClient.chatApi.createRoom(
+                val response = chatApi.createRoom(
                     CreateChatRoomRequest(
                         recipientId = recipientId,
                         postType = postType,
@@ -284,11 +295,6 @@ class ChatViewModel : ViewModel() {
                     )
                 )
                 if (!isCurrentRequest(requestGeneration, sessionGeneration)) return@launch
-                android.util.Log.d(
-                    "KUFindersChat",
-                    "createRoom HTTP=${response.code()}, " +
-                            "success=${response.body()?.success}"
-                )
 
                 if (response.isSuccessful) {
                     val body = response.body()
@@ -325,8 +331,7 @@ class ChatViewModel : ViewModel() {
 
                     NetworkLog.httpError(
                         "createChatRoom",
-                        response.code(),
-                        errorBody
+                        response.code()
                     )
 
                     uiState = ChatUiState.Error(
@@ -356,7 +361,7 @@ class ChatViewModel : ViewModel() {
         roomListRequestId++
         messageLoadRequestId++
         authorRequestsInFlight.clear()
-        authorRequestsAttempted.clear()
+        pendingLeaves.clear()
         pendingCreatedRoomIds.clear()
         rooms = emptyList()
         roomCache = emptyMap()
@@ -374,12 +379,15 @@ class ChatViewModel : ViewModel() {
     }
 
     fun leaveRoom(roomId: Long, onFinished: (Boolean) -> Unit) {
-        val actionId = ++roomActionRequestId
+        pendingLeaves[roomId]?.let { it += onFinished; return }
+        val action = mutableListOf(onFinished)
+        pendingLeaves[roomId] = action
         val requestGeneration = cacheGeneration
         val sessionGeneration = TokenManager.sessionGeneration()
         viewModelScope.launch {
+            if (!isCurrentRequest(requestGeneration, sessionGeneration)) return@launch
             val success = try {
-                val response = RetrofitClient.chatApi.leaveRoom(roomId)
+                val response = chatApi.leaveRoom(roomId)
                 response.isSuccessful && response.body()?.success == true
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -387,13 +395,17 @@ class ChatViewModel : ViewModel() {
                 NetworkLog.exception("leaveChatRoom", e)
                 false
             }
-            if (actionId != roomActionRequestId || !isCurrentRequest(requestGeneration, sessionGeneration)) return@launch
+            if (pendingLeaves[roomId] !== action || !isCurrentRequest(requestGeneration, sessionGeneration)) return@launch
+            pendingLeaves.remove(roomId)
             if (success) {
                 rooms = rooms.filterNot { it.id == roomId }
                 roomCache = roomCache - roomId
                 pendingCreatedRoomIds.remove(roomId)
+                loadRooms()
             }
-            onFinished(success)
+            action.forEach { callback ->
+                if (isCurrentRequest(requestGeneration, sessionGeneration)) callback(success)
+            }
         }
     }
 
@@ -401,7 +413,7 @@ class ChatViewModel : ViewModel() {
         val postId = room.postId ?: return
         val postType = room.postType?.uppercase() ?: return
 
-        if (authorInfoByRoomId.containsKey(room.id) || !authorRequestsAttempted.add(room.id)) return
+        if (authorInfoByRoomId.containsKey(room.id)) return
         if (!authorRequestsInFlight.add(room.id)) return
         val requestGeneration = cacheGeneration
         val sessionGeneration = TokenManager.sessionGeneration()
@@ -411,7 +423,7 @@ class ChatViewModel : ViewModel() {
                 when (postType) {
                     "LOST" -> {
                         val response =
-                            RetrofitClient.lostItemApi
+                            lostItemApi
                                 .getLostItemDetail(postId)
 
                         val detail = response.body()
@@ -434,7 +446,7 @@ class ChatViewModel : ViewModel() {
 
                     "FOUND" -> {
                         val response =
-                            RetrofitClient.foundItemApi
+                            foundItemApi
                                 .getFoundItemDetail(postId)
 
                         val detail = response.body()
@@ -463,7 +475,7 @@ class ChatViewModel : ViewModel() {
                     e
                 )
             } finally {
-                authorRequestsInFlight.remove(room.id)
+                if (isCurrentRequest(requestGeneration, sessionGeneration)) authorRequestsInFlight.remove(room.id)
             }
         }
     }
@@ -479,7 +491,7 @@ class ChatViewModel : ViewModel() {
                     (room.id to (authorId to authorName))
         }
 
-        if (room.postTitle.isNullOrBlank()) {
+        if (room.postTitle.isNullOrBlank() && roomFor(room.id) != null) {
             roomCache = roomCache +
                     (room.id to room.copy(postTitle = postTitle))
 
@@ -679,7 +691,7 @@ class ChatViewModel : ViewModel() {
                 }
 
                 try {
-                    val response = RetrofitClient.chatApi.markRead(
+                    val response = chatApi.markRead(
                         roomId = roomId,
                         request = ChatReadRequest(
                             lastReadMessageId = latestMessageId
@@ -700,6 +712,7 @@ class ChatViewModel : ViewModel() {
                         )
 
                         applyReadReceipt(receipt)
+                        loadRooms()
                         return@launch
                     }
 
@@ -765,7 +778,7 @@ class ChatViewModel : ViewModel() {
 
         viewModelScope.launch {
             try {
-                val response = RetrofitClient.chatApi.getReadState(roomId)
+                val response = chatApi.getReadState(roomId)
 
                 if (
                     activeRoomId != roomId ||
