@@ -20,7 +20,13 @@ sealed class SignupUiState {
     data class Error(val message: String) : SignupUiState()
 }
 
-class SignupViewmodel : ViewModel() {
+class SignupViewmodel(
+    private val signupApi: com.ku.lostandfound.network.SignupApiService = RetrofitClient.signupApi,
+) : ViewModel() {
+    private var generation = 0L
+    var termsAccepted by mutableStateOf(false)
+    var privacyAccepted by mutableStateOf(false)
+    val hasRequiredConsent get() = termsAccepted && privacyAccepted
     var name by mutableStateOf("")
     var password by mutableStateOf("")
     var emailPrefix by mutableStateOf("")
@@ -45,10 +51,14 @@ class SignupViewmodel : ViewModel() {
         get() = verificationCode.length == 6 && verificationCode.all { it.isDigit() }
 
     fun sendVerificationCode(onSuccess: () -> Unit) {
+        if (!requireConsent()) return
+        val requestGeneration = generation
         viewModelScope.launch {
+            if (requestGeneration != generation || !requireConsent()) return@launch
             uiState = SignupUiState.Loading
             try {
-                val response = RetrofitClient.signupApi.sendVerificationCode(email)
+                val response = signupApi.sendVerificationCode(email)
+                if (!acceptResponse(requestGeneration)) return@launch
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true) {
@@ -62,7 +72,9 @@ class SignupViewmodel : ViewModel() {
                     NetworkLog.httpError("sendVerificationCode", response.code())
                     uiState = SignupUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
                 }
-            } catch (e: Exception) {
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) {
+                if (!acceptResponse(requestGeneration)) return@launch
                 NetworkLog.exception("sendVerificationCode", e)
                 uiState = SignupUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
             }
@@ -70,10 +82,13 @@ class SignupViewmodel : ViewModel() {
     }
 
     fun register() {
+        if (!requireConsent()) return
+        val requestGeneration = generation
         viewModelScope.launch {
+            if (requestGeneration != generation || !requireConsent()) return@launch
             uiState = SignupUiState.Loading
             try {
-                val response = RetrofitClient.signupApi.register(
+                val response = signupApi.register(
                     SignupRequest(
                         email = email,
                         authCode = verificationCode,
@@ -81,6 +96,7 @@ class SignupViewmodel : ViewModel() {
                         name = name,
                     )
                 )
+                if (!acceptResponse(requestGeneration)) return@launch
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true) {
@@ -94,7 +110,9 @@ class SignupViewmodel : ViewModel() {
                     val errorMessage = parseErrorMessage(errorBody)
                     uiState = SignupUiState.Error(httpErrorMessage(response.code(), errorMessage))
                 }
-            } catch (e: Exception) {
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) {
+                if (!acceptResponse(requestGeneration)) return@launch
                 NetworkLog.exception("register", e)
                 uiState = SignupUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
             }
@@ -105,7 +123,23 @@ class SignupViewmodel : ViewModel() {
         uiState = SignupUiState.Idle
     }
 
+    private fun requireConsent(): Boolean {
+        if (hasRequiredConsent) return true
+        uiState = SignupUiState.Error("필수 약관에 동의해주세요.")
+        return false
+    }
+
+    private fun acceptResponse(requestGeneration: Long): Boolean {
+        // Old work cannot clear a newer flow's Loading state. Same-flow revocation
+        // must leave Loading and report the missing consent, including on exceptions.
+        if (requestGeneration != generation) return false
+        return requireConsent()
+    }
+
     fun reset() {
+        generation++
+        termsAccepted = false
+        privacyAccepted = false
         name = ""
         password = ""
         emailPrefix = ""

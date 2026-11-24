@@ -212,9 +212,10 @@ class UserViewModel : ViewModel() {
 
     /** Keeps a block request alive when the detail composable leaves composition. */
     fun blockUser(userId: Long, onFinished: (Boolean) -> Unit) {
+        val requestGeneration = cacheGeneration
+        val sessionGeneration = TokenManager.sessionGeneration()
         viewModelScope.launch {
-            val requestGeneration = cacheGeneration
-            val sessionGeneration = TokenManager.sessionGeneration()
+            if (!isCurrentRequest(requestGeneration, sessionGeneration)) return@launch
             val success = try {
                 val response = RetrofitClient.moderationApi.block(userId)
                 response.isSuccessful && response.body()?.success == true

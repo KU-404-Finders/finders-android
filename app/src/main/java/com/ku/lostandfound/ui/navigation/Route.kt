@@ -6,6 +6,7 @@ sealed class Route(val route: String) {
     object SignupEmail : Route(route = "SignupEmail")
     object SignupFinish : Route(route = "SignupFinish")
     object SignupName : Route(route = "SignupName")
+    object SignupTerms : Route(route = "SignupTerms")
     object SignupPw : Route(route = "SignupPw")
     object PasswordResetEmail : Route(route = "passwordReset/email")
     object PasswordResetCode : Route(route = "passwordReset/code")
@@ -15,6 +16,7 @@ sealed class Route(val route: String) {
     object Lost : Route(route = "lost")
     object Board : Route(route = "board")
     object Profile : Route(route = "profile")
+    object BlockedUsers : Route(route = "blockedUsers")
     object MyLostPosts : Route(route = "myPosts/lost")
     object MyFoundPosts : Route(route = "myPosts/found")
 
@@ -70,7 +72,7 @@ sealed class Route(val route: String) {
 
 
 internal fun isPublicRoute(route: String?) = route in setOf(
-    Route.Login.route, Route.SignupName.route, Route.SignupPw.route, Route.SignupEmail.route,
+    Route.Login.route, Route.SignupTerms.route, Route.SignupName.route, Route.SignupPw.route, Route.SignupEmail.route,
     Route.SignupCode.route, Route.SignupFinish.route, Route.PasswordResetEmail.route,
     Route.PasswordResetCode.route, Route.PasswordResetPassword.route,
 )

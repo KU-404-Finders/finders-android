@@ -98,7 +98,7 @@ fun SignupPwScreen(
                 singleLine = true,
                 visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); if (viewModel.isPasswordValid) onNavigateToEmail() }),
+                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); if (viewModel.hasRequiredConsent && viewModel.isPasswordValid) onNavigateToEmail() }),
                 trailingIcon = {
                     Icon(
                         imageVector = if (passwordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
@@ -134,8 +134,8 @@ fun SignupPwScreen(
 
         BottomFixedButton(
             text = "다음",
-            onClick = onNavigateToEmail,
-            enabled = viewModel.isPasswordValid,
+            onClick = { if (viewModel.hasRequiredConsent && viewModel.isPasswordValid) onNavigateToEmail() },
+            enabled = viewModel.hasRequiredConsent && viewModel.isPasswordValid,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp)
         )
     }

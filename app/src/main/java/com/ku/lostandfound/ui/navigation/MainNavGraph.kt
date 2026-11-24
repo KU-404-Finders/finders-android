@@ -90,6 +90,7 @@ import com.ku.lostandfound.ui.notification.NotificationInboxScreen
 import com.ku.lostandfound.ui.notification.NotificationSettingsScreen
 import com.ku.lostandfound.ui.notification.NotificationViewModel
 import com.ku.lostandfound.ui.search.screen.SearchScreen
+import com.ku.lostandfound.ui.signup.screen.SignupConsentGuard
 import com.ku.lostandfound.ui.signup.screen.SignupCodeScreen
 import com.ku.lostandfound.ui.signup.screen.SignupEmailScreen
 import com.ku.lostandfound.ui.signup.screen.SignupFinishScreen
@@ -143,6 +144,7 @@ fun MainNavGraph(
     modifier: Modifier = Modifier,
     padding: PaddingValues,
     isFreshLaunch: Boolean,
+    chatViewModel: ChatViewModel,
 ) {
     val context = LocalContext.current
     val displayPreferences = remember(context.applicationContext) {
@@ -162,9 +164,14 @@ fun MainNavGraph(
     val foundItemViewModel = viewModel<FoundItemViewModel>()
     val postCommentViewModel = viewModel<PostCommentViewModel>()
     val notificationViewModel = viewModel<NotificationViewModel>()
+    val blockedUsersViewModel = viewModel<com.ku.lostandfound.ui.profile.viewmodel.BlockedUsersViewModel>()
+    val blockedUserNames = remember(context.applicationContext) {
+        com.ku.lostandfound.data.BlockedUserNames(context.applicationContext)
+    }
 
     val currentUserId = userViewModel.me?.id
     LaunchedEffect(currentUserId) { notificationViewModel.attachAccount(currentUserId) }
+    LaunchedEffect(currentUserId) { blockedUsersViewModel.attachAccount(currentUserId) }
     val currentUserName = userViewModel.me?.name ?: signupViewModel.name
     val currentUserEmail = userViewModel.me?.email ?: signupViewModel.email
 
@@ -178,7 +185,9 @@ fun MainNavGraph(
     var lastAppliedFoundListVersion by remember { mutableIntStateOf(0) }
     var lastAppliedLostListVersion by remember { mutableIntStateOf(0) }
 
-    val chatViewModel = viewModel<ChatViewModel>()
+    LaunchedEffect(currentUserId) {
+        if (currentUserId != null) chatViewModel.loadRooms()
+    }
     var startDestination by remember(isFreshLaunch) {
         mutableStateOf<String?>(
             if (isFreshLaunch) {
@@ -387,6 +396,14 @@ fun MainNavGraph(
         navController.navigate(Route.PostEdit.create(post.id))
     }
 
+    fun blockUser(userId: Long, name: String?, onFinished: (Boolean) -> Unit) {
+        val ownerId = currentUserId ?: run { onFinished(false); return }
+        userViewModel.blockUser(userId) { success ->
+            if (success) blockedUserNames.save(ownerId, userId, name)
+            onFinished(success)
+        }
+    }
+
     fun navigateToLoginClearingBackStack() {
         navController.navigate(Route.Login.route) {
             // The runtime start destination can be Login while it is no longer in the back
@@ -405,6 +422,7 @@ fun MainNavGraph(
         chatViewModel.clearSession()
         adminViewModel.clearSession()
         notificationViewModel.attachAccount(null)
+        blockedUsersViewModel.attachAccount(null)
         foundItemViewModel.clearSession()
         lostItemViewModel.clearSession()
         lastAppliedFoundListVersion = 0
@@ -509,7 +527,8 @@ fun MainNavGraph(
                 },
                 onNavigateToSignUp = {
                     loginViewModel.resetUiState()
-                    navController.navigate(Route.SignupName.route)
+                    signupViewModel.reset()
+                    navController.navigate(Route.SignupTerms.route)
                 }
             )
         }
@@ -547,44 +566,90 @@ fun MainNavGraph(
                 },
             )
         }
+        composable(route = Route.SignupTerms.route) {
+            com.ku.lostandfound.ui.signup.screen.SignupTermsScreen(
+                vm = signupViewModel,
+                onBack = { navController.popBackStack() },
+                onContinue = { navController.navigate(Route.SignupName.route) },
+            )
+        }
         composable(route = Route.SignupName.route) {
-            SignupNameScreen(
-                viewModel = signupViewModel,
-                onNavigateToPw = { navController.navigate(Route.SignupPw.route) },
-                onNavigateToBack = { navController.popBackStack() },
-            )
-        }
-        composable(route = Route.SignupPw.route) {
-            SignupPwScreen(
-                viewModel = signupViewModel,
-                onNavigateToEmail = { navController.navigate(Route.SignupEmail.route) },
-                onNavigateToBack = { navController.popBackStack() },
-            )
-        }
-        composable(route = Route.SignupEmail.route) {
-            SignupEmailScreen(
-                viewModel = signupViewModel,
-                onNavigateToCode = { navController.navigate(Route.SignupCode.route) },
-                onNavigateToBack = { navController.popBackStack() },
-            )
-        }
-        composable(route = Route.SignupCode.route) {
-            SignupCodeScreen(
-                viewModel = signupViewModel,
-                onNavigateToFinish = { navController.navigate(Route.SignupFinish.route) },
-                onNavigateToBack = { navController.popBackStack() },
-            )
-        }
-        composable(route = Route.SignupFinish.route) {
-            SignupFinishScreen(
-                onNavigateToLogin = {
-                    loginViewModel.resetUiState()
-                    signupViewModel.reset()
-                    navController.navigate(Route.Login.route) {
-                        popUpTo(Route.Login.route) { inclusive = true }
-                    }
+            SignupConsentGuard(signupViewModel, onConsentRequired = {
+                navController.navigate(Route.SignupTerms.route) {
+                    popUpTo(Route.SignupTerms.route) { inclusive = true }
+                    launchSingleTop = true
                 }
-            )
+            }) {
+                SignupNameScreen(
+                    viewModel = signupViewModel,
+                    onNavigateToPw = { navController.navigate(Route.SignupPw.route) },
+                    onNavigateToBack = { navController.popBackStack() },
+                )
+            }
+        }
+
+        composable(route = Route.SignupPw.route) {
+            SignupConsentGuard(signupViewModel, onConsentRequired = {
+                navController.navigate(Route.SignupTerms.route) {
+                    popUpTo(Route.SignupTerms.route) { inclusive = true }
+                    launchSingleTop = true
+                }
+            }) {
+                SignupPwScreen(
+                    viewModel = signupViewModel,
+                    onNavigateToEmail = { navController.navigate(Route.SignupEmail.route) },
+                    onNavigateToBack = { navController.popBackStack() },
+                )
+            }
+        }
+
+        composable(route = Route.SignupEmail.route) {
+            SignupConsentGuard(signupViewModel, onConsentRequired = {
+                navController.navigate(Route.SignupTerms.route) {
+                    popUpTo(Route.SignupTerms.route) { inclusive = true }
+                    launchSingleTop = true
+                }
+            }) {
+                SignupEmailScreen(
+                    viewModel = signupViewModel,
+                    onNavigateToCode = { navController.navigate(Route.SignupCode.route) },
+                    onNavigateToBack = { navController.popBackStack() },
+                )
+            }
+        }
+
+        composable(route = Route.SignupCode.route) {
+            SignupConsentGuard(signupViewModel, onConsentRequired = {
+                navController.navigate(Route.SignupTerms.route) {
+                    popUpTo(Route.SignupTerms.route) { inclusive = true }
+                    launchSingleTop = true
+                }
+            }) {
+                SignupCodeScreen(
+                    viewModel = signupViewModel,
+                    onNavigateToFinish = { navController.navigate(Route.SignupFinish.route) },
+                    onNavigateToBack = { navController.popBackStack() },
+                )
+            }
+        }
+
+        composable(route = Route.SignupFinish.route) {
+            SignupConsentGuard(signupViewModel, onConsentRequired = {
+                navController.navigate(Route.SignupTerms.route) {
+                    popUpTo(Route.SignupTerms.route) { inclusive = true }
+                    launchSingleTop = true
+                }
+            }) {
+                SignupFinishScreen(
+                    onNavigateToLogin = {
+                        loginViewModel.resetUiState()
+                        signupViewModel.reset()
+                        navController.navigate(Route.Login.route) {
+                            popUpTo(Route.Login.route) { inclusive = true }
+                        }
+                    }
+                )
+            }
         }
 
         composable(route = Route.Found.route) {
@@ -924,11 +989,11 @@ fun MainNavGraph(
                 },
                 onBlockUser = {
                     val userId = otherUserId ?: return@ChatRoomScreen
-                    userViewModel.blockUser(userId) { success ->
+                    blockUser(userId, postAuthor?.takeIf { it.first == userId }?.second) { success ->
                         if (success) {
                             chatViewModel.loadRooms()
                             navController.popIfCurrent(backStackEntry)
-                        }
+                        } else Toast.makeText(context, "사용자 차단에 실패했습니다.", Toast.LENGTH_SHORT).show()
                     }
                 },
                 onLeaveRoom = {
@@ -952,6 +1017,9 @@ fun MainNavGraph(
                 onRetryAccount = { userViewModel.loadMe() },
                 vm = notificationViewModel,
                 onBack = { navController.popBackStack() },
+                onOpenPost = { type, id ->
+                    if (navController.currentBackStackEntry === entry) navController.navigate(Route.PostDetail.create(id.toString(), type))
+                },
                 onOpenRoom = { roomId ->
                     if (navController.currentBackStackEntry === entry) navController.navigate(Route.ChatRoom.create(roomId))
                 },
@@ -961,6 +1029,19 @@ fun MainNavGraph(
             NotificationSettingsScreen(vm = notificationViewModel, onBack = { navController.popBackStack() },
                 accountError = (userViewModel.uiState as? UserUiState.Error)?.message,
                 onRetryAccount = { userViewModel.loadMe() })
+        }
+
+        composable(route = Route.BlockedUsers.route) {
+            com.ku.lostandfound.ui.profile.screen.BlockedUsersScreen(
+                vm = blockedUsersViewModel,
+                accountId = currentUserId,
+                onBack = { navController.popBackStack() },
+                onUnblocked = {
+                    lostItemViewModel.loadLostItems()
+                    foundItemViewModel.retryFoundItems()
+                    chatViewModel.loadRooms()
+                },
+            )
         }
 
         composable(route = Route.Profile.route) {
@@ -1026,6 +1107,7 @@ fun MainNavGraph(
                     )
                 },
                 onNotificationSettingsClick = { navController.navigate(Route.NotificationSettings.route) },
+                onBlockedUsersClick = { navController.navigate(Route.BlockedUsers.route) },
             )
         }
 
@@ -1416,7 +1498,7 @@ fun MainNavGraph(
                     },
 
                     onBlockUserRequest = { blockedUserId, onFinished ->
-                        userViewModel.blockUser(blockedUserId) { success ->
+                        blockUser(blockedUserId, post.authorName.takeIf { post.authorUserId == blockedUserId }) { success ->
                             if (success) {
                                 posts = posts.filterNot {
                                     it.authorUserId == blockedUserId

@@ -23,6 +23,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.ku.lostandfound.notification.NotificationInboxRefreshBus
 
 sealed class ChatUiState {
     object Idle : ChatUiState()
@@ -35,6 +36,17 @@ class ChatViewModel(
     private val lostItemApi: LostItemApiService = RetrofitClient.lostItemApi,
     private val foundItemApi: FoundItemApiService = RetrofitClient.foundItemApi,
 ) : ViewModel() {
+    val unreadMessageTotal: Int
+        get() = rooms.sumOf { (it.unreadMessageCount ?: 0).coerceAtLeast(0).toLong() }
+            .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+
+    init {
+        viewModelScope.launch {
+            NotificationInboxRefreshBus.events.collect {
+                if (TokenManager.isLoggedIn()) loadRooms()
+            }
+        }
+    }
     private var cacheGeneration = 0L
 
     var uiState by mutableStateOf<ChatUiState>(ChatUiState.Idle)
@@ -700,6 +712,7 @@ class ChatViewModel(
                         )
 
                         applyReadReceipt(receipt)
+                        loadRooms()
                         return@launch
                     }
 
