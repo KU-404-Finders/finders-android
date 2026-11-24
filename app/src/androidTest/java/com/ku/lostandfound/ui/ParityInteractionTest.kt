@@ -128,6 +128,7 @@ class ParityInteractionTest {
         }
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("앱 버전", substring = true))
         compose.onNodeWithText("앱 버전", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("michelle03212@gmail.com").assertDoesNotExist()
         compose.onNodeWithText("작성 필요", substring = true).assertDoesNotExist()
         compose.onNodeWithText("이메일:", substring = true).assertDoesNotExist()
     }

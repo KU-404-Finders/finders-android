@@ -68,6 +68,8 @@ class ChatViewModel(
     private val authorRequestsInFlight = mutableSetOf<Long>()
     private val pendingCreatedRoomIds = mutableSetOf<Long>()
     private var roomListRequestId = 0
+    private var roomListLoading = false
+    private var roomListSession = -1L
     var messages by mutableStateOf<List<ChatMessageResponse>>(emptyList())
         private set
 
@@ -88,11 +90,24 @@ class ChatViewModel(
     private val pendingLeaves = mutableMapOf<Long, MutableList<(Boolean) -> Unit>>()
 
 
+    fun ensureRoomsLoaded() {
+        if (!TokenManager.isCurrentSession(roomListSession)) {
+            loadRooms()
+            return
+        }
+        // Re-entering chat still verifies server unread counts. Only overlapping entries coalesce.
+        if (!roomListLoading) loadRooms()
+    }
+
     fun loadRooms() {
+        val sessionGeneration = TokenManager.sessionGeneration()
+        if (roomListSession != -1L && roomListSession != sessionGeneration) {
+            clearSession()
+        }
+        roomListSession = sessionGeneration
         val requestId = ++roomListRequestId
         val requestGeneration = cacheGeneration
-        val sessionGeneration = TokenManager.sessionGeneration()
-
+        roomListLoading = true
         viewModelScope.launch {
             uiState = ChatUiState.Loading
 
@@ -160,6 +175,9 @@ class ChatViewModel(
                 uiState = ChatUiState.Error(
                     "서버와 연결할 수 없습니다."
                 )
+            }
+            finally {
+                if (requestId == roomListRequestId) roomListLoading = false
             }
         }
     }
@@ -359,6 +377,8 @@ class ChatViewModel(
     fun clearSession() {
         cacheGeneration++
         roomListRequestId++
+        roomListLoading = false
+        roomListSession = -1L
         messageLoadRequestId++
         authorRequestsInFlight.clear()
         pendingLeaves.clear()

@@ -1,6 +1,13 @@
 package com.ku.lostandfound.ui.navigation
 
 import androidx.navigation.NavHostController
+import androidx.compose.runtime.Composable
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.saveable.rememberSaveable
+
+@Composable
+internal fun rememberMainTabScrollState(accountKey: Any?): LazyListState =
+    rememberSaveable(accountKey, saver = LazyListState.Saver) { LazyListState() }
 
 internal fun NavHostController.navigateToMainTab(route: String) {
     if (currentBackStackEntry?.destination?.route == route) return

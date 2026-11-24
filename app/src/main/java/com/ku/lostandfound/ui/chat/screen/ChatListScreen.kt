@@ -4,6 +4,8 @@ package com.ku.lostandfound.ui.chat.screen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -55,6 +57,7 @@ fun ChatListScreen(
     currentUserId: Long? = null,
     currentUserName: String? = null,
     onLeaveRoom: (Long) -> Unit = {},
+    listState: LazyListState = rememberLazyListState(),
 ) {
     var leaveTargetId by remember { mutableStateOf<Long?>(null) }
     Column(
@@ -102,7 +105,7 @@ fun ChatListScreen(
             }
 
             else -> {
-                LazyColumn(Modifier.fillMaxSize()) {
+                LazyColumn(Modifier.fillMaxSize(), state = listState) {
                     items(
                         items = rooms,
                         key = { it.id }
