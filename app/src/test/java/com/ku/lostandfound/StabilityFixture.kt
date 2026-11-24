@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import com.ku.lostandfound.network.ApiResponse
 import com.ku.lostandfound.network.TokenManager
+import com.ku.lostandfound.notification.NotificationInboxRefreshBus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -12,6 +13,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Before
+import org.junit.Assert.assertEquals
 import org.mockito.Mockito.*
 import org.mockito.MockedStatic
 import retrofit2.Response
@@ -50,10 +52,19 @@ open class StabilityFixture {
     protected fun dispatch() = main.scheduler.runCurrent()
 
     @After fun teardownSession() {
-        try { TokenManager.clear() }
+        try {
+            // Subclass @After methods cancel their ViewModels. Run cancellation finally
+            // blocks on this test's scheduler before replacing Dispatchers.Main.
+            main.scheduler.runCurrent()
+            assertEquals("Event subscribers leaked past test teardown", 0,
+                NotificationInboxRefreshBus.events.subscriptionCount.value)
+        }
         finally {
-            try { if (::log.isInitialized) log.close() }
-            finally { Dispatchers.resetMain() }
+            try { TokenManager.clear() }
+            finally {
+                try { if (::log.isInitialized) log.close() }
+                finally { Dispatchers.resetMain() }
+            }
         }
     }
 }

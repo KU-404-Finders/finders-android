@@ -8,13 +8,19 @@ import com.ku.lostandfound.ui.lost.viewmodel.*
 import com.ku.lostandfound.ui.post.viewmodel.PostCommentViewModel
 import kotlinx.coroutines.CompletableDeferred
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.cancel
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
 import org.mockito.Mockito.mock
 import retrofit2.Response
 
 class BoardChatRegressionTest : StabilityFixture() {
+    private val models = mutableListOf<ViewModel>()
+    private fun <T : ViewModel> keep(vm: T): T = vm.also { models += it }
+    @After fun closeModels() { models.forEach { it.viewModelScope.cancel() } }
+
     @Test fun chatBadgeRefreshesOnPushAndClearsWithSession() {
         var calls = 0
         val api = object : ChatApiService by mock(ChatApiService::class.java) {
@@ -27,7 +33,7 @@ class BoardChatRegressionTest : StabilityFixture() {
                 ))
             }
         }
-        val vm = ChatViewModel(api, mock(LostItemApiService::class.java), mock(FoundItemApiService::class.java))
+        val vm = keep(ChatViewModel(api, mock(LostItemApiService::class.java), mock(FoundItemApiService::class.java)))
         vm.loadRooms()
         dispatch()
         assertEquals(7, vm.unreadMessageTotal)
@@ -37,7 +43,6 @@ class BoardChatRegressionTest : StabilityFixture() {
         assertEquals(5, vm.unreadMessageTotal)
         vm.clearSession()
         assertEquals(0, vm.unreadMessageTotal)
-        vm.viewModelScope.cancel()
     }
 
     @Test fun staleLostListCannotReplaceLatestResultOrError() {
@@ -46,7 +51,7 @@ class BoardChatRegressionTest : StabilityFixture() {
         val api = object : LostItemApiService by mock(LostItemApiService::class.java) {
             override suspend fun getLostItems() = Response.success(responses[index++].await())
         }
-        val vm = LostItemViewModel(api)
+        val vm = keep(LostItemViewModel(api))
         repeat(3) { vm.loadLostItems() }
         dispatch()
         val post = LostItemSummaryData(4, "wallet", "", null, "SEARCHING", "")
@@ -73,7 +78,7 @@ class BoardChatRegressionTest : StabilityFixture() {
                 })
             }
         }
-        val vm = FoundItemViewModel(api)
+        val vm = keep(FoundItemViewModel(api))
         vm.loadFoundItemsByBuilding("A")
         dispatch()
         vm.loadFoundItemsByBuilding("B")
@@ -102,7 +107,7 @@ class BoardChatRegressionTest : StabilityFixture() {
                 return ok(CompletableDeferred<Unit>().also { leaves[roomId] = it }.await())
             }
         }
-        val vm = ChatViewModel(api, mock(LostItemApiService::class.java), mock(FoundItemApiService::class.java))
+        val vm = keep(ChatViewModel(api, mock(LostItemApiService::class.java), mock(FoundItemApiService::class.java)))
         val rooms = listOf(1L, 2L).map { ChatRoomResponse(it, 3, 4, "") }
         vm.loadRooms()
         dispatch()
@@ -133,7 +138,7 @@ class BoardChatRegressionTest : StabilityFixture() {
                 if (++calls == 1) first.await() else LostItemCreateResponse(true, "", detail)
             )
         }
-        val vm = ChatViewModel(mock(ChatApiService::class.java), lost, mock(FoundItemApiService::class.java))
+        val vm = keep(ChatViewModel(mock(ChatApiService::class.java), lost, mock(FoundItemApiService::class.java)))
         val room = ChatRoomResponse(1, 2, 3, "", 3, "LOST")
         repeat(2) { vm.loadPostAuthorForRoom(room) }
         dispatch()
@@ -152,7 +157,7 @@ class BoardChatRegressionTest : StabilityFixture() {
             override suspend fun createLostItemComment(authorization: String, lostItemId: Long, request: CommentCreateRequest) =
                 ok(CompletableDeferred<ItemCommentResponse>().also(responses::add).await())
         }
-        val vm = PostCommentViewModel(lost, mock(FoundItemApiService::class.java))
+        val vm = keep(PostCommentViewModel(lost, mock(FoundItemApiService::class.java)))
         vm.addComment(1, PostType.LOST, "old", { fail() }, { fail() })
         dispatch()
         vm.clear()
