@@ -38,6 +38,18 @@ object RetrofitClient {
             throw java.io.IOException("Session changed")
         }
         val path = originalRequest.url.encodedPath
+        val withdrawal = originalRequest.tag(WithdrawalRequest::class.java)
+        if (path == "/api/v1/auth/withdraw") {
+            if (withdrawal == null || withdrawal.generation != sessionGeneration ||
+                originalRequest.header("Authorization").isNullOrBlank()) {
+                throw java.io.IOException("Withdrawal owner changed or missing")
+            }
+            if (withdrawal.tokenKind == WithdrawalTokenKind.SESSION && token.isNullOrBlank()) {
+                throw java.io.IOException("Withdrawal session ended")
+            }
+        } else if (withdrawal != null) {
+            throw java.io.IOException("Withdrawal credential used outside withdrawal")
+        }
 
         val isAuthRequest =
             path.endsWith("/api/v1/auth/login") ||
@@ -49,8 +61,10 @@ object RetrofitClient {
         // 이 인터셉터가 인증 헤더를 추가한 요청만 자동 갱신 대상
         val shouldAttachToken =
             !token.isNullOrBlank() &&
-                    originalRequest.header("Authorization") == null &&
-                    !isAuthRequest
+                    !isAuthRequest &&
+                    withdrawal?.tokenKind != WithdrawalTokenKind.DEDICATED &&
+                    (originalRequest.header("Authorization") == null ||
+                        withdrawal?.tokenKind == WithdrawalTokenKind.SESSION)
 
         val request = if (shouldAttachToken) {
             originalRequest.newBuilder()
@@ -109,13 +123,25 @@ object RetrofitClient {
         .addInterceptor(authInterceptor)
         .build()
 
+    // Application interceptors do not recheck redirect follow-ups. Dedicated credentials
+    // must never leave the original withdrawal URL, including same-host redirects.
+    private val dedicatedWithdrawalClient = okHttpClient.newBuilder()
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .build()
+
+    internal fun newCall(original: Request): okhttp3.Call {
+        val owner = original.tag(RequestSession::class.java) ?: RequestSession(TokenManager.sessionGeneration())
+        val request = original.newBuilder().tag(RequestSession::class.java, owner).build()
+        val client = if (original.tag(WithdrawalRequest::class.java)?.tokenKind == WithdrawalTokenKind.DEDICATED)
+            dedicatedWithdrawalClient else okHttpClient
+        return client.newCall(request)
+    }
+
     private val retrofit = Retrofit.Builder()
         .baseUrl(BASE_URL)
-        .callFactory { original ->
-            // Capture ownership before OkHttp queues the request on a worker thread.
-            val owner = original.tag(RequestSession::class.java) ?: RequestSession(TokenManager.sessionGeneration())
-            okHttpClient.newCall(original.newBuilder().tag(RequestSession::class.java, owner).build())
-        }
+        // Capture ownership before OkHttp queues the request on a worker thread.
+        .callFactory(::newCall)
         .addConverterFactory(GsonConverterFactory.create())
         .build()
 
@@ -175,7 +201,7 @@ object RetrofitClient {
                 val body = it.body?.string().orEmpty()
                 val parsed = Gson().fromJson(body, RefreshTokenResponse::class.java)
                 val tokens = parsed.data
-                if (parsed.success && tokens != null) {
+                if (parsed.success && tokens?.accessToken != null && tokens.refreshToken != null) {
                     tokens.accessToken.takeIf {
                         TokenManager.saveRefreshedTokens(credentials, it, tokens.refreshToken)
                     }

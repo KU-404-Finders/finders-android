@@ -25,6 +25,10 @@ import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import com.ku.lostandfound.ui.profile.component.WithdrawConfirmDialog
+import com.ku.lostandfound.ui.profile.component.WithdrawCompleteDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -69,20 +73,50 @@ fun LoginScreen(
     var emailPrefix by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
+    var confirmWithdrawal by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     val passwordFocusRequester = remember { FocusRequester() }
 
     val uiState = viewModel.uiState
-    val isLoading = uiState is LoginUiState.Loading
+    val isLoading = uiState is LoginUiState.Loading || viewModel.isWithdrawing
     val loginErrorMessage = (uiState as? LoginUiState.Error)?.message
 
     val isLoginEnabled = emailPrefix.isNotBlank() && password.isNotBlank() && !isLoading
 
     LaunchedEffect(uiState) {
+        if (uiState !is LoginUiState.Suspended) confirmWithdrawal = false
         if (uiState is LoginUiState.Success) {
             viewModel.resetUiState()
             onLoginSuccess()
         }
+    }
+
+    if (viewModel.hasSuspendedWithdrawal && !confirmWithdrawal && !viewModel.isWithdrawing &&
+        (uiState is LoginUiState.Suspended || uiState is LoginUiState.Error)) {
+        AlertDialog(
+            onDismissRequest = { viewModel.resetUiState() },
+            title = { Text("이용이 정지된 계정입니다.") },
+            text = { Text(loginErrorMessage ?: "회원 탈퇴를 원하시면 아래 버튼을 눌러주세요.") },
+            confirmButton = {
+                TextButton(onClick = { confirmWithdrawal = true }) { Text("회원 탈퇴") }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.resetUiState() }) { Text("닫기") }
+            },
+        )
+    }
+    if (confirmWithdrawal && viewModel.hasSuspendedWithdrawal && !viewModel.isWithdrawing &&
+        (uiState is LoginUiState.Suspended || uiState is LoginUiState.Error)) {
+        WithdrawConfirmDialog(
+            onCancelClick = { confirmWithdrawal = false; viewModel.resetUiState() },
+            onWithdrawClick = { confirmWithdrawal = false; viewModel.withdraw {} },
+        )
+    }
+    if (uiState is LoginUiState.WithdrawalComplete) {
+        WithdrawCompleteDialog(onConfirmClick = {
+            password = ""
+            viewModel.resetUiState()
+        })
     }
 
     Column(
@@ -267,7 +301,7 @@ fun LoginScreen(
                 .height(52.dp)
         ) {
             Text(
-                text = if (isLoading) "로그인 중..." else "로그인 →",
+                text = if (viewModel.isWithdrawing) "탈퇴 처리 중..." else if (isLoading) "로그인 중..." else "로그인 →",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold
             )

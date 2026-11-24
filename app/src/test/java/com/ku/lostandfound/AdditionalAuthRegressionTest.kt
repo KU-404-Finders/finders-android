@@ -38,42 +38,36 @@ class AdditionalAuthRegressionTest : StabilityFixture() {
         } finally { release.complete(Unit); cleanup.cancel(); vm.viewModelScope.cancel() }
     }
 
-    @Test fun withdrawalUsesRefreshedTokenFromSameSessionAfterPushCleanup() {
-        val release = CompletableDeferred<Unit>()
+    @Test fun withdrawalUsesRefreshedTokenFromSameSessionWithoutPushCleanup() {
         val headers = mutableListOf<String>()
         val api = object : AuthApiService by mock(AuthApiService::class.java) {
-            override suspend fun withdraw(authorization: String): Response<ApiMessageResponse> {
+            override suspend fun withdraw(authorization: String, withdrawal: WithdrawalRequest): Response<ApiMessageResponse> {
                 headers += authorization
                 return Response.success(ApiMessageResponse(false, "rejected"))
             }
         }
-        val vm = LoginViewModel(api) { _, _ -> release.await() }
+        val vm = LoginViewModel(api) { _, _ -> fail("Withdrawal must not pre-delete push devices") }
         try {
             vm.withdraw { fail() }
-            dispatch()
             val old = TokenManager.credentials()
             assertTrue(TokenManager.saveRefreshedTokens(old, "new-access", "new-refresh"))
-            release.complete(Unit)
             dispatch()
             assertEquals(listOf("Bearer new-access"), headers)
         } finally { vm.viewModelScope.cancel() }
     }
 
-    @Test fun accountSwitchDuringPushCleanupSuppressesWithdrawal() {
-        val release = CompletableDeferred<Unit>()
+    @Test fun accountSwitchBeforeWithdrawalDispatchSuppressesWithdrawal() {
         var calls = 0
         val api = object : AuthApiService by mock(AuthApiService::class.java) {
-            override suspend fun withdraw(authorization: String): Response<ApiMessageResponse> {
+            override suspend fun withdraw(authorization: String, withdrawal: WithdrawalRequest): Response<ApiMessageResponse> {
                 calls++
                 return Response.success(ApiMessageResponse(false, "rejected"))
             }
         }
-        val vm = LoginViewModel(api) { _, _ -> release.await() }
+        val vm = LoginViewModel(api) { _, _ -> fail("Withdrawal must not pre-delete push devices") }
         try {
             vm.withdraw { fail() }
-            dispatch()
             login("b")
-            release.complete(Unit)
             dispatch()
             assertEquals(0, calls)
         } finally { vm.viewModelScope.cancel() }

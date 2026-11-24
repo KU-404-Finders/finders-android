@@ -6,8 +6,10 @@ data class LoginRequest(
 )
 
 data class TokenData(
-    val accessToken: String,
-    val refreshToken: String,
+    val accessToken: String?,
+    val refreshToken: String?,
+    val suspended: Boolean = false,
+    val withdrawalToken: String? = null,
     val userId: Long? = null,
     val role: String? = null,
     val admin: Boolean = false,
