@@ -9,6 +9,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.setValue
 import com.ku.lostandfound.data.BoardPost
 import com.ku.lostandfound.data.PostType
@@ -46,11 +49,16 @@ fun LostBoardScreen(
     errorMessage: String? = null,
     onRetryClick: () -> Unit = {},
     onRefresh: () -> Unit = {},
+    listState: LazyListState = rememberLazyListState(),
+    categoryFilter: String? = null,
+    onCategoryFilterChange: (String) -> Unit = {},
 ) {
-    var selectedCategory by remember { mutableStateOf(LostCategory.ALL) }
+    var localCategory by rememberSaveable { mutableStateOf(LostCategory.ALL) }
+    val selectedCategory = LostCategory.entries.firstOrNull { it.name == categoryFilter } ?: localCategory
     var filterExpanded by remember { mutableStateOf(false) }
-    val lostPosts = posts.filter { it.type == PostType.LOST }
-    val filteredPosts = lostPosts.filter { selectedCategory.matches(it.category) }
+    val filteredPosts = remember(posts, selectedCategory) {
+        posts.filter { it.type == PostType.LOST && selectedCategory.matches(it.category) }
+    }
     HomeScreen(
         title = "분실물 게시판",
         selectedType = PostType.LOST,
@@ -74,6 +82,7 @@ fun LostBoardScreen(
         },
         onRetryClick = onRetryClick,
         onRefresh = onRefresh,
+        listState = listState,
         listHeaderAction = {
             Box {
                 OutlinedButton(
@@ -122,7 +131,8 @@ fun LostBoardScreen(
                         DropdownMenuItem(
                             text = { Text(category.label) },
                             onClick = {
-                                selectedCategory = category
+                                localCategory = category
+                                onCategoryFilterChange(category.name)
                                 filterExpanded = false
                             },
                         )
@@ -148,8 +158,7 @@ private enum class LostCategory(val label: String, private val keywords: List<St
     fun matches(kind: String?): Boolean {
         if (this == ALL) return true
         val normalized = kind.orEmpty().lowercase().replace(" ", "")
-        val known = entries.filter { it != ALL && it != OTHER }
-        return if (this == OTHER) known.none { category -> category.keywords.any(normalized::contains) }
+        return if (this == OTHER) entries.none { category -> category != ALL && category != OTHER && category.keywords.any(normalized::contains) }
         else keywords.any(normalized::contains)
     }
 }

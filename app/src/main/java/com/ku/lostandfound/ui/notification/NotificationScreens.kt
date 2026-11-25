@@ -49,7 +49,10 @@ fun NotificationInboxScreen(vm: NotificationViewModel, onBack: () -> Unit, onOpe
             if (vm.items.any { it.readAt == null }) TextButton(onClick = vm::markAllRead) { Text("모두 읽음") }
             if (vm.items.isNotEmpty()) TextButton(onClick = { confirmDeleteAll = true }) { Text("전체 삭제", color = Color(0xFFD32F2F)) }
         }
-        PullToRefreshBox(isRefreshing = vm.state is InboxState.Loading, onRefresh = { if (vm.account == null) onRetryAccount() else vm.load(true) }, modifier = Modifier.weight(1f)) {
+        PullToRefreshBox(isRefreshing = vm.state is InboxState.Loading, onRefresh = {
+            if (vm.account == null) onRetryAccount()
+            else if (vm.state !is InboxState.Loading) vm.load(true)
+        }, modifier = Modifier.weight(1f)) {
             when (val state = vm.state) {
                 is InboxState.Unsupported -> InboxMessage("알림함을 사용할 수 없습니다", state.message)
                 is InboxState.Error -> InboxMessage("알림을 불러오지 못했습니다", state.message, vm::load)

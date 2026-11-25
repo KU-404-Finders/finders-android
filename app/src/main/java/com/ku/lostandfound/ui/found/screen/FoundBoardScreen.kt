@@ -1,6 +1,9 @@
 package com.ku.lostandfound.ui.found.screen
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import com.ku.lostandfound.data.BoardPost
 import com.ku.lostandfound.data.CampusBoundary
 import com.ku.lostandfound.data.CampusBuilding
@@ -29,18 +32,21 @@ fun FoundBoardScreen(
     errorMessage: String? = null,
     onRetryClick: () -> Unit = {},
     onRefresh: () -> Unit = {},
+    listState: LazyListState = rememberLazyListState(),
 ) {
-    val foundPosts = posts.filter { it.type == PostType.FOUND }
-    val filteredPosts = selectedBuilding?.let { building ->
-        foundPosts.filter { post ->
-            val associatedMatch = building.name in post.associatedBuildingNames
-            val indoorMatch = post.foundLocation?.indoorPlace?.buildingName == building.name
-            val outdoorMatch = post.foundLocation?.outdoorPin?.let { pin ->
-                GeoUtils.pointInPolygonOrNearBoundary(pin.point, building.outerRing, toleranceMeters = 4.0)
-            } ?: false
-            associatedMatch || indoorMatch || outdoorMatch
-        }
-    } ?: foundPosts
+    val filteredPosts = remember(posts, selectedBuilding) {
+        val foundPosts = posts.filter { it.type == PostType.FOUND }
+        selectedBuilding?.let { building ->
+            foundPosts.filter { post ->
+                val associatedMatch = building.name in post.associatedBuildingNames
+                val indoorMatch = post.foundLocation?.indoorPlace?.buildingName == building.name
+                val outdoorMatch = post.foundLocation?.outdoorPin?.let { pin ->
+                    GeoUtils.pointInPolygonOrNearBoundary(pin.point, building.outerRing, toleranceMeters = 4.0)
+                } ?: false
+                associatedMatch || indoorMatch || outdoorMatch
+            }
+        } ?: foundPosts
+    }
 
     HomeScreen(
         title = "습득물 게시판",
@@ -68,5 +74,6 @@ fun FoundBoardScreen(
         emptyMessage = "표시할 습득물 게시글이 없습니다.",
         onRetryClick = onRetryClick,
         onRefresh = onRefresh,
+        listState = listState,
     )
 }

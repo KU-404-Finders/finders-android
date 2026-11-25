@@ -1,5 +1,12 @@
 package com.ku.lostandfound.ui.profile.screen
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,15 +21,19 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material3.Card
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.Composable
@@ -82,6 +93,7 @@ fun ProfileScreen(
     onShowSimilarityScoresChange: (Boolean) -> Unit = {},
     onNotificationSettingsClick: () -> Unit = {},
     onBlockedUsersClick: () -> Unit = {},
+    listState: LazyListState = rememberLazyListState(),
 ) {
     val context = LocalContext.current
     val appVersion = remember(context) {
@@ -90,6 +102,7 @@ fun ProfileScreen(
     var showWithdrawConfirmDialog by remember { mutableStateOf(false) }
     var showWithdrawCompleteDialog by remember { mutableStateOf(false) }
     var showLogoutConfirmDialog by remember { mutableStateOf(false) }
+    var showSupportDialog by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -102,6 +115,7 @@ fun ProfileScreen(
         )
 
         LazyColumn(
+            state = listState,
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -154,6 +168,16 @@ fun ProfileScreen(
                 }
             }
 
+            item {
+                Card(
+                    shape = RoundedCornerShape(10.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    modifier = Modifier.fillMaxWidth().noRippleClickable { showSupportDialog = true },
+                ) {
+                    Text("문의하기", modifier = Modifier.padding(16.dp), fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+
             if (showAdminMenu) {
                 item {
                     AdminMenuCard(
@@ -176,7 +200,7 @@ fun ProfileScreen(
                 item { Text(withdrawalError, color = Color(0xFFB3261E), fontSize = 13.sp) }
             }
             item {
-                Spacer(Modifier.height(58.dp))
+                Spacer(Modifier.height(16.dp))
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -199,6 +223,33 @@ fun ProfileScreen(
                 }
             }
         }
+    }
+
+    if (showSupportDialog) {
+        AlertDialog(
+            onDismissRequest = { showSupportDialog = false },
+            title = { Text("문의하기") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("서비스 이용 중 불편한 사항이나 오류를 알려주세요.")
+                    Text(SupportContact.EMAIL)
+                    TextButton(onClick = {
+                        if (!SupportContact.openEmail(context)) {
+                            Toast.makeText(context, "이메일 앱을 열 수 없습니다. 주소를 복사해 문의해주세요.", Toast.LENGTH_LONG).show()
+                        }
+                    }) { Text("이메일 보내기") }
+                    TextButton(onClick = {
+                        val copied = SupportContact.copyEmail(context)
+                        SupportContact.copyFeedback(copied, Build.VERSION.SDK_INT)?.let {
+                            Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+                        }
+                    }) { Text("이메일 주소 복사") }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSupportDialog = false }) { Text("닫기") }
+            },
+        )
     }
 
     if (showLogoutConfirmDialog) {
@@ -234,6 +285,37 @@ fun ProfileScreen(
                 onWithdrawCompleteConfirm()
             }
         )
+    }
+}
+
+internal object SupportContact {
+    const val EMAIL = "michelle03212@gmail.com"
+
+    // Android 13+ provides its own clipboard confirmation overlay.
+    fun copyFeedback(copied: Boolean, sdkInt: Int): String? = when {
+        !copied -> "이메일 주소를 복사할 수 없습니다."
+        sdkInt < Build.VERSION_CODES.TIRAMISU -> "이메일 주소를 복사했습니다."
+        else -> null
+    }
+
+    fun openEmail(context: Context): Boolean = try {
+        val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$EMAIL"))
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+        true
+    } catch (_: RuntimeException) {
+        // No mail app, managed-profile restrictions, or another launch failure.
+        false
+    }
+
+    fun copyEmail(context: Context): Boolean = try {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        if (clipboard == null) false else {
+            clipboard.setPrimaryClip(ClipData.newPlainText("문의 이메일", EMAIL))
+            true
+        }
+    } catch (_: RuntimeException) {
+        false
     }
 }
 

@@ -34,6 +34,7 @@ sealed class LostItemListUiState {
 
 class LostItemViewModel(
     private val lostItemApi: LostItemApiService = RetrofitClient.lostItemApi,
+    private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 },
 ) : ViewModel() {
     var uiState by mutableStateOf<LostItemListUiState>(LostItemListUiState.Idle)
         private set
@@ -56,14 +57,34 @@ class LostItemViewModel(
     var listState by mutableStateOf<LostItemListUiState>(LostItemListUiState.Idle)
         private set
     private var listRequestId = 0L
+    private var lastLoadedAt: Long? = null
+    private var listSession = -1L
 
     fun ensureLoaded() {
-        if (listState != LostItemListUiState.Loading && (listVersion == 0 || listState is LostItemListUiState.Error)) loadLostItems()
+        if (!TokenManager.isCurrentSession(listSession)) {
+            loadLostItems()
+            return
+        }
+        if (listState != LostItemListUiState.Loading &&
+            (listState is LostItemListUiState.Error || lastLoadedAt?.let { nowMillis() - it in 0 until 30_000 } != true)
+        ) loadLostItems()
+    }
+
+    fun refreshLostItems() {
+        if (!TokenManager.isCurrentSession(listSession) || listState != LostItemListUiState.Loading) loadLostItems()
+    }
+
+    private fun invalidatePendingList() {
+        listRequestId++
+        lastLoadedAt = null
+        listState = LostItemListUiState.Idle
     }
 
     fun clearSession() {
         listRequestId++
         listVersion = 0
+        lastLoadedAt = null
+        listSession = -1L
         lostItems = emptyList()
         detailPost = null
         matches = emptyList()
@@ -73,10 +94,15 @@ class LostItemViewModel(
     }
 
     fun loadLostItems() {
-        val request = ++listRequestId
         val session = TokenManager.sessionGeneration()
+        if (listSession != -1L && listSession != session) {
+            clearSession()
+        }
+        listSession = session
+        val request = ++listRequestId
+        // Set before launching so multiple gestures/entries in the same frame coalesce.
+        listState = LostItemListUiState.Loading
         viewModelScope.launch {
-            listState = LostItemListUiState.Loading
             try {
                 val response = lostItemApi.getLostItems()
                 if (request != listRequestId || !TokenManager.isCurrentSession(session)) return@launch
@@ -85,6 +111,7 @@ class LostItemViewModel(
                     if (body?.success == true) {
                         lostItems = body.data.orEmpty().filter { it.itemStatus == "SEARCHING" }
                         listVersion++
+                        lastLoadedAt = nowMillis()
                         listState = LostItemListUiState.Idle
                     } else {
                         listState = LostItemListUiState.Error(body?.message ?: "분실물 목록을 불러오지 못했습니다.")
@@ -167,6 +194,7 @@ class LostItemViewModel(
                     if (body?.success == true && body.data != null) {
                         val updatedPost = body.data.toBoardPost()
                         detailPost = updatedPost
+                        invalidatePendingList()
                         lostItems = lostItems.filterNot { it.id == id }
                         listVersion++
                         uiState = LostItemListUiState.Idle
@@ -199,6 +227,7 @@ class LostItemViewModel(
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body == null || body.success) {
+                        invalidatePendingList()
                         lostItems = lostItems.filterNot { it.id == id }
                         if (detailPost?.id == id.toString()) {
                             detailPost = null

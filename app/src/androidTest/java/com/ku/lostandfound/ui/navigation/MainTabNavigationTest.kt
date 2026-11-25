@@ -1,6 +1,13 @@
 package com.ku.lostandfound.ui.navigation
 
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -24,14 +31,32 @@ class MainTabNavigationTest {
     val composeRule = createComposeRule()
 
     private lateinit var navController: NavHostController
+    private var account by mutableStateOf("a")
 
     @Before
     fun setUp() {
         composeRule.setContent {
             navController = rememberNavController()
+            val states = mapOf(
+                Route.Found.route to rememberMainTabScrollState(account),
+                Route.Lost.route to rememberMainTabScrollState(account),
+                Route.ChatList.route to rememberMainTabScrollState(account),
+                Route.Profile.route to rememberMainTabScrollState(account),
+                Route.PostWrite.route to rememberMainTabScrollState(account),
+            )
+            val scope = rememberCoroutineScope()
             NavHost(navController = navController, startDestination = Route.Found.route) {
                 listOf(Route.Found, Route.Lost, Route.ChatList, Route.Profile, Route.PostWrite).forEach { route ->
-                    composable(route.route) { Text(route.route) }
+                    composable(route.route) {
+                        val state = states.getValue(route.route)
+                        androidx.compose.foundation.layout.Column {
+                            Text(route.route)
+                            TextButton(onClick = { scope.launch { state.scrollToItem(10) } }) {
+                                Text("counter:${state.firstVisibleItemIndex}")
+                            }
+                            LazyColumn(state = state) { items((0..80).toList()) { Text("item $it") } }
+                        }
+                    }
                 }
             }
         }
@@ -119,6 +144,20 @@ class MainTabNavigationTest {
             goToMainTab(Route.Found.route)
             assertPreviousDestination(null)
         }
+    }
+
+    @Test fun tabUiStateRestoresIndependentlyAndResetsForAnotherAccount() {
+        goToMainTab(Route.Lost.route)
+        composeRule.onNodeWithText("counter:0").performClick()
+        composeRule.onNodeWithText("counter:10").assertIsDisplayed()
+        goToMainTab(Route.Profile.route)
+        composeRule.onNodeWithText("counter:0").assertIsDisplayed()
+        goToMainTab(Route.Lost.route)
+        composeRule.onNodeWithText("counter:10").assertIsDisplayed()
+        goToMainTab(Route.Profile.route)
+        composeRule.runOnIdle { account = "b" }
+        goToMainTab(Route.Lost.route)
+        composeRule.onNodeWithText("counter:0").assertIsDisplayed()
     }
 
     private fun openWriteScreen() {

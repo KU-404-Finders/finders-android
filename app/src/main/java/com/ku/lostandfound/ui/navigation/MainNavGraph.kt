@@ -99,6 +99,8 @@ import com.ku.lostandfound.ui.signup.screen.SignupPwScreen
 import com.ku.lostandfound.ui.signup.viewmodel.SignupViewmodel
 import com.ku.lostandfound.viewmodel.PostWriteViewModel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 private fun SessionCheckingScreen(modifier: Modifier = Modifier) {
@@ -170,6 +172,14 @@ fun MainNavGraph(
     }
 
     val currentUserId = userViewModel.me?.id
+    // Preserve tab UI state independently of the shared navigation stack.
+    // A new account/session must never restore the previous account's tab state.
+    val tabOwner = mainTabStateOwner(TokenManager.sessionGeneration())
+    val foundListState = rememberMainTabScrollState(tabOwner)
+    val lostListState = rememberMainTabScrollState(tabOwner)
+    val chatListState = rememberMainTabScrollState(tabOwner)
+    val profileListState = rememberMainTabScrollState(tabOwner)
+    var lostCategoryFilter by rememberMainTabCategoryFilter(tabOwner)
     LaunchedEffect(currentUserId) { notificationViewModel.attachAccount(currentUserId) }
     LaunchedEffect(currentUserId) { blockedUsersViewModel.attachAccount(currentUserId) }
     val currentUserName = userViewModel.me?.name ?: signupViewModel.name
@@ -256,9 +266,12 @@ fun MainNavGraph(
 
     LaunchedEffect(Unit) {
         val repo = CampusJsonRepository(context)
-        boundary = repo.loadBoundary()
-        buildings = repo.loadBuildings()
-        referencePaths = repo.loadPaths()
+        val campus = withContext(Dispatchers.IO) {
+            Triple(repo.loadBoundary(), repo.loadBuildings(), repo.loadPaths())
+        }
+        boundary = campus.first
+        buildings = campus.second
+        referencePaths = campus.third
 
         if (verifiedStartDestination != Route.Login.route && TokenManager.isLoggedIn()) {
             userViewModel.loadMe()
@@ -351,6 +364,7 @@ fun MainNavGraph(
                             )
                         ) + posts
                         writeViewModel.reset()
+                        lostItemViewModel.loadLostItems()
                         navigateMainTab(Route.Lost.route)
                     }
             }
@@ -417,6 +431,7 @@ fun MainNavGraph(
     }
 
     fun clearAuthenticatedUiState() {
+        com.ku.lostandfound.ui.component.ThumbnailLoader.clear()
         retrySession = null
         userViewModel.clearSession()
         chatViewModel.clearSession()
@@ -655,15 +670,16 @@ fun MainNavGraph(
         composable(route = Route.Found.route) {
             LaunchedEffect(Unit) {
                 if (foundItemViewModel.selectedBuildingName == null) {
-                    // Re-entering the board should not retain an earlier empty snapshot.
-                    foundItemViewModel.loadFoundItems(force = true)
+                    foundItemViewModel.loadFoundItems()
+                } else {
+                    foundItemViewModel.loadFoundItemsByBuilding(foundItemViewModel.selectedBuildingName!!)
                 }
             }
             val b = boundary
             if (b == null) {
                 Text("지도 데이터를 불러오는 중입니다.")
             } else {
-                val serverFoundPosts = foundItemViewModel.asBoardPosts()
+                val serverFoundPosts = remember(foundItemViewModel.foundItems) { foundItemViewModel.asBoardPosts() }
                 val successfulList = foundItemViewModel.successfulList
                 LaunchedEffect(successfulList) {
                     if (successfulList != null && successfulList.buildingName == null && successfulList.version > lastAppliedFoundListVersion) {
@@ -673,6 +689,7 @@ fun MainNavGraph(
                 }
                 val foundPosts = serverFoundPosts
                 FoundBoardScreen(
+                    listState = foundListState,
                     posts = foundPosts,
                     selectedBuilding = buildings.firstOrNull { it.name == foundItemViewModel.selectedBuildingName },
                     boundary = b,
@@ -704,24 +721,29 @@ fun MainNavGraph(
                     isLoading = foundItemViewModel.listState is FoundItemUiState.Loading,
                     errorMessage = (foundItemViewModel.listState as? FoundItemUiState.Error)?.message,
                     onRetryClick = { foundItemViewModel.retryFoundItems() },
-                    onRefresh = { foundItemViewModel.retryFoundItems() },
+                    onRefresh = { foundItemViewModel.refreshFoundItems() },
                 )
             }
-        }
 
+        }
         composable(route = Route.Lost.route) {
             LaunchedEffect(Unit) {
-                lostItemViewModel.loadLostItems()
+                lostItemViewModel.ensureLoaded()
             }
-            val serverLostPosts = lostItemViewModel.asBoardPosts()
+            val serverLostPosts = remember(lostItemViewModel.lostItems) { lostItemViewModel.asBoardPosts() }
             LaunchedEffect(lostItemViewModel.listVersion) {
                 if (lostItemViewModel.listVersion > lastAppliedLostListVersion) {
                     syncLocalPostsWithServer(PostType.LOST, serverLostPosts)
                     lastAppliedLostListVersion = lostItemViewModel.listVersion
                 }
             }
-            val lostPosts = (serverLostPosts + publicLocalPosts(PostType.LOST)).distinctBy { it.id }
+            val lostPosts = remember(serverLostPosts, posts) {
+                (serverLostPosts + publicLocalPosts(PostType.LOST)).distinctBy { it.id }
+            }
             LostBoardScreen(
+                listState = lostListState,
+                categoryFilter = lostCategoryFilter,
+                onCategoryFilterChange = { lostCategoryFilter = it },
                 posts = lostPosts,
                 onPostClick = { post ->
                     if (posts.none { it.id == post.id && it.type == post.type }) {
@@ -739,16 +761,16 @@ fun MainNavGraph(
                 isLoading = lostItemViewModel.listState is LostItemListUiState.Loading,
                 errorMessage = (lostItemViewModel.listState as? LostItemListUiState.Error)?.message,
                 onRetryClick = { lostItemViewModel.loadLostItems() },
-                onRefresh = { lostItemViewModel.loadLostItems() },
+                onRefresh = { lostItemViewModel.refreshLostItems() },
             )
+
+
         }
-
-
         composable(route = Route.Board.route) {
 
             LaunchedEffect(Unit) {
                 foundItemViewModel.loadFoundItems()
-                lostItemViewModel.loadLostItems()
+                lostItemViewModel.ensureLoaded()
             }
 
             val allPosts = (
@@ -808,7 +830,7 @@ fun MainNavGraph(
             route = Route.ChatList.route
         ) {
             LaunchedEffect(Unit) {
-                chatViewModel.loadRooms()
+                chatViewModel.ensureRoomsLoaded()
             }
 
             val chatState = chatViewModel.uiState
@@ -818,6 +840,7 @@ fun MainNavGraph(
             }
 
             ChatListScreen(
+                listState = chatListState,
                 rooms = chatViewModel.rooms,
 
                 isLoading = chatState is ChatUiState.Loading,
@@ -844,10 +867,10 @@ fun MainNavGraph(
                     }
                 },
             )
+
+
+
         }
-
-
-
         composable(
             route = Route.ChatRoom.route,
             arguments = listOf(
@@ -1056,6 +1079,7 @@ fun MainNavGraph(
                 posts.filter { it.authorEmail == userEmail || it.authorEmail == currentUserEmail }
             val myPostCount = myPosts.size
             ProfileScreen(
+                listState = profileListState,
                 userName = userName,
                 userEmail = userEmail,
                 myPosts = myPosts,
@@ -1111,8 +1135,8 @@ fun MainNavGraph(
                 onNotificationSettingsClick = { navController.navigate(Route.NotificationSettings.route) },
                 onBlockedUsersClick = { navController.navigate(Route.BlockedUsers.route) },
             )
-        }
 
+        }
         composable(route = Route.Search.route) {
             val searchFound = if (foundItemViewModel.selectedBuildingName == null) foundItemViewModel
                 else viewModel<FoundItemViewModel>()
@@ -1235,6 +1259,7 @@ fun MainNavGraph(
                     coroutineScope.launch {
                         writeViewModel.updatePost(context, itemId)
                             .onSuccess { updatedPost ->
+                                com.ku.lostandfound.ui.component.ThumbnailLoader.clear()
                                 posts =
                                     listOf(updatedPost) + posts.filterNot { it.id == updatedPost.id && it.type == updatedPost.type }
                                 if (updatedPost.type == PostType.LOST) {
@@ -1242,7 +1267,7 @@ fun MainNavGraph(
                                     lostItemViewModel.loadLostItems()
                                 } else {
                                     foundItemViewModel.loadFoundItemDetail(itemId)
-                                    foundItemViewModel.loadFoundItems()
+                                    foundItemViewModel.retryFoundItems()
                                 }
                                 writeViewModel.reset()
                                 navController.navigate(
@@ -1507,7 +1532,7 @@ fun MainNavGraph(
                                 }
 
                                 lostItemViewModel.loadLostItems()
-                                foundItemViewModel.loadFoundItems()
+                                foundItemViewModel.retryFoundItems()
                                 chatViewModel.loadRooms()
                             }
 
@@ -1530,6 +1555,7 @@ fun MainNavGraph(
                                 lostItemViewModel.markReturned(itemId) { updatedPost ->
                                     posts =
                                         posts.filterNot { existing -> existing.id == updatedPost.id && existing.type == updatedPost.type }
+                                    lostItemViewModel.loadLostItems()
                                 }
                             }
 
@@ -1537,6 +1563,7 @@ fun MainNavGraph(
                                 foundItemViewModel.updateFoundItemStatus(itemId) { updatedPost ->
                                     posts =
                                         posts.filterNot { existing -> existing.id == updatedPost.id && existing.type == updatedPost.type }
+                                    foundItemViewModel.retryFoundItems()
                                 }
                             }
 

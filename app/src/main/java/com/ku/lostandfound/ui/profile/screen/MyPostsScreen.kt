@@ -1,9 +1,5 @@
 package com.ku.lostandfound.ui.profile.screen
 
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Matrix
-import android.media.ExifInterface
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -25,30 +21,20 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ku.lostandfound.network.MyFoundItemData
 import com.ku.lostandfound.network.MyLostItemData
+import com.ku.lostandfound.ui.component.rememberThumbnailBitmap
 import com.ku.lostandfound.ui.component.noRippleClickable
 import com.ku.lostandfound.ui.component.GetBackTopAppBar
 import com.ku.lostandfound.ui.profile.viewmodel.MyPostsUiState
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.io.ByteArrayInputStream
-import java.net.URL
 
 private val ScreenGray = Color(0xFFF4F4F4)
 private val TextGray = Color(0xFF777777)
@@ -127,7 +113,7 @@ private fun MyLostItemsList(
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        items(items) { item ->
+        items(items, key = { it.id }) { item ->
             MyPostListCard(
                 imageUrl = item.imageUrl,
                 title = item.title,
@@ -157,7 +143,7 @@ private fun MyFoundItemsList(
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        items(items) { item ->
+        items(items, key = { it.id }) { item ->
             MyPostListCard(
                 imageUrl = item.imageUrl,
                 title = item.title,
@@ -180,7 +166,7 @@ private fun MyPostListCard(
     itemStatus: String,
     createdAt: String,
     locationType: String? = null,
-    associatedBuildingNames: List<String> = emptyList(),
+    associatedBuildingNames: List<String?>? = emptyList(),
     onClick: () -> Unit,
 ) {
     Card(
@@ -215,12 +201,11 @@ private fun MyPostListCard(
                 }
                 Spacer(Modifier.height(10.dp))
                 Text(title, color = Color.Black, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                if (locationType != null) {
+                val locationText = locationDisplayText(locationType, associatedBuildingNames)
+                if (locationText.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        text = listOf(locationType, associatedBuildingNames.joinToString(", "))
-                            .filter { it.isNotBlank() }
-                            .joinToString(" · "),
+                        text = locationText,
                         color = TextGray,
                         fontSize = 12.sp,
                     )
@@ -232,19 +217,7 @@ private fun MyPostListCard(
 
 @Composable
 private fun NetworkImage(imageUrl: String?) {
-    var imageBitmap by remember(imageUrl) { mutableStateOf<ImageBitmap?>(null) }
-
-    LaunchedEffect(imageUrl) {
-        imageBitmap = null
-        if (imageUrl.isNullOrBlank()) return@LaunchedEffect
-        imageBitmap = withContext(Dispatchers.IO) {
-            runCatching {
-                URL(imageUrl).openStream().use { stream ->
-                    stream.readBytes().toOrientedImageBitmap()
-                }
-            }.getOrNull()
-        }
-    }
+    val imageBitmap = rememberThumbnailBitmap(imageUrl)
 
     Box(
         modifier = Modifier
@@ -264,32 +237,6 @@ private fun NetworkImage(imageUrl: String?) {
             Text("IMG", color = TextGray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
     }
-}
-
-private fun ByteArray.toOrientedImageBitmap(): ImageBitmap? {
-    val decoded = BitmapFactory.decodeByteArray(this, 0, size) ?: return null
-    val oriented = decoded.applyExifOrientation(this)
-    val imageBitmap = oriented.asImageBitmap()
-    if (oriented !== decoded) decoded.recycle()
-    return imageBitmap
-}
-
-private fun Bitmap.applyExifOrientation(sourceBytes: ByteArray): Bitmap {
-    val orientation = runCatching {
-        ExifInterface(ByteArrayInputStream(sourceBytes)).getAttributeInt(
-            ExifInterface.TAG_ORIENTATION,
-            ExifInterface.ORIENTATION_NORMAL,
-        )
-    }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
-
-    val matrix = Matrix()
-    when (orientation) {
-        ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
-        ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
-        ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
-        else -> return this
-    }
-    return Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
 }
 
 private fun statusLabel(status: String): String {

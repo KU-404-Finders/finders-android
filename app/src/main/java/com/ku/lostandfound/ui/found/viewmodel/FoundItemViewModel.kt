@@ -44,6 +44,7 @@ sealed class FoundItemMatchUiState {
 
 class FoundItemViewModel(
     private val foundItemApi: FoundItemApiService = RetrofitClient.foundItemApi,
+    private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 },
 ) : ViewModel() {
     var uiState by mutableStateOf<FoundItemUiState>(FoundItemUiState.Idle)
         private set
@@ -61,6 +62,8 @@ class FoundItemViewModel(
 
     private var hasLoadedFoundItemList = false
     private var lastLoadedBuildingName: String? = null
+    private var lastLoadedAt: Long? = null
+    private var listSession = -1L
     // A request for a previously selected building must never overwrite a newer
     // whole-campus response (or vice versa).
     private var listRequestId = 0
@@ -79,15 +82,20 @@ class FoundItemViewModel(
     fun loadFoundItems(force: Boolean = false) = loadList(null, force)
 
     private fun loadList(buildingName: String?, force: Boolean) {
+        val session = TokenManager.sessionGeneration()
+        if (listSession != -1L && listSession != session) {
+            clearSession()
+        }
+        listSession = session
         if (!force && selectedBuildingName == buildingName &&
             (listState == FoundItemUiState.Loading ||
-                (listState == FoundItemUiState.Idle && hasLoadedFoundItemList && lastLoadedBuildingName == buildingName))
+                (listState == FoundItemUiState.Idle && hasLoadedFoundItemList && lastLoadedBuildingName == buildingName &&
+                    lastLoadedAt?.let { nowMillis() - it in 0 until 30_000 } == true))
         ) return
         if (selectedBuildingName != buildingName) foundItems = emptyList()
         hasLoadedFoundItemList = false
         lastLoadedBuildingName = null
         selectedBuildingName = buildingName
-        val session = TokenManager.sessionGeneration()
         listState = FoundItemUiState.Loading
         val requestId = ++listRequestId
         viewModelScope.launch {
@@ -100,6 +108,7 @@ class FoundItemViewModel(
                         foundItems = body.data.orEmpty().filter { it.itemStatus == ItemStatus.SEARCHING }
                         hasLoadedFoundItemList = true
                         lastLoadedBuildingName = buildingName
+                        lastLoadedAt = nowMillis()
                         successfulList = SuccessfulList(buildingName, foundItems, listVersion + 1)
                         listState = FoundItemUiState.Idle
                     } else {
@@ -120,6 +129,12 @@ class FoundItemViewModel(
         }
     }
 
+    private fun invalidatePendingList() {
+        listRequestId++
+        lastLoadedAt = null
+        listState = FoundItemUiState.Idle
+    }
+
     fun clearBuildingFilter() = loadList(null, true)
 
     fun clearSession() {
@@ -127,12 +142,19 @@ class FoundItemViewModel(
         successfulList = null
         selectedBuildingName = null
         lastLoadedBuildingName = null
+        lastLoadedAt = null
+        listSession = -1L
         hasLoadedFoundItemList = false
         foundItems = emptyList()
         listState = FoundItemUiState.Idle
         detailPost = null
         uiState = FoundItemUiState.Idle
         matchUiState = FoundItemMatchUiState.Idle
+    }
+
+    /** User gestures share an in-flight request; mutations still use the forced retry path. */
+    fun refreshFoundItems() {
+        if (!TokenManager.isCurrentSession(listSession) || listState != FoundItemUiState.Loading) retryFoundItems()
     }
 
     fun retryFoundItems() {
@@ -193,6 +215,7 @@ class FoundItemViewModel(
                     if (body?.success == true && body.data != null) {
                         val updatedPost = body.data.toBoardPost()
                         detailPost = updatedPost
+                        invalidatePendingList()
                         foundItems = foundItems.filterNot { it.id == id }
                         successfulList = successfulList?.let { it.copy(items = it.items.filterNot { item -> item.id == id }, version = it.version + 1) }
                         uiState = FoundItemUiState.Idle
@@ -225,6 +248,7 @@ class FoundItemViewModel(
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body == null || body.success) {
+                        invalidatePendingList()
                         foundItems = foundItems.filterNot { it.id == id }
                         successfulList = successfulList?.let { it.copy(items = it.items.filterNot { item -> item.id == id }, version = it.version + 1) }
                         if (detailPost?.id == id.toString()) {

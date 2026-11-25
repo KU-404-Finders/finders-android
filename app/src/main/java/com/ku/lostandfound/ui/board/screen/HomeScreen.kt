@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -77,6 +79,7 @@ fun HomeScreen(
     onRetryClick: (() -> Unit)? = null,
     onRefresh: (() -> Unit)? = null,
     listHeaderAction: (@Composable () -> Unit)? = null,
+    listState: LazyListState = rememberLazyListState(),
 ) {
     Column(
         modifier = Modifier
@@ -98,6 +101,7 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxSize(),
                 isRefreshing = isLoading,
                 onRefresh = onRefresh,
+                listState = listState,
             ) {
                 if (showCampusMap && boundary != null) {
                     item {
@@ -147,7 +151,7 @@ fun HomeScreen(
                     }
                 }
 
-                items(posts) { post ->
+                items(posts, key = { "${it.type}-${it.id}" }) { post ->
                     CompactPostCard(
                         post = post,
                         modifier = Modifier.padding(horizontal = 20.dp),
@@ -202,10 +206,12 @@ private fun BoardList(
     modifier: Modifier,
     isRefreshing: Boolean,
     onRefresh: (() -> Unit)?,
+    listState: LazyListState,
     content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
 ) {
     val list: @Composable () -> Unit = {
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
