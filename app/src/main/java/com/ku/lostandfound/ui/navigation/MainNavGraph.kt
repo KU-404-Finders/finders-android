@@ -19,7 +19,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -175,12 +174,12 @@ fun MainNavGraph(
     val currentUserId = userViewModel.me?.id
     // Preserve tab UI state independently of the shared navigation stack.
     // A new account/session must never restore the previous account's tab state.
-    val tabOwner = currentUserId to TokenManager.sessionGeneration()
+    val tabOwner = mainTabStateOwner(TokenManager.sessionGeneration())
     val foundListState = rememberMainTabScrollState(tabOwner)
     val lostListState = rememberMainTabScrollState(tabOwner)
     val chatListState = rememberMainTabScrollState(tabOwner)
     val profileListState = rememberMainTabScrollState(tabOwner)
-    var lostCategoryFilter by rememberSaveable(tabOwner) { mutableStateOf("ALL") }
+    var lostCategoryFilter by rememberMainTabCategoryFilter(tabOwner)
     LaunchedEffect(currentUserId) { notificationViewModel.attachAccount(currentUserId) }
     LaunchedEffect(currentUserId) { blockedUsersViewModel.attachAccount(currentUserId) }
     val currentUserName = userViewModel.me?.name ?: signupViewModel.name
@@ -1556,6 +1555,7 @@ fun MainNavGraph(
                                 lostItemViewModel.markReturned(itemId) { updatedPost ->
                                     posts =
                                         posts.filterNot { existing -> existing.id == updatedPost.id && existing.type == updatedPost.type }
+                                    lostItemViewModel.loadLostItems()
                                 }
                             }
 
@@ -1563,6 +1563,7 @@ fun MainNavGraph(
                                 foundItemViewModel.updateFoundItemStatus(itemId) { updatedPost ->
                                     posts =
                                         posts.filterNot { existing -> existing.id == updatedPost.id && existing.type == updatedPost.type }
+                                    foundItemViewModel.retryFoundItems()
                                 }
                             }
 
