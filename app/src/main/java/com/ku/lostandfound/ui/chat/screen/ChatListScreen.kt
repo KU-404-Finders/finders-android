@@ -36,7 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ku.lostandfound.network.ChatRoomResponse
 import com.ku.lostandfound.ui.chat.ChatTimeFormatter
-import com.ku.lostandfound.ui.component.BackTitleBar
+import com.ku.lostandfound.ui.component.HomeTopBar
 import com.ku.lostandfound.ui.component.noRippleClickable
 
 private val DeepGreen = Color(0xFF1B6425)
@@ -51,7 +51,10 @@ fun ChatListScreen(
     rooms: List<ChatRoomResponse>,
     isLoading: Boolean,
     errorMessage: String?,
-    onBackClick: () -> Unit,
+    onProfileClick: () -> Unit,
+    onSearchClick: () -> Unit,
+    onNotificationClick: () -> Unit,
+    notificationCount: Int,
     onRoomClick: (Long) -> Unit,
     authorInfoByRoomId: Map<Long, Pair<Long, String>> = emptyMap(),
     currentUserId: Long? = null,
@@ -65,9 +68,12 @@ fun ChatListScreen(
             .fillMaxSize()
             .background(Color.White)
     ) {
-        BackTitleBar(
+        HomeTopBar(
             title = "채팅",
-            onBackClick = onBackClick
+            onProfileClick = onProfileClick,
+            onSearchClick = onSearchClick,
+            onNotificationClick = onNotificationClick,
+            notificationCount = notificationCount,
         )
 
         when {
