@@ -418,16 +418,12 @@ fun MainNavGraph(
         }
     }
 
-    fun navigateToLoginClearingBackStack() {
-        navController.navigate(Route.Login.route) {
-            // The runtime start destination can be Login while it is no longer in the back
-            // stack after a successful login. Clearing the root graph guarantees protected
-            // destinations cannot be reached with Back.
-            popUpTo(navController.graph.id) {
-                inclusive = true
-            }
-            launchSingleTop = true
-        }
+    fun navigateToLoginClearingBackStack() = navController.navigateToLoginClearingBackStack()
+
+    fun closePasswordReset() {
+        navigateToLoginClearingBackStack()
+        passwordResetViewModel.restart()
+        loginViewModel.resetUiState()
     }
 
     fun clearAuthenticatedUiState() {
@@ -555,31 +551,27 @@ fun MainNavGraph(
             )
         }
         composable(route = Route.PasswordResetCode.route) {
-            PasswordResetCodeScreen(
-                vm = passwordResetViewModel,
-                next = { navController.navigate(Route.PasswordResetPassword.route) },
-                back = { passwordResetViewModel.returnToEmail(); navController.popBackStack() },
-            )
+            AuthStepGuard(navController, Route.PasswordResetCode, passwordResetViewModel.isEmailValid, ::closePasswordReset) {
+                PasswordResetCodeScreen(
+                    vm = passwordResetViewModel,
+                    next = { navController.navigate(Route.PasswordResetPassword.route) },
+                    back = { passwordResetViewModel.returnToEmail(); navController.popBackStack() },
+                )
+            }
         }
         composable(route = Route.PasswordResetPassword.route) {
-            PasswordResetPasswordScreen(
-                vm = passwordResetViewModel,
-                done = {
-                    loginViewModel.resetUiState()
-                    navController.navigate(Route.Login.route) {
-                        popUpTo(Route.PasswordResetEmail.route) { inclusive = true }
-                        launchSingleTop = true
-                    }
-                },
-                back = { navController.popBackStack() },
-                restart = {
-                    navController.navigate(Route.PasswordResetEmail.route) {
-                        popUpTo(Route.PasswordResetEmail.route) {
-                            inclusive = true
+            AuthStepGuard(navController, Route.PasswordResetPassword, passwordResetViewModel.hasPasswordResetCredentials, ::closePasswordReset) {
+                PasswordResetPasswordScreen(
+                    vm = passwordResetViewModel,
+                    done = ::closePasswordReset,
+                    back = { navController.popBackStack() },
+                    restart = {
+                        navController.navigate(Route.PasswordResetEmail.route) {
+                            popUpTo(Route.PasswordResetEmail.route) { inclusive = true }
                         }
-                    }
-                },
-            )
+                    },
+                )
+            }
         }
         composable(route = Route.SignupTerms.route) {
             com.ku.lostandfound.ui.signup.screen.SignupTermsScreen(
@@ -649,21 +641,13 @@ fun MainNavGraph(
         }
 
         composable(route = Route.SignupFinish.route) {
-            SignupConsentGuard(signupViewModel, onConsentRequired = {
-                navController.navigate(Route.SignupTerms.route) {
-                    popUpTo(Route.SignupTerms.route) { inclusive = true }
-                    launchSingleTop = true
-                }
-            }) {
-                SignupFinishScreen(
-                    onNavigateToLogin = {
-                        loginViewModel.resetUiState()
-                        signupViewModel.reset()
-                        navController.navigate(Route.Login.route) {
-                            popUpTo(Route.Login.route) { inclusive = true }
-                        }
-                    }
-                )
+            val finishSignup = {
+                navigateToLoginClearingBackStack()
+                loginViewModel.resetUiState()
+                signupViewModel.reset()
+            }
+            AuthStepGuard(navController, Route.SignupFinish, signupViewModel.hasRequiredConsent, finishSignup) {
+                SignupFinishScreen(onNavigateToLogin = finishSignup)
             }
         }
 
@@ -851,10 +835,10 @@ fun MainNavGraph(
                     null
                 },
 
-                onBackClick = {
-                    navController.popBackStack()
-                },
-
+                onProfileClick = { navigateMainTab(Route.Profile.route) },
+                onSearchClick = { navigateSingleTop(Route.Search.route) },
+                onNotificationClick = { navController.navigate(Route.Notifications.route) },
+                notificationCount = notificationViewModel.unreadCount,
                 onRoomClick = { roomId ->
                     navController.navigate(Route.ChatRoom.create(roomId))
                 },

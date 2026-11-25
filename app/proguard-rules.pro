@@ -20,22 +20,16 @@
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
 
-# Retrofit retains service methods from their HTTP annotations. Gson, however,
-# reads DTO fields reflectively. Keep only the fields of the request/response
-# shapes used by the API; classes themselves may still be optimized/renamed.
--keepclassmembers,allowoptimization class com.ku.lostandfound.network.*Request { <fields>; }
--keepclassmembers,allowoptimization class com.ku.lostandfound.network.*Response { <fields>; }
--keepclassmembers,allowoptimization class com.ku.lostandfound.network.*Data { <fields>; }
--keepclassmembers,allowoptimization class com.ku.lostandfound.network.*Result { <fields>; }
--keepclassmembers,allowoptimization class com.ku.lostandfound.network.NotificationSettingsPatch { <fields>; }
--keepclassmembers,allowoptimization class com.ku.lostandfound.network.ApiResponse { <fields>; }
--keepclassmembers,allowoptimization class com.ku.lostandfound.network.AdminDashboard { <fields>; }
--keepclassmembers,allowoptimization class com.ku.lostandfound.network.AdminPage { <fields>; }
--keepclassmembers,allowoptimization class com.ku.lostandfound.network.AdminReport { <fields>; }
--keepclassmembers,allowoptimization class com.ku.lostandfound.network.AdminUser { <fields>; }
--keepclassmembers,allowoptimization class com.ku.lostandfound.network.AdminPost { <fields>; }
--keepclassmembers,allowoptimization class com.ku.lostandfound.network.AdminAudit { <fields>; }
--keepclassmembers,allowoptimization class com.ku.lostandfound.network.ChatRoomResponse { <fields>; }
--keepclassmembers,allowoptimization class com.ku.lostandfound.network.ChatMessageResponse { <fields>; }
--keepclassmembers,allowoptimization class com.ku.lostandfound.network.ChatReadReceipt { <fields>; }
--keepclassmembers,allowoptimization class com.ku.lostandfound.network.ChatReadStateResponse { <fields>; }
+# Gson reflects over wire DTOs. Keep their classes, field names and constructors
+# so R8 cannot make response-only types abstract or merge away nested types.
+# Retrofit's consumer rules retain service signatures and HTTP annotations.
+-keepattributes Signature
+-keep,allowobfuscation class com.ku.lostandfound.network.*Response,com.ku.lostandfound.network.*Data,com.ku.lostandfound.network.*Result { <init>(...); }
+-keep,allowobfuscation class com.ku.lostandfound.network.ApiResponse,com.ku.lostandfound.network.AdminDashboard,com.ku.lostandfound.network.AdminPage,com.ku.lostandfound.network.AdminReport,com.ku.lostandfound.network.AdminUser,com.ku.lostandfound.network.AdminPost,com.ku.lostandfound.network.AdminAudit,com.ku.lostandfound.network.ChatReadReceipt,com.ku.lostandfound.network.ReportReasonOption { <init>(...); }
+
+# Request models are constructed by app code. Gson still requires their field names.
+-keepclassmembers class com.ku.lostandfound.network.*Request,com.ku.lostandfound.network.NotificationSettingsPatch { <fields>; }
+
+# Gson maps wire values to enum constant names.
+-keepclassmembers enum com.ku.lostandfound.network.FoundItemLocationType,com.ku.lostandfound.network.ItemStatus,com.ku.lostandfound.network.MatchStatus { public static final ** *; }
+-keepclassmembers class com.ku.lostandfound.network.*Response,com.ku.lostandfound.network.*Data,com.ku.lostandfound.network.*Result,com.ku.lostandfound.network.ApiResponse,com.ku.lostandfound.network.AdminDashboard,com.ku.lostandfound.network.AdminPage,com.ku.lostandfound.network.AdminReport,com.ku.lostandfound.network.AdminUser,com.ku.lostandfound.network.AdminPost,com.ku.lostandfound.network.AdminAudit,com.ku.lostandfound.network.ChatReadReceipt,com.ku.lostandfound.network.ReportReasonOption { <fields>; }
