@@ -1,6 +1,19 @@
 package com.ku.lostandfound.viewmodel
 
 import android.content.Context
+import androidx.annotation.MainThread
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.ku.lostandfound.network.RequestSession
+import com.ku.lostandfound.network.RefreshSessionResult
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.launch
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
@@ -17,6 +30,8 @@ import com.ku.lostandfound.data.LostLocationSelection
 import com.ku.lostandfound.data.OutdoorPin
 import com.ku.lostandfound.data.PostStatus
 import com.ku.lostandfound.data.PostType
+import com.ku.lostandfound.network.FoundItemApiService
+import com.ku.lostandfound.network.LostItemApiService
 import com.ku.lostandfound.network.FoundItemCreateRequest
 import com.ku.lostandfound.network.FoundItemDetailData
 import com.ku.lostandfound.network.FoundItemErrorResponse
@@ -45,9 +60,166 @@ sealed class PostWriteUiState {
     object Idle : PostWriteUiState()
     object Loading : PostWriteUiState()
     data class Error(val message: String) : PostWriteUiState()
+    data object Unconfirmed : PostWriteUiState()
+    data class Saved(val post: BoardPost, val session: Long, val isEdit: Boolean) : PostWriteUiState()
 }
 
-class PostWriteViewModel {
+class PostWriteViewModel internal constructor(
+    private val foundItemApi: FoundItemApiService,
+    private val lostItemApi: LostItemApiService,
+    private val imageDispatcher: CoroutineDispatcher,
+) : ViewModel() {
+    constructor() : this(RetrofitClient.foundItemApi, RetrofitClient.lostItemApi, Dispatchers.IO)
+
+    private var writeJob: Job? = null
+    private var attempt = 0L
+    private var journalContext: Context? = null
+    private var displayedCreation: PostCreationJournal.Entry? = null
+    var unconfirmedType by mutableStateOf<PostType?>(null)
+        private set
+
+    fun restoreCreationStatus(context: Context) {
+        journalContext = context.applicationContext
+        if (isWriting || verifiedEdit != null) return
+        val pending = PostCreationJournal.account()?.let { PostCreationJournal.pending(context, it) }
+        displayedCreation = pending
+        unconfirmedType = pending?.type
+        if (pending != null) uiState = PostWriteUiState.Unconfirmed
+        else if (uiState == PostWriteUiState.Unconfirmed) uiState = PostWriteUiState.Idle
+    }
+    private val editLoadLock = Mutex()
+    private var verifiedEdit by mutableStateOf<Triple<PostType, Long, Long>?>(null)
+
+    fun isEditReady(type: PostType, id: Long): Boolean =
+        verifiedEdit == Triple(type, id, TokenManager.sessionGeneration())
+
+    internal suspend fun restoreEdit(type: PostType, id: Long): Boolean = editLoadLock.withLock {
+        if (id <= 0) return@withLock false
+        if (isEditReady(type, id)) return@withLock true
+        val session = TokenManager.sessionGeneration()
+        val post = try {
+            when (type) {
+                PostType.FOUND -> foundItemApi.getFoundItemDetail(id, RequestSession(session)).body()
+                    ?.takeIf { it.success }?.data?.toBoardPost()
+                PostType.LOST -> lostItemApi.getLostItemDetail(id, RequestSession(session)).body()
+                    ?.takeIf { it.success }?.data?.toBoardPost()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+        if (post == null || post.type != type || post.id.toLongOrNull() != id ||
+            !TokenManager.isCurrentSession(session)
+        ) return@withLock false
+        loadForEdit(post)
+        true
+    }
+
+    val isWriting: Boolean
+        get() = uiState is PostWriteUiState.Loading || uiState is PostWriteUiState.Saved
+
+    @MainThread
+    fun save(
+        context: Context,
+        editedId: Long? = null,
+        resolveAuthor: suspend () -> Pair<String, String> = { "" to "" },
+    ) {
+        if (isWriting) return
+        if (editedId == null) restoreCreationStatus(context)
+        if (uiState == PostWriteUiState.Unconfirmed || !canSubmit()) return
+        val session = TokenManager.sessionGeneration()
+        if (editedId != null && !isEditReady(postType, editedId)) return
+        if (editedId == null && verifiedEdit != null) return
+        val requestSession = RequestSession(session)
+        val operation = ++attempt
+        val type = postType
+        uiState = PostWriteUiState.Loading
+        writeJob = viewModelScope.launch {
+            try {
+                val author = if (editedId == null) resolveAuthor() else null
+                if (!TokenManager.isCurrentSession(session)) return@launch
+                if (TokenManager.isAccessTokenExpired() &&
+                    RetrofitClient.refreshSession() != RefreshSessionResult.Success
+                ) {
+                    error("로그인 상태를 확인할 수 없습니다. 잠시 후 다시 시도해주세요.")
+                }
+                if (!TokenManager.isCurrentSession(session)) return@launch
+                val authorization = bearerTokenOrThrow()
+                val appContext = context.applicationContext
+                val account = if (editedId == null) PostCreationJournal.account(session)
+                    ?: error("계정 정보를 확인할 수 없습니다. 다시 로그인한 뒤 등록해 주세요.")
+                else null
+                var pending: PostCreationJournal.Entry? = null
+                val beginCreation = {
+                    if (!TokenManager.isCurrentSession(session)) throw CancellationException()
+                    pending = PostCreationJournal.begin(appContext, checkNotNull(account), type)
+                        ?: throw UnconfirmedPostCreation()
+                }
+                val result = when {
+                    editedId != null && type == PostType.LOST -> updateLostItem(appContext, editedId, requestSession, authorization)
+                    editedId != null -> updateFoundItem(appContext, editedId, requestSession, authorization)
+                    type == PostType.LOST -> createLostItem(appContext, requestSession, authorization, beginCreation)
+                    else -> createFoundItem(appContext, requestSession, authorization, beginCreation)
+                }
+                if (result.exceptionOrNull() !is UnconfirmedPostCreation) {
+                    pending?.let { PostCreationJournal.clear(appContext, it) }
+                }
+                if (operation != attempt || !TokenManager.isCurrentSession(session)) return@launch
+                val post = result.getOrThrow()
+                if (editedId != null && (post.type != type || post.id.toLongOrNull() != editedId)) {
+                    error("수정 결과의 게시글 정보를 확인할 수 없습니다.")
+                }
+                uiState = PostWriteUiState.Saved(
+                    if (author == null) post else post.copy(
+                        authorName = author.first,
+                        authorEmail = author.second,
+                    ),
+                    session,
+                    isEdit = editedId != null,
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (operation == attempt && TokenManager.isCurrentSession(session)) {
+                    if (e is UnconfirmedPostCreation) {
+                        uiState = PostWriteUiState.Idle
+                        restoreCreationStatus(context)
+                    } else {
+                        uiState = PostWriteUiState.Error(e.message ?: "서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
+                    }
+                }
+            } finally {
+                if (operation == attempt && uiState == PostWriteUiState.Loading) uiState = PostWriteUiState.Idle
+            }
+        }
+    }
+
+    fun acknowledgeUnconfirmed() {
+        if (uiState != PostWriteUiState.Unconfirmed) return
+        val context = journalContext ?: return
+        val entry = displayedCreation?.takeIf { it.key == PostCreationJournal.account() } ?: return
+        if (PostCreationJournal.clear(context, entry)) restoreCreationStatus(context)
+    }
+
+    private class UnconfirmedPostCreation : IllegalStateException()
+
+    private suspend fun <T> confirmCreation(send: suspend () -> retrofit2.Response<T>): retrofit2.Response<T> {
+        val response = try {
+            send()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Once dispatched, a transport or decoding failure cannot establish whether the server saved it.
+            throw UnconfirmedPostCreation()
+        }
+        if (response.code() in 500..599 || response.code() == 408) {
+            response.errorBody()?.close()
+            throw UnconfirmedPostCreation()
+        }
+        return response
+    }
+
     var postType by mutableStateOf(PostType.FOUND)
         private set
     var title by mutableStateOf("")
@@ -106,22 +278,27 @@ class PostWriteViewModel {
         return title.isNotBlank() && category.isNotBlank() && content.isNotBlank() && hasLocation() && hasRequiredImage
     }
 
-    suspend fun createLostItem(context: Context): Result<BoardPost> {
-        uiState = PostWriteUiState.Loading
+    private suspend fun createLostItem(
+        context: Context, session: RequestSession, authorization: String, beginCreation: () -> Unit,
+    ): Result<BoardPost> {
         return try {
-            val response = RetrofitClient.lostItemApi.createLostItem(
-                authorization = bearerTokenOrThrow(),
-                request = createJsonPart(toLostItemCreateRequest()),
-                image = imageUri?.let { createImagePart(context, it) },
-            )
+            val request = createJsonPart(toLostItemCreateRequest())
+            val uploadImage = imageUri?.let { prepareImage(context, it) }
+            beginCreation()
+            val response = confirmCreation {
+                lostItemApi.createLostItem(authorization, request, uploadImage, session)
+            }
 
             if (response.isSuccessful) {
                 val body = response.body()
                 if (body?.success == true && body.data != null) {
-                    uiState = PostWriteUiState.Idle
-                    Result.success(body.data.toBoardPost())
+                    if (body.data.id <= 0) throw UnconfirmedPostCreation()
+                    Result.success(runCatching { body.data.toBoardPost() }.getOrElse {
+                        throw UnconfirmedPostCreation()
+                    })
                 } else {
-                    Result.failure(IllegalStateException(body?.message ?: "분실물 등록에 실패했습니다."))
+                    if (body == null || body.success == true) throw UnconfirmedPostCreation()
+                    Result.failure(IllegalStateException(body.message ?: "분실물 등록에 실패했습니다."))
                 }
             } else {
                 val errorBody = response.errorBody()?.string()
@@ -135,43 +312,36 @@ class PostWriteViewModel {
                     )
                 )
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             NetworkLog.exception("createLostItem", e)
             Result.failure(e)
-        }.also { result ->
-            result.exceptionOrNull()?.let { error ->
-                uiState = PostWriteUiState.Error(error.message ?: "서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
-            }
         }
     }
 
-    suspend fun createFoundItem(context: Context): Result<BoardPost> {
-        uiState = PostWriteUiState.Loading
+    private suspend fun createFoundItem(
+        context: Context, session: RequestSession, authorization: String, beginCreation: () -> Unit,
+    ): Result<BoardPost> {
         return try {
-            val token = TokenManager.accessToken ?: throw IllegalStateException("로그인이 필요합니다.")
-            val requestJson = Gson().toJson(toFoundItemCreateRequest())
-            val requestBody = createJsonPart(requestJson)
-            val uploadImage = imageUri?.let { createImagePart(context, it) }
+            val request = createJsonPart(toFoundItemCreateRequest())
+            val uploadImage = imageUri?.let { prepareImage(context, it) }
                 ?: throw IllegalStateException("습득물 사진은 필수입니다.")
-
-
-
-
-
-
-            val response = RetrofitClient.foundItemApi.createFoundItem(
-                authorization = "Bearer $token",
-                request = requestBody,
-                image = uploadImage,
-            )
+            beginCreation()
+            val response = confirmCreation {
+                foundItemApi.createFoundItem(authorization, request, uploadImage, session)
+            }
 
             if (response.isSuccessful) {
                 val body = response.body()
                 if (body?.success == true && body.data != null) {
-                    uiState = PostWriteUiState.Idle
-                    Result.success(body.data.toBoardPost())
+                    if (body.data.id <= 0) throw UnconfirmedPostCreation()
+                    Result.success(runCatching { body.data.toBoardPost() }.getOrElse {
+                        throw UnconfirmedPostCreation()
+                    })
                 } else {
-                    Result.failure(IllegalStateException(body?.message ?: "습득물 등록에 실패했습니다."))
+                    if (body == null || body.success == true) throw UnconfirmedPostCreation()
+                    Result.failure(IllegalStateException(body.message ?: "습득물 등록에 실패했습니다."))
                 }
             } else {
                 val errorBody = response.errorBody()?.string()
@@ -186,21 +356,22 @@ class PostWriteViewModel {
                     )
                 )
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             NetworkLog.exception("createFoundItem", e)
             Result.failure(e)
-        }.also { result ->
-            result.exceptionOrNull()?.let { error ->
-                uiState = PostWriteUiState.Error(error.message ?: "서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
-            }
         }
     }
 
     fun resetUiState() {
-        uiState = PostWriteUiState.Idle
+        if (uiState is PostWriteUiState.Error) uiState = PostWriteUiState.Idle
     }
 
-    fun loadForEdit(post: BoardPost) {
+    internal fun loadForEdit(post: BoardPost) {
+        verifiedEdit = post.id.toLongOrNull()?.takeIf { it > 0 }?.let {
+            Triple(post.type, it, TokenManager.sessionGeneration())
+        }
         postType = post.type
         title = post.title
         category = post.category
@@ -211,20 +382,13 @@ class PostWriteViewModel {
         uiState = PostWriteUiState.Idle
     }
 
-    suspend fun updatePost(context: Context, id: Long): Result<BoardPost> {
-        uiState = PostWriteUiState.Loading
-        return if (postType == PostType.LOST) {
-            updateLostItem(context, id)
-        } else {
-            updateFoundItem(context, id)
-        }.also { result ->
-            result.exceptionOrNull()?.let { error ->
-                uiState = PostWriteUiState.Error(error.message ?: "서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
-            }
-        }
-    }
-
     fun reset() {
+        verifiedEdit = null
+        unconfirmedType = null
+        displayedCreation = null
+        ++attempt
+        writeJob?.cancel()
+        writeJob = null
         postType = PostType.FOUND
         title = ""
         category = ""
@@ -282,7 +446,12 @@ class PostWriteViewModel {
         )
     }
 
-    private fun createImagePart(context: Context, uriString: String): MultipartBody.Part {
+    private suspend fun prepareImage(context: Context, uriString: String): MultipartBody.Part {
+        val type = postType
+        return withContext(imageDispatcher) { createImagePart(context, uriString, type) }
+    }
+
+    private fun createImagePart(context: Context, uriString: String, type: PostType): MultipartBody.Part {
         val uri = uriString.toUri()
         val contentResolver = context.contentResolver
         val sourceBytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
@@ -318,24 +487,24 @@ class PostWriteViewModel {
         }
 
         val requestBody = uploadBytes.toRequestBody(uploadMimeType.toMediaTypeOrNull())
-        val fileLabel = if (postType == PostType.FOUND) "found-item" else "lost-item"
+        val fileLabel = if (type == PostType.FOUND) "found-item" else "lost-item"
         val fileName = "${fileLabel}_${System.currentTimeMillis()}.$extension"
         return MultipartBody.Part.createFormData(name = "image", filename = fileName, body = requestBody)
     }
 
-    private suspend fun updateLostItem(context: Context, id: Long): Result<BoardPost> {
+    private suspend fun updateLostItem(context: Context, id: Long, session: RequestSession, authorization: String): Result<BoardPost> {
         return try {
-            val response = RetrofitClient.lostItemApi.updateLostItem(
-                authorization = bearerTokenOrThrow(),
+            val response = lostItemApi.updateLostItem(
+                authorization = authorization,
+                session = session,
                 id = id,
                 request = createJsonPart(toLostItemCreateRequest()),
                 image = imageUri?.takeIf { it.isLocalImageUri() }
-                    ?.let { createImagePart(context, it) },
+                    ?.let { prepareImage(context, it) },
             )
             if (response.isSuccessful) {
                 val body = response.body()
                 if (body?.success == true && body.data != null) {
-                    uiState = PostWriteUiState.Idle
                     Result.success(body.data.toBoardPost())
                 } else {
                     Result.failure(IllegalStateException(body?.message ?: "분실물 수정에 실패했습니다."))
@@ -352,25 +521,27 @@ class PostWriteViewModel {
                     )
                 )
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             NetworkLog.exception("updateLostItem", e)
             Result.failure(e)
         }
     }
 
-    private suspend fun updateFoundItem(context: Context, id: Long): Result<BoardPost> {
+    private suspend fun updateFoundItem(context: Context, id: Long, session: RequestSession, authorization: String): Result<BoardPost> {
         return try {
-            val response = RetrofitClient.foundItemApi.updateFoundItem(
-                authorization = bearerTokenOrThrow(),
+            val response = foundItemApi.updateFoundItem(
+                authorization = authorization,
+                session = session,
                 id = id,
                 request = createJsonPart(toFoundItemCreateRequest()),
                 image = imageUri?.takeIf { it.isLocalImageUri() }
-                    ?.let { createImagePart(context, it) },
+                    ?.let { prepareImage(context, it) },
             )
             if (response.isSuccessful) {
                 val body = response.body()
                 if (body?.success == true && body.data != null) {
-                    uiState = PostWriteUiState.Idle
                     Result.success(body.data.toBoardPost())
                 } else {
                     Result.failure(IllegalStateException(body?.message ?: "습득물 수정에 실패했습니다."))
@@ -387,6 +558,8 @@ class PostWriteViewModel {
                     )
                 )
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             NetworkLog.exception("updateFoundItem", e)
             Result.failure(e)

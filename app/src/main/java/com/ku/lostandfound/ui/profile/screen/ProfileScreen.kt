@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,15 +29,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.automirrored.outlined.DirectionsWalk
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.Card
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,19 +51,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ku.lostandfound.data.BoardPost
 import com.ku.lostandfound.data.PostType
+import com.ku.lostandfound.reminder.LeaveReminderController
 import com.ku.lostandfound.ui.component.noRippleClickable
 import com.ku.lostandfound.ui.profile.component.LogoutConfirmDialog
 import com.ku.lostandfound.ui.profile.component.MyWrittenPostSection
 import com.ku.lostandfound.ui.profile.component.WithdrawCompleteDialog
 import com.ku.lostandfound.ui.profile.component.WithdrawConfirmDialog
 import com.ku.lostandfound.ui.profile.viewmodel.MyPostsUiState
+import com.ku.lostandfound.ui.signup.screen.LegalLinks
 
 private val DeepGreen = Color(0xFF1B6425)
 private val ScreenGray = Color(0xFFF4F4F4)
@@ -94,8 +104,12 @@ fun ProfileScreen(
     onNotificationSettingsClick: () -> Unit = {},
     onBlockedUsersClick: () -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
+    onLeaveReminderClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
+    val leaveReminder = remember(context) { LeaveReminderController.get(context) }
+    val reminderSettings by leaveReminder.settings.collectAsState()
     val appVersion = remember(context) {
         context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty()
     }
@@ -142,12 +156,18 @@ fun ProfileScreen(
             }
 
             item {
+                Text("알림", Modifier.padding(start = 12.dp, bottom = 6.dp), color = Color.DarkGray, fontSize = 13.sp)
                 Card(
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.White),
-                    modifier = Modifier.fillMaxWidth().noRippleClickable(onNotificationSettingsClick),
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("알림 설정", modifier = Modifier.padding(16.dp), fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                    ProfileNotificationRow("알림 설정", Icons.Outlined.Notifications, Color(0xFFC4312A), onNotificationSettingsClick)
+                    HorizontalDivider(Modifier.padding(start = 56.dp))
+                    ProfileNotificationRow(
+                        "분실물 예방 알림", Icons.AutoMirrored.Outlined.DirectionsWalk, Color(0xFFA65000), onLeaveReminderClick,
+                        value = if (reminderSettings.enabled) "켬" else "끔",
+                    )
                 }
             }
 
@@ -175,6 +195,16 @@ fun ProfileScreen(
                     modifier = Modifier.fillMaxWidth().noRippleClickable { showSupportDialog = true },
                 ) {
                     Text("문의하기", modifier = Modifier.padding(16.dp), fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+
+            items(2) { index ->
+                val (label, url) = if (index == 0) "이용약관" to LegalLinks.TERMS
+                else "개인정보 처리방침" to LegalLinks.PRIVACY
+                ProfileLink(label) {
+                    runCatching { uriHandler.openUri(url) }.onFailure {
+                        Toast.makeText(context, "링크를 열 수 없습니다.", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
 
@@ -524,5 +554,37 @@ private fun AdminMenuCard(
                 fontWeight = FontWeight.Bold,
             )
         }
+    }
+}
+
+@Composable
+private fun ProfileNotificationRow(
+    label: String,
+    icon: ImageVector,
+    tint: Color,
+    onClick: () -> Unit,
+    value: String? = null,
+) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 52.dp).padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+        Text(label, Modifier.weight(1f), fontSize = 16.sp)
+        value?.let { Text(it, color = Color.DarkGray, fontSize = 14.sp) }
+        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null, tint = Color.DarkGray)
+    }
+}
+
+@Composable
+private fun ProfileLink(label: String, onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(label, modifier = Modifier.padding(16.dp), fontSize = 16.sp, fontWeight = FontWeight.Medium)
     }
 }

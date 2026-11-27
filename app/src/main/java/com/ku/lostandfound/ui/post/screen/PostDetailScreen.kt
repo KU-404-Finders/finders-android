@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -117,6 +116,7 @@ fun PostDetailScreen(
     onUserBlocked: (Long) -> Unit = {},
     showOwnerActions: Boolean = false,
     onToggleResolvedClick: (BoardPost) -> Unit = {},
+    isResolving: Boolean = false,
     onEditClick: (BoardPost) -> Unit = {},
     onDeleteClick: (BoardPost) -> Unit = {},
     comments: List<BoardComment> = emptyList(),
@@ -544,7 +544,7 @@ fun PostDetailScreen(
 
                 Button(
                     onClick = { showResolveConfirmDialog = true },
-                    enabled = post.status == PostStatus.OPEN,
+                    enabled = post.status == PostStatus.OPEN && !isResolving,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (post.status == PostStatus.OPEN) DeepGreen else Color(
                             0xFF777777
@@ -557,10 +557,10 @@ fun PostDetailScreen(
                         .height(48.dp),
                 ) {
                     Text(
-                        text = if (post.status == PostStatus.OPEN) {
-                            "해결 완료로 변경"
-                        } else {
-                            "해결 완료됨"
+                        text = when {
+                            isResolving -> "처리 중..."
+                            post.status == PostStatus.OPEN -> "해결 완료로 변경"
+                            else -> "해결 완료됨"
                         },
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
@@ -1408,7 +1408,6 @@ private fun CommentInputBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .imePadding()
             .background(Color.White)
             .padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically

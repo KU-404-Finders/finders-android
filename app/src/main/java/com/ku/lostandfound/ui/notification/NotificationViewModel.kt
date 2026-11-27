@@ -70,9 +70,11 @@ class NotificationViewModel @JvmOverloads constructor(
 
     init {
         viewModelScope.launch {
-            NotificationInboxRefreshBus.events.collectLatest {
-                refreshUnreadCount()
-                if (inboxOpen) refreshArrivals()
+            NotificationInboxRefreshBus.events.collectLatest { session ->
+                TokenManager.withReminderSession(session) {
+                    refreshUnreadCount()
+                    if (inboxOpen) refreshArrivals()
+                }
             }
         }
     }

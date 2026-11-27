@@ -2,6 +2,10 @@ package com.ku.lostandfound.network
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.ku.lostandfound.notification.FindersNotificationHelper
+import java.util.UUID
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 
@@ -9,11 +13,15 @@ object TokenManager {
     private const val PREFS_NAME = "auth_prefs"
     private const val KEY_ACCESS_TOKEN = "access_token"
     private const val KEY_REFRESH_TOKEN = "refresh_token"
+    private const val KEY_REMINDER_SESSION = "leave_reminder_session"
 
     private var prefs: SharedPreferences? = null
+    private var cancelRemoteNotifications: () -> Unit = {}
     private var expirationReported = false
     /** Changes whenever credentials are discarded or a new login is accepted. */
     private val sessionGeneration = SessionGeneration()
+    private val _sessionChanges = MutableStateFlow(0L)
+    internal val sessionChanges = _sessionChanges.asStateFlow()
     // replay keeps an expiry observed while the navigation host is being recreated.
     // The emitted generation lets a later login ignore this stale event safely.
     private val _sessionExpired = MutableSharedFlow<Long>(replay = 1, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
@@ -22,7 +30,22 @@ object TokenManager {
     @Synchronized
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val app = context.applicationContext
+        cancelRemoteNotifications = { app?.let(FindersNotificationHelper::cancelRemoteNotifications) }
     }
+
+    @Synchronized
+    internal fun reminderSession(): String? {
+        val preferences = prefs ?: return null
+        if (!hasTokens()) return null
+        return preferences.getString(KEY_REMINDER_SESSION, null) ?: UUID.randomUUID().toString().also {
+            preferences.edit().putString(KEY_REMINDER_SESSION, it).apply()
+        }
+    }
+
+    @Synchronized
+    internal fun <T> withReminderSession(expected: String, action: () -> T): T? =
+        if (reminderSession() == expected) action() else null
 
     val accessToken: String? get() = prefs?.getString(KEY_ACCESS_TOKEN, null)
     val refreshToken: String? get() = prefs?.getString(KEY_REFRESH_TOKEN, null)
@@ -39,8 +62,9 @@ object TokenManager {
     @Synchronized
     fun clear(): Long {
         prefs?.edit()?.clear()?.apply()
+        cancelRemoteNotifications()
         expirationReported = false
-        return sessionGeneration.advance()
+        return sessionGeneration.advance().also { _sessionChanges.value = it }
     }
 
     /** Server JwtProvider/API-SPEC define sub as email, not the numeric userId.
@@ -48,13 +72,22 @@ object TokenManager {
      * Unknown subjects must never authorize clearing an existing session.
      */
     internal fun tokenSubject(token: String?): String? = runCatching {
-        val parts = token?.split('.') ?: return null
-        if (parts.size != 3 || parts.any { it.isBlank() }) return null
-        val payload = String(java.util.Base64.getUrlDecoder().decode(parts[1]), Charsets.UTF_8)
-        val subject = com.google.gson.JsonParser.parseString(payload).asJsonObject.get("sub")
+        val subject = tokenPayload(token)?.get("sub")
         subject?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
             ?.takeIf { it.isNotBlank() && it == it.trim() }
     }.getOrNull()
+
+    internal fun tokenUserId(token: String?): Long? = runCatching {
+        tokenPayload(token)?.get("user_id")?.asJsonPrimitive?.takeIf { it.isNumber }
+            ?.asString?.toLongOrNull()?.takeIf { it > 0 }
+    }.getOrNull()
+
+    private fun tokenPayload(token: String?): com.google.gson.JsonObject? {
+        val parts = token?.split('.') ?: return null
+        if (parts.size != 3 || parts.any { it.isBlank() }) return null
+        val payload = String(java.util.Base64.getUrlDecoder().decode(parts[1]), Charsets.UTF_8)
+        return com.google.gson.JsonParser.parseString(payload).asJsonObject
+    }
 
     @Synchronized
     internal fun clearIfOwnedBy(expectedGeneration: Long, subject: String?): Long? {
@@ -67,12 +100,15 @@ object TokenManager {
     @Synchronized
     fun saveNewSessionTokens(expectedGeneration: Long, accessToken: String, refreshToken: String): Boolean {
         if (!sessionGeneration.isCurrent(expectedGeneration)) return false
-        sessionGeneration.advance()
+        cancelRemoteNotifications()
+        val newGeneration = sessionGeneration.advance()
         prefs?.edit()
             ?.putString(KEY_ACCESS_TOKEN, accessToken)
             ?.putString(KEY_REFRESH_TOKEN, refreshToken)
+            ?.putString(KEY_REMINDER_SESSION, UUID.randomUUID().toString())
             ?.apply()
         expirationReported = false
+        _sessionChanges.value = newGeneration
         return true
     }
 
@@ -105,7 +141,9 @@ object TokenManager {
         if (expirationReported || !matches(expected) || (expected.access == null && expected.refresh == null)) return false
         val expiredGeneration = sessionGeneration.advance()
         prefs?.edit()?.clear()?.apply()
+        cancelRemoteNotifications()
         expirationReported = true
+        _sessionChanges.value = expiredGeneration
         _sessionExpired.tryEmit(expiredGeneration)
         return true
     }

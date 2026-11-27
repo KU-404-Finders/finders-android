@@ -72,7 +72,7 @@ class BlockedUsersViewModel @JvmOverloads constructor(
                 if (data == null) error = "차단한 사용자를 불러오지 못했습니다."
                 else {
                     val rows = data.map {
-                        BlockedUserRow(it.blockedUserId, names.displayName(owner.id, it.blockedUserId), it.createdAt)
+                        BlockedUserRow(it.blockedUserId, names.displayName(owner.id, it.blockedUserId, it.blockedUserName), it.createdAt)
                     }
                     users = (if (reset) rows else users + rows).distinctBy { it.id }
                     nextPage = page + 1

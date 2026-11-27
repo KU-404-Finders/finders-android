@@ -104,7 +104,7 @@ Invoke-ProbeAdb shell am instrument -w -r -e releaseProbe after -e class $testCl
 
 ## 4. 결과 판정
 
-두 모드 모두 `releaseWireConversion`의 종료 상태가 `INSTRUMENTATION_STATUS_CODE: 0`, JUnit 요약이 **`OK (1 test)`**여야 합니다. `releaseProbe`가 없거나 `before`와 `after` 이외의 값이면 테스트가 건너뛰어집니다. ADB 종료 코드만으로 성공을 판정하지 않습니다.
+`before`에서는 기존 `releaseWireConversion`만 실행합니다. `after`에서는 기존 프로브와 `releasePostWritesAndBlockNames`가 모두 종료 상태 `INSTRUMENTATION_STATUS_CODE: 0`이어야 하며 JUnit 요약은 **`OK (2 tests)`**입니다. `releaseProbe`가 없거나 지정값이 다르면 건너뜁니다. 실제 종료 상태를 확인합니다.
 
 | 모드 | 통과 조건 |
 | --- | --- |

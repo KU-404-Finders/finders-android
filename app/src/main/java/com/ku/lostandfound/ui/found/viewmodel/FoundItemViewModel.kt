@@ -63,6 +63,10 @@ class FoundItemViewModel(
     private var hasLoadedFoundItemList = false
     private var lastLoadedBuildingName: String? = null
     private var lastLoadedAt: Long? = null
+    private val resolutionVersions = mutableMapOf<Long, Int>()
+    private var resolving by mutableStateOf<Set<Pair<Long, Long>>>(emptySet())
+
+    fun isResolving(id: Long): Boolean = (TokenManager.sessionGeneration() to id) in resolving
     private var listSession = -1L
     // A request for a previously selected building must never overwrite a newer
     // whole-campus response (or vice versa).
@@ -174,10 +178,11 @@ class FoundItemViewModel(
 
     suspend fun loadFoundItemDetailNow(id: Long): BoardPost? {
             val session = TokenManager.sessionGeneration()
+            val version = resolutionVersions[id]
             uiState = FoundItemUiState.Loading
             try {
                 val response = foundItemApi.getFoundItemDetail(id)
-                if (!TokenManager.isCurrentSession(session)) return null
+                if (!TokenManager.isCurrentSession(session) || resolutionVersions[id] != version) return null
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true && body.data != null) {
@@ -195,45 +200,48 @@ class FoundItemViewModel(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (!TokenManager.isCurrentSession(session)) return null
+                if (!TokenManager.isCurrentSession(session) || resolutionVersions[id] != version) return null
                 NetworkLog.exception("loadFoundItemDetail", e)
                 uiState = FoundItemUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
             }
             return null
     }
 
-    fun updateFoundItemStatus(id: Long, onSuccess: (BoardPost) -> Unit) {
+    fun updateFoundItemStatus(id: Long, onError: (String) -> Unit = {}, onSuccess: (BoardPost) -> Unit) {
         val session = TokenManager.sessionGeneration()
+        val key = session to id
+        if (id <= 0 || key in resolving) return
+        resolving = resolving + key
         viewModelScope.launch {
-            uiState = FoundItemUiState.Loading
             try {
-                val authorization = bearerTokenOrThrow()
-                val response = foundItemApi.updateFoundItemStatus(authorization, id)
                 if (!TokenManager.isCurrentSession(session)) return@launch
-                if (response.isSuccessful) {
-                    val body = response.body()
-                    if (body?.success == true && body.data != null) {
-                        val updatedPost = body.data.toBoardPost()
-                        detailPost = updatedPost
-                        invalidatePendingList()
-                        foundItems = foundItems.filterNot { it.id == id }
-                        successfulList = successfulList?.let { it.copy(items = it.items.filterNot { item -> item.id == id }, version = it.version + 1) }
-                        uiState = FoundItemUiState.Idle
-                        onSuccess(updatedPost)
-                    } else {
-                        uiState = FoundItemUiState.Error(body?.message ?: "상태 변경에 실패했습니다.")
-                    }
-                } else {
-                    val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("updateFoundItemStatus", response.code())
-                    uiState = FoundItemUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
-                }
+                val requestSession = com.ku.lostandfound.network.RequestSession(session)
+                val authorization = bearerTokenOrThrow()
+                val updatedPost = com.ku.lostandfound.network.confirmPostResolution(
+                    PostType.FOUND, id, requestSession,
+                    send = { foundItemApi.updateFoundItemStatus(authorization, id, requestSession) },
+                    verify = { foundItemApi.getFoundItemDetail(id, requestSession) },
+                    decode = { body -> body.takeIf { it.success }?.data?.toBoardPost() },
+                    httpError = { code, body -> httpErrorMessage(code, parseErrorMessage(body)) },
+                )
+                if (!TokenManager.isCurrentSession(session)) return@launch
+                resolutionVersions[id] = (resolutionVersions[id] ?: 0) + 1
+                detailPost = updatedPost
+                invalidatePendingList()
+                foundItems = foundItems.filterNot { it.id == id }
+                successfulList = successfulList?.let { it.copy(items = it.items.filterNot { item -> item.id == id }, version = it.version + 1) }
+                uiState = FoundItemUiState.Idle
+                onSuccess(updatedPost)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 if (!TokenManager.isCurrentSession(session)) return@launch
                 NetworkLog.exception("updateFoundItemStatus", e)
-                uiState = FoundItemUiState.Error(e.message ?: "서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
+                val message = e.message ?: "해결 완료 처리 중 오류가 발생했습니다."
+                uiState = FoundItemUiState.Error(message)
+                onError(message)
+            } finally {
+                resolving = resolving - key
             }
         }
     }

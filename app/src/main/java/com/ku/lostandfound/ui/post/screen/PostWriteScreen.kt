@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.media.ExifInterface
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -19,7 +20,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -28,6 +28,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -86,9 +87,12 @@ fun PostWriteScreen(
     submitText: String = "등록하기",
     loadingText: String = "등록 중...",
     allowTypeChange: Boolean = true,
+    onCheckMyPosts: (() -> Unit)? = null,
 ) {
     val uiState = viewModel.uiState
-    val isLoading = uiState is PostWriteUiState.Loading
+    val isLoading = viewModel.isWriting
+    val unconfirmed = uiState == PostWriteUiState.Unconfirmed
+    BackHandler(enabled = isLoading) {}
     val errorMessage = (uiState as? PostWriteUiState.Error)?.message
     val focusManager = LocalFocusManager.current
     val contentFocusRequester = remember { FocusRequester() }
@@ -98,7 +102,7 @@ fun PostWriteScreen(
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
-        viewModel.imageUri = uri?.toString()
+        if (!viewModel.isWriting) viewModel.imageUri = uri?.toString()
     }
 
     Column(
@@ -109,14 +113,11 @@ fun PostWriteScreen(
                 detectTapGestures(onTap = { focusManager.clearFocus() })
             }
     ) {
-        BackTitleBar(title = title, onBackClick = onBackClick)
+        BackTitleBar(title = title, onBackClick = { if (!viewModel.isWriting) onBackClick() })
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .imePadding()
-                // The IME first reduces the viewport; the form then scrolls inside
-                // it, avoiding a keyboard-sized blank tail below the content.
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 26.dp)
         ) {
@@ -124,15 +125,15 @@ fun PostWriteScreen(
                 leftText = "분실물 등록",
                 rightText = "습득물 등록",
                 selectedLeft = viewModel.postType == PostType.LOST,
-                onLeftClick = { if (allowTypeChange) viewModel.changePostType(PostType.LOST) },
-                onRightClick = { if (allowTypeChange) viewModel.changePostType(PostType.FOUND) },
+                onLeftClick = { if (allowTypeChange && !viewModel.isWriting) viewModel.changePostType(PostType.LOST) },
+                onRightClick = { if (allowTypeChange && !viewModel.isWriting) viewModel.changePostType(PostType.FOUND) },
             )
 
             Spacer(Modifier.height(34.dp))
             SectionLabel("사진 등록")
             PhotoBox(
                 imageUri = viewModel.imageUri,
-                onClick = { imagePickerLauncher.launch("image/*") },
+                onClick = { if (!viewModel.isWriting) imagePickerLauncher.launch("image/*") },
             )
 
             Spacer(Modifier.height(20.dp))
@@ -140,7 +141,7 @@ fun PostWriteScreen(
             SoftTextField(
                 value = viewModel.title,
                 onValueChange = {
-                    viewModel.title = it
+                    if (!viewModel.isWriting) viewModel.title = it
                     if (uiState is PostWriteUiState.Error) viewModel.resetUiState()
                 },
                 placeholder = "",
@@ -159,7 +160,7 @@ fun PostWriteScreen(
             CategoryDropdown(
                 selected = viewModel.category,
                 onSelected = {
-                    viewModel.category = it
+                    if (!viewModel.isWriting) viewModel.category = it
                     if (uiState is PostWriteUiState.Error) viewModel.resetUiState()
                 },
             )
@@ -168,7 +169,7 @@ fun PostWriteScreen(
             SectionLabel("위치")
             LocationAddRow(
                 text = locationSummary(viewModel),
-                onClick = { onAddLocationClick(viewModel.postType) },
+                onClick = { if (!viewModel.isWriting) onAddLocationClick(viewModel.postType) },
             )
 
             Spacer(Modifier.height(20.dp))
@@ -176,7 +177,7 @@ fun PostWriteScreen(
             SoftTextField(
                 value = viewModel.content,
                 onValueChange = {
-                    viewModel.content = it
+                    if (!viewModel.isWriting) viewModel.content = it
                     if (uiState is PostWriteUiState.Error) viewModel.resetUiState()
                 },
                 placeholder = "ex )\n검은색 지갑을 공학관에서 잃어버렸습니다.\n바깥에 물결무늬가 있고, 오리 캐릭터가 달려있습니다.",
@@ -200,9 +201,18 @@ fun PostWriteScreen(
                     modifier = Modifier.padding(bottom = 10.dp),
                 )
             }
+            if (unconfirmed) {
+                Text("등록 결과를 확인하지 못했습니다. 내 게시글에서 등록 여부를 먼저 확인해주세요.")
+                onCheckMyPosts?.let { open ->
+                    TextButton(onClick = open) { Text("내 게시글 확인") }
+                }
+                TextButton(onClick = viewModel::acknowledgeUnconfirmed) {
+                    Text("다시 등록할 수 있게 하기")
+                }
+            }
             Button(
                 onClick = onSubmitClick,
-                enabled = viewModel.canSubmit() && !isLoading,
+                enabled = viewModel.canSubmit() && !isLoading && !unconfirmed,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = DeepGreen,
                     disabledContainerColor = Color(0xFFD8D8D8),

@@ -6,4 +6,6 @@
     <exclude domain="sharedpref" path="finders_notifications.xml" />
     <exclude domain="sharedpref" path="blocked_user_names.xml" />
     <exclude domain="sharedpref" path="push_registration.xml" />
+    <exclude domain="sharedpref" path="leave_reminder.xml" />
+    <exclude domain="sharedpref" path="post_creation_attempts.xml" />
 </full-backup-content>

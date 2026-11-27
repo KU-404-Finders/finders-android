@@ -13,8 +13,8 @@ android {
         applicationId = "com.ku.lostandfound"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
-        versionName = "1.1.2"
+        versionCode = 11
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -67,9 +67,11 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.gson)
     implementation(libs.okhttp.client)
+    implementation(libs.play.services.location)
     implementation(libs.lifecycle.viewmodel.compose)
 
     testImplementation(libs.junit)
+    testImplementation(libs.okhttp.mockwebserver)
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     testImplementation("org.mockito:mockito-core:5.23.0")
     androidTestImplementation(libs.androidx.junit)

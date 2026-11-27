@@ -19,6 +19,7 @@ import org.mockito.Mockito.mock
 class EventSubscriptionLifecycleRegressionTest : StabilityFixture() {
     @Test fun oldSchedulerSubscriberBlocksArrivalsUntilCancellationIsDrained() {
         val bus = NotificationInboxRefreshBus.events
+        val owner = checkNotNull(TokenManager.reminderSession())
         assertEquals(0, bus.subscriptionCount.value)
         val oldScheduler = TestCoroutineScheduler()
         Dispatchers.setMain(StandardTestDispatcher(oldScheduler))
@@ -29,7 +30,7 @@ class EventSubscriptionLifecycleRegressionTest : StabilityFixture() {
             oldScheduler.runCurrent()
             assertEquals(1, bus.subscriptionCount.value)
             // Queue an arrival on the old scheduler, then leave it undrained at teardown.
-            assertTrue(bus.tryEmit(Unit))
+            assertTrue(bus.tryEmit(owner))
             Dispatchers.setMain(main)
             var pages = 0
             var badges = 0
@@ -49,7 +50,7 @@ class EventSubscriptionLifecycleRegressionTest : StabilityFixture() {
             val confirmedBadge = activeInbox.unreadCount
             // A new subscriber does not replay the old event, but the old subscriber
             // still occupies the shared buffer until its queued continuation runs.
-            assertFalse(bus.tryEmit(Unit))
+            assertFalse(bus.tryEmit(owner))
             dispatch()
             assertEquals(1, pages)
             assertEquals(confirmedBadge, activeInbox.unreadCount)
@@ -58,7 +59,7 @@ class EventSubscriptionLifecycleRegressionTest : StabilityFixture() {
             assertEquals(2, bus.subscriptionCount.value)
             oldScheduler.runCurrent()
             assertEquals(1, bus.subscriptionCount.value)
-            assertTrue(bus.tryEmit(Unit))
+            assertTrue(bus.tryEmit(owner))
             dispatch()
             assertEquals(2, pages)
             assertTrue(activeInbox.unreadCount > confirmedBadge)

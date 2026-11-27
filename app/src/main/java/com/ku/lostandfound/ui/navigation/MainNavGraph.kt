@@ -33,6 +33,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.ku.lostandfound.data.BoardComment
+import com.ku.lostandfound.data.mergeBoardPosts
 import com.ku.lostandfound.data.BoardPost
 import com.ku.lostandfound.data.CampusBoundary
 import com.ku.lostandfound.data.CampusBuilding
@@ -97,6 +98,7 @@ import com.ku.lostandfound.ui.signup.screen.SignupFinishScreen
 import com.ku.lostandfound.ui.signup.screen.SignupNameScreen
 import com.ku.lostandfound.ui.signup.screen.SignupPwScreen
 import com.ku.lostandfound.ui.signup.viewmodel.SignupViewmodel
+import com.ku.lostandfound.viewmodel.PostWriteUiState
 import com.ku.lostandfound.viewmodel.PostWriteViewModel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -111,6 +113,20 @@ private fun SessionCheckingScreen(modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center
     ) {
         CircularProgressIndicator()
+    }
+}
+
+internal fun androidx.navigation.NavBackStackEntry.editTarget() = Route.PostEdit.parse(
+    arguments?.getString(Route.PostEdit.ARG_POST_TYPE),
+    arguments?.getLong(Route.PostEdit.ARG_POST_ID),
+)
+
+@Composable
+private fun PostEditLoading(failed: Boolean, onBack: () -> Unit) {
+    androidx.compose.foundation.layout.Column {
+        if (failed) Text("수정할 게시글 정보를 불러오지 못했습니다.")
+        else CircularProgressIndicator()
+        androidx.compose.material3.TextButton(onClick = onBack) { Text("뒤로") }
     }
 }
 
@@ -141,12 +157,14 @@ private fun AdminAccessGate(
 }
 
 @Composable
-fun MainNavGraph(
+internal fun MainNavGraph(
     navController: NavHostController,
     modifier: Modifier = Modifier,
     padding: PaddingValues,
     isFreshLaunch: Boolean,
     chatViewModel: ChatViewModel,
+    restoredEdit: PostEditRestore? = null,
+    onRestoredEditHandled: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val displayPreferences = remember(context.applicationContext) {
@@ -156,7 +174,7 @@ fun MainNavGraph(
         mutableStateOf(displayPreferences.showSimilarityScores)
     }
     val coroutineScope = rememberCoroutineScope()
-    val writeViewModel = remember { PostWriteViewModel() }
+    val writeViewModel = viewModel<PostWriteViewModel>()
     val loginViewModel = viewModel<LoginViewModel>()
     val signupViewModel = viewModel<SignupViewmodel>()
     val passwordResetViewModel = viewModel<PasswordResetViewModel>()
@@ -222,6 +240,8 @@ fun MainNavGraph(
     var retrySession by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(Unit) {
         val credentials = TokenManager.credentials()
+        val restoredAuth = restoredEdit?.authenticate()
+        if (restoredEdit != null && restoredAuth != RefreshSessionResult.Success) onRestoredEditHandled()
         startDestination = when {
             credentials.access.isNullOrBlank() || credentials.refresh.isNullOrBlank() -> {
                 TokenManager.expireSession(credentials)
@@ -230,7 +250,7 @@ fun MainNavGraph(
             }
 
             !TokenManager.isAccessTokenExpired() -> Route.Found.route
-            else -> when (RetrofitClient.refreshSession()) {
+            else -> when (restoredAuth ?: RetrofitClient.refreshSession()) {
                 RefreshSessionResult.Success -> Route.Found.route
                 RefreshSessionResult.InvalidSession -> {
                     clearRestoredAuthenticatedStack = true
@@ -247,8 +267,10 @@ fun MainNavGraph(
     }
 
     val verifiedStartDestination = startDestination
+    // The Activity's Scaffold supplies safe drawing insets, including the IME.
+    val contentModifier = modifier.padding(padding).consumeWindowInsets(padding)
     if (verifiedStartDestination == null) {
-        SessionCheckingScreen(modifier = modifier.padding(padding))
+        SessionCheckingScreen(modifier = contentModifier)
         return
     }
 
@@ -276,11 +298,6 @@ fun MainNavGraph(
         if (verifiedStartDestination != Route.Login.route && TokenManager.isLoggedIn()) {
             userViewModel.loadMe()
         }
-    }
-
-    fun toggleResolved(post: BoardPost) {
-        if (post.status != PostStatus.OPEN) return
-        posts = posts.map { if (it.id == post.id) it.copy(status = PostStatus.RESOLVED) else it }
     }
 
     fun syncLocalPostsWithServer(type: PostType, serverPosts: List<BoardPost>) {
@@ -346,49 +363,42 @@ fun MainNavGraph(
     }
 
     fun submitPost() {
-        if (!writeViewModel.canSubmit()) return
-
-        if (writeViewModel.postType == PostType.LOST) {
-            coroutineScope.launch {
-                val author = currentUserOrLoad()
-                val authorName = author?.name?.takeIf { it.isNotBlank() }
-                    ?: currentUserName.ifBlank { "익명" }
-                val authorEmail = author?.email?.takeIf { it.isNotBlank() }
-                    ?: currentUserEmail
-                writeViewModel.createLostItem(context)
-                    .onSuccess { createdPost ->
-                        posts = listOf(
-                            createdPost.copy(
-                                authorName = authorName,
-                                authorEmail = authorEmail,
-                            )
-                        ) + posts
-                        writeViewModel.reset()
-                        lostItemViewModel.loadLostItems()
-                        navigateMainTab(Route.Lost.route)
-                    }
-            }
-            return
-        }
-
-        coroutineScope.launch {
+        writeViewModel.save(context) {
             val author = currentUserOrLoad()
-            val authorName = author?.name?.takeIf { it.isNotBlank() }
-                ?: currentUserName.ifBlank { "익명" }
-            val authorEmail = author?.email?.takeIf { it.isNotBlank() }
-                ?: currentUserEmail
-            writeViewModel.createFoundItem(context)
-                .onSuccess { createdPost ->
-                    foundItemViewModel.retryFoundItems()
-                    posts = listOf(
-                        createdPost.copy(
-                            authorName = authorName,
-                            authorEmail = authorEmail,
-                        )
-                    ) + posts
-                    writeViewModel.reset()
-                    navigateMainTab(Route.Found.route)
-                }
+            val name = author?.name?.takeIf { it.isNotBlank() } ?: currentUserName.ifBlank { "익명" }
+            val email = author?.email?.takeIf { it.isNotBlank() } ?: currentUserEmail
+            name to email
+        }
+    }
+
+    val savedPost = writeViewModel.uiState as? PostWriteUiState.Saved
+    LaunchedEffect(savedPost) {
+        val saved = savedPost ?: return@LaunchedEffect
+        if (!TokenManager.isCurrentSession(saved.session)) {
+            writeViewModel.reset()
+            return@LaunchedEffect
+        }
+        val post = saved.post
+        posts = mergeBoardPosts(listOf(post), posts)
+        if (saved.isEdit) com.ku.lostandfound.ui.component.ThumbnailLoader.clear()
+        when (post.type) {
+            PostType.LOST -> {
+                if (saved.isEdit) post.id.toLongOrNull()?.let(lostItemViewModel::loadLostItemDetail)
+                lostItemViewModel.loadLostItems()
+            }
+            PostType.FOUND -> {
+                if (saved.isEdit) post.id.toLongOrNull()?.let(foundItemViewModel::loadFoundItemDetail)
+                foundItemViewModel.retryFoundItems()
+            }
+        }
+        writeViewModel.reset()
+        val route = navController.currentDestination?.route
+        if (saved.isEdit && route == Route.PostEdit.route) {
+            navController.navigate(Route.PostDetail.create(post.id, post.type.name)) {
+                popUpTo(Route.PostEdit.route) { inclusive = true }
+            }
+        } else if (!saved.isEdit && route == Route.PostWrite.route) {
+            navigateMainTab(if (post.type == PostType.LOST) Route.Lost.route else Route.Found.route)
         }
     }
 
@@ -400,20 +410,24 @@ fun MainNavGraph(
     }
 
     fun openPostWrite(type: PostType = PostType.FOUND) {
+        if (writeViewModel.isWriting) return
         writeViewModel.reset()
         writeViewModel.changePostType(type)
         navigateSingleTop(Route.PostWrite.route)
     }
 
     fun openPostEdit(post: BoardPost) {
-        writeViewModel.loadForEdit(post)
-        navController.navigate(Route.PostEdit.create(post.id))
+        if (writeViewModel.isWriting) return
+        val id = post.id.toLongOrNull()?.takeIf { it > 0 } ?: return
+        val owner = TokenManager.reminderSession() ?: return
+        writeViewModel.reset()
+        PostEditRestore(owner, post.type, id).navigate(navController)
     }
 
     fun blockUser(userId: Long, name: String?, onFinished: (Boolean) -> Unit) {
         val ownerId = currentUserId ?: run { onFinished(false); return }
-        userViewModel.blockUser(userId) { success ->
-            if (success) blockedUserNames.save(ownerId, userId, name)
+        userViewModel.blockUser(userId) { success, serverName ->
+            if (success) blockedUserNames.save(ownerId, userId, serverName?.takeIf { it.isNotBlank() } ?: name)
             onFinished(success)
         }
     }
@@ -494,6 +508,15 @@ fun MainNavGraph(
         )
     }
 
+    LaunchedEffect(verifiedStartDestination, restoredEdit) {
+        if (restoredEdit != null) {
+            if (verifiedStartDestination == Route.Found.route) {
+                restoredEdit.navigate(navController)
+            }
+            onRestoredEditHandled()
+        }
+    }
+
     LaunchedEffect(verifiedStartDestination, clearRestoredAuthenticatedStack) {
         if (
             clearRestoredAuthenticatedStack &&
@@ -507,9 +530,7 @@ fun MainNavGraph(
     NavHost(
         navController = navController,
         startDestination = verifiedStartDestination,
-        modifier = modifier
-            .padding(padding)
-            .consumeWindowInsets(padding),
+        modifier = contentModifier,
         enterTransition = { EnterTransition.None },
         exitTransition = { ExitTransition.None },
         popEnterTransition = { EnterTransition.None },
@@ -671,7 +692,7 @@ fun MainNavGraph(
                         lastAppliedFoundListVersion = successfulList.version
                     }
                 }
-                val foundPosts = serverFoundPosts
+                val foundPosts = mergeBoardPosts(serverFoundPosts, emptyList())
                 FoundBoardScreen(
                     listState = foundListState,
                     posts = foundPosts,
@@ -681,7 +702,7 @@ fun MainNavGraph(
                     referencePaths = referencePaths,
                     onPostClick = { post ->
                         if (posts.none { it.id == post.id && it.type == post.type }) {
-                            posts = listOf(post) + posts
+                            posts = mergeBoardPosts(listOf(post), posts)
                         }
 
                         navController.navigate(
@@ -722,7 +743,7 @@ fun MainNavGraph(
                 }
             }
             val lostPosts = remember(serverLostPosts, posts) {
-                (serverLostPosts + publicLocalPosts(PostType.LOST)).distinctBy { it.id }
+                mergeBoardPosts(serverLostPosts, publicLocalPosts(PostType.LOST))
             }
             LostBoardScreen(
                 listState = lostListState,
@@ -731,7 +752,7 @@ fun MainNavGraph(
                 posts = lostPosts,
                 onPostClick = { post ->
                     if (posts.none { it.id == post.id && it.type == post.type }) {
-                        posts = listOf(post) + posts
+                        posts = mergeBoardPosts(listOf(post), posts)
                     }
                     navController.navigate(Route.PostDetail.create(post.id, post.type.name))
                 },
@@ -777,7 +798,7 @@ fun MainNavGraph(
                             it.id == post.id && it.type == post.type
                         }
                     ) {
-                        posts = listOf(post) + posts
+                        posts = mergeBoardPosts(listOf(post), posts)
                     }
 
                     navController.navigate(
@@ -1051,6 +1072,10 @@ fun MainNavGraph(
             )
         }
 
+        composable(route = Route.LeaveReminder.route) {
+            com.ku.lostandfound.reminder.LeaveReminderScreen(onBack = { navController.popBackStack() })
+        }
+
         composable(route = Route.Profile.route) {
             LaunchedEffect(Unit) {
                 userViewModel.loadMe()
@@ -1118,6 +1143,7 @@ fun MainNavGraph(
                 },
                 onNotificationSettingsClick = { navController.navigate(Route.NotificationSettings.route) },
                 onBlockedUsersClick = { navController.navigate(Route.BlockedUsers.route) },
+                onLeaveReminderClick = { navController.navigate(Route.LeaveReminder.route) },
             )
 
         }
@@ -1146,7 +1172,7 @@ fun MainNavGraph(
                 onBackClick = { navController.popBackStack() },
                 onPostClick = { post ->
                     if (posts.none { it.id == post.id && it.type == post.type }) {
-                        posts = listOf(post) + posts
+                        posts = mergeBoardPosts(listOf(post), posts)
                     }
                     navController.navigate(Route.PostDetail.create(post.id, post.type.name))
                 }
@@ -1167,7 +1193,7 @@ fun MainNavGraph(
                     val post = item.toBoardPost()
                         .copy(authorName = currentUserName, authorEmail = currentUserEmail)
                     posts =
-                        listOf(post) + posts.filterNot { it.id == post.id && it.type == post.type }
+                        mergeBoardPosts(listOf(post), posts)
                     navController.navigate(Route.PostDetail.create(post.id, post.type.name))
                 },
                 onFoundItemClick = {},
@@ -1189,13 +1215,14 @@ fun MainNavGraph(
                     val post = item.toBoardPost()
                         .copy(authorName = currentUserName, authorEmail = currentUserEmail)
                     posts =
-                        listOf(post) + posts.filterNot { it.id == post.id && it.type == post.type }
+                        mergeBoardPosts(listOf(post), posts)
                     navController.navigate(Route.PostDetail.create(post.id, post.type.name))
                 },
             )
         }
 
         composable(route = Route.PostWrite.route) {
+            LaunchedEffect(Unit) { writeViewModel.restoreCreationStatus(context) }
             PostWriteScreen(
                 viewModel = writeViewModel,
                 onBackClick = {
@@ -1210,17 +1237,32 @@ fun MainNavGraph(
                     )
                 },
                 onSubmitClick = { submitPost() },
+                onCheckMyPosts = {
+                    navController.navigate(if ((writeViewModel.unconfirmedType ?: writeViewModel.postType) == PostType.FOUND)
+                        Route.MyFoundPosts.route else Route.MyLostPosts.route)
+                },
             )
         }
 
         composable(
             route = Route.PostEdit.route,
-            arguments = listOf(navArgument(Route.PostEdit.ARG_POST_ID) {
-                type = NavType.StringType
-            })
+            arguments = listOf(
+                navArgument(Route.PostEdit.ARG_POST_TYPE) { type = NavType.StringType },
+                navArgument(Route.PostEdit.ARG_POST_ID) { type = NavType.LongType },
+            ),
         ) { backStackEntry ->
-            val postId = backStackEntry.arguments?.getString(Route.PostEdit.ARG_POST_ID).orEmpty()
-            val itemId = postId.toLongOrNull()
+            val edit = PostEditRestore.fromEntry(backStackEntry)?.takeIf(PostEditRestore::belongsToCurrentSession)
+                ?.let { it.type to it.id }
+            val type = edit?.first
+            val itemId = edit?.second
+            var loadFailed by remember(backStackEntry) { mutableStateOf(type == null || itemId == null) }
+            LaunchedEffect(backStackEntry, type, itemId) {
+                if (type != null && itemId != null) loadFailed = !writeViewModel.restoreEdit(type, itemId)
+            }
+            if (type == null || itemId == null || !writeViewModel.isEditReady(type, itemId)) {
+                PostEditLoading(loadFailed) { navController.popBackStack() }
+                return@composable
+            }
             PostWriteScreen(
                 viewModel = writeViewModel,
                 title = "게시글 수정",
@@ -1239,31 +1281,7 @@ fun MainNavGraph(
                     )
                 },
                 onSubmitClick = {
-                    if (!writeViewModel.canSubmit() || itemId == null) return@PostWriteScreen
-                    coroutineScope.launch {
-                        writeViewModel.updatePost(context, itemId)
-                            .onSuccess { updatedPost ->
-                                com.ku.lostandfound.ui.component.ThumbnailLoader.clear()
-                                posts =
-                                    listOf(updatedPost) + posts.filterNot { it.id == updatedPost.id && it.type == updatedPost.type }
-                                if (updatedPost.type == PostType.LOST) {
-                                    lostItemViewModel.loadLostItemDetail(itemId)
-                                    lostItemViewModel.loadLostItems()
-                                } else {
-                                    foundItemViewModel.loadFoundItemDetail(itemId)
-                                    foundItemViewModel.retryFoundItems()
-                                }
-                                writeViewModel.reset()
-                                navController.navigate(
-                                    Route.PostDetail.create(
-                                        updatedPost.id,
-                                        updatedPost.type.name
-                                    )
-                                ) {
-                                    popUpTo(Route.PostEdit.route) { inclusive = true }
-                                }
-                            }
-                    }
+                    writeViewModel.save(context, editedId = itemId)
                 },
             )
         }
@@ -1279,6 +1297,18 @@ fun MainNavGraph(
                 ?.getString(Route.LocationPicker.ARG_POST_TYPE)
                 ?.let { runCatching { PostType.valueOf(it) }.getOrNull() }
                 ?: writeViewModel.postType
+            val editEntry = navController.previousBackStackEntry?.takeIf { it.destination.route == Route.PostEdit.route }
+            val edit = PostEditRestore.fromEntry(editEntry)
+                ?.takeIf { it.belongsToCurrentSession() && it.type == postType }
+                ?.let { it.type to it.id }
+            var loadFailed by remember(editEntry) { mutableStateOf(edit == null) }
+            LaunchedEffect(editEntry, edit) {
+                if (edit != null) loadFailed = !writeViewModel.restoreEdit(edit.first, edit.second)
+            }
+            if (editEntry != null && (edit == null || !writeViewModel.isEditReady(edit.first, edit.second))) {
+                PostEditLoading(loadFailed) { navController.popBackStack() }
+                return@composable
+            }
 
             if (b == null) {
                 Text("지도 데이터를 불러오는 중입니다.")
@@ -1532,11 +1562,20 @@ fun MainNavGraph(
                             (post.authorEmail.isNotBlank() && post.authorEmail == currentUserEmail) ||
                             (currentUserName.isNotBlank() && post.authorName == currentUserName),
                     onEditClick = { openPostEdit(it) },
+                    isResolving = numericItemId?.let { id ->
+                        if (post.type == PostType.LOST) lostItemViewModel.isResolving(id)
+                        else foundItemViewModel.isResolving(id)
+                    } == true,
                     onToggleResolvedClick = {
+                        val showError: (String) -> Unit = { message ->
+                            if (navController.currentBackStackEntry == backStackEntry) {
+                                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                            }
+                        }
                         val itemId = it.id.toLongOrNull()
                         when (it.type) {
                             PostType.LOST if itemId != null && it.status == PostStatus.OPEN -> {
-                                lostItemViewModel.markReturned(itemId) { updatedPost ->
+                                lostItemViewModel.markReturned(itemId, onError = showError) { updatedPost ->
                                     posts =
                                         posts.filterNot { existing -> existing.id == updatedPost.id && existing.type == updatedPost.type }
                                     lostItemViewModel.loadLostItems()
@@ -1544,7 +1583,7 @@ fun MainNavGraph(
                             }
 
                             PostType.FOUND if itemId != null && it.status == PostStatus.OPEN -> {
-                                foundItemViewModel.updateFoundItemStatus(itemId) { updatedPost ->
+                                foundItemViewModel.updateFoundItemStatus(itemId, onError = showError) { updatedPost ->
                                     posts =
                                         posts.filterNot { existing -> existing.id == updatedPost.id && existing.type == updatedPost.type }
                                     foundItemViewModel.retryFoundItems()
@@ -1552,7 +1591,7 @@ fun MainNavGraph(
                             }
 
                             else -> {
-                                toggleResolved(it)
+                                if (it.status == PostStatus.OPEN) showError("게시글 정보를 확인할 수 없습니다.")
                             }
                         }
                     },
@@ -1646,7 +1685,7 @@ fun MainNavGraph(
                             associatedBuildingNames = candidate.associatedBuildingNames,
                         )
                         posts =
-                            listOf(candidatePost) + posts.filterNot { it.id == candidate.id && it.type == candidate.type }
+                            mergeBoardPosts(listOf(candidatePost), posts)
                         navController.navigate(
                             Route.PostDetail.create(
                                 candidate.id,

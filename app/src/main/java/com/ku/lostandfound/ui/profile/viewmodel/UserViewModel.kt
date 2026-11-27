@@ -211,21 +211,23 @@ class UserViewModel : ViewModel() {
     }
 
     /** Keeps a block request alive when the detail composable leaves composition. */
-    fun blockUser(userId: Long, onFinished: (Boolean) -> Unit) {
+    fun blockUser(userId: Long, onFinished: (Boolean, String?) -> Unit) {
         val requestGeneration = cacheGeneration
         val sessionGeneration = TokenManager.sessionGeneration()
         viewModelScope.launch {
             if (!isCurrentRequest(requestGeneration, sessionGeneration)) return@launch
-            val success = try {
-                val response = RetrofitClient.moderationApi.block(userId)
-                response.isSuccessful && response.body()?.success == true
+            val receipt = try {
+                val response = RetrofitClient.moderationApi.block(userId, com.ku.lostandfound.network.RequestSession(sessionGeneration))
+                response.body()?.takeIf { response.isSuccessful && it.success }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 NetworkLog.exception("blockUser", e)
-                false
+                null
             }
-            if (isCurrentRequest(requestGeneration, sessionGeneration)) onFinished(success)
+            if (isCurrentRequest(requestGeneration, sessionGeneration)) {
+                onFinished(receipt != null, receipt?.data?.blockedUserName)
+            }
         }
     }
 

@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ku.lostandfound.R
@@ -42,6 +43,7 @@ fun BackTitleBar(
     onChatClick: (() -> Unit)? = null,
     onReportClick: (() -> Unit)? = null,
     onBlockClick: (() -> Unit)? = null,
+    actions: (@Composable () -> Unit)? = null,
 ) {
     var menuExpanded by remember {
         mutableStateOf(false)
@@ -67,14 +69,15 @@ fun BackTitleBar(
 
         Text(
             text = title,
+            modifier = if (actions != null) Modifier.weight(1f) else Modifier,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             fontSize = 22.sp,
             fontWeight = FontWeight.Bold,
             color = Color(0xFF1E1E1E)
         )
 
-        Spacer(
-            modifier = Modifier.weight(1f)
-        )
+        if (actions == null) Spacer(Modifier.weight(1f))
 
         onChatClick?.let { chatClick ->
             Image(
@@ -140,6 +143,7 @@ fun BackTitleBar(
                 }
             }
         }
+        actions?.invoke()
     }
 }
 

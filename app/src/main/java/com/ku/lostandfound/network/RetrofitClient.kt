@@ -4,6 +4,8 @@ import com.google.gson.Gson
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
+import okio.BufferedSink
 import okhttp3.RequestBody.Companion.toRequestBody
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -34,7 +36,9 @@ object RetrofitClient {
         val sessionGeneration = credentials.generation
         val token = credentials.access
         val required = originalRequest.tag(RequestSession::class.java)
-        if (required != null && required.generation != sessionGeneration && originalRequest.header("Authorization") == null) {
+        if (required != null && required.generation != sessionGeneration &&
+            (originalRequest.isPostMutation() || originalRequest.header("Authorization") == null)
+        ) {
             throw java.io.IOException("Session changed")
         }
         val path = originalRequest.url.encodedPath
@@ -77,7 +81,7 @@ object RetrofitClient {
         val response = chain.proceed(request)
 
         if (
-            shouldAttachToken &&
+            !request.isPostMutation() && shouldAttachToken &&
             isAuthenticationFailure(response) &&
             TokenManager.isCurrentSession(sessionGeneration)
         ) {
@@ -123,6 +127,28 @@ object RetrofitClient {
         .addInterceptor(authInterceptor)
         .build()
 
+    private val postMutationClient = okHttpClient.newBuilder()
+        .retryOnConnectionFailure(false)
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .build()
+
+    private fun Request.isPostMutation(): Boolean = when (method) {
+        "POST" -> url.encodedPath in setOf("/api/v1/found-items", "/api/v1/lost-items")
+        "PATCH" -> POST_PATCH_PATH.matches(url.encodedPath)
+        else -> false
+    }
+
+    private val POST_PATCH_PATH = Regex("/api/v1/(found|lost)-items/\\d+(/status)?")
+
+    // A one-shot body also disables HTTP follow-ups such as 503 with Retry-After: 0.
+    private class OneShotBody(private val delegate: RequestBody) : RequestBody() {
+        override fun contentType() = delegate.contentType()
+        override fun contentLength() = delegate.contentLength()
+        override fun writeTo(sink: BufferedSink) = delegate.writeTo(sink)
+        override fun isOneShot() = true
+    }
+
     // Application interceptors do not recheck redirect follow-ups. Dedicated credentials
     // must never leave the original withdrawal URL, including same-host redirects.
     private val dedicatedWithdrawalClient = okHttpClient.newBuilder()
@@ -133,6 +159,10 @@ object RetrofitClient {
     internal fun newCall(original: Request): okhttp3.Call {
         val owner = original.tag(RequestSession::class.java) ?: RequestSession(TokenManager.sessionGeneration())
         val request = original.newBuilder().tag(RequestSession::class.java, owner).build()
+        if (request.isPostMutation()) {
+            val body = checkNotNull(request.body)
+            return postMutationClient.newCall(request.newBuilder().method(request.method, OneShotBody(body)).build())
+        }
         val client = if (original.tag(WithdrawalRequest::class.java)?.tokenKind == WithdrawalTokenKind.DEDICATED)
             dedicatedWithdrawalClient else okHttpClient
         return client.newCall(request)

@@ -1,5 +1,6 @@
 package com.ku.lostandfound.ui.notification
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -18,6 +19,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -25,6 +28,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.VisibilityOff
 import com.ku.lostandfound.network.InboxNotificationData
 import com.ku.lostandfound.network.NotificationSettingsPatch
+import com.ku.lostandfound.notification.FindersNotificationHelper
+import com.ku.lostandfound.notification.RemoteNotificationKind
 import com.ku.lostandfound.ui.component.BackTitleBar
 import kotlin.math.roundToInt
 
@@ -33,7 +38,7 @@ import kotlin.math.roundToInt
 fun NotificationInboxScreen(vm: NotificationViewModel, onBack: () -> Unit, onOpenRoom: (Long) -> Unit,
     onOpenPost: (String, Long) -> Unit,
     accountError: String? = null, onRetryAccount: () -> Unit = {}) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     var confirmDeleteAll by remember { mutableStateOf(false) }
     fun read(item: InboxNotificationData, open: () -> Unit = {}) {
         vm.markRead(item, onError = { android.widget.Toast.makeText(context, "알림 읽음 처리에 실패했습니다.", android.widget.Toast.LENGTH_SHORT).show() }, onOpen = open)
@@ -43,12 +48,13 @@ fun NotificationInboxScreen(vm: NotificationViewModel, onBack: () -> Unit, onOpe
         onDispose { vm.setInboxOpen(false) }
     }
     Column(Modifier.fillMaxSize().background(Color.White)) {
-        BackTitleBar(title = "알림함", onBackClick = onBack)
-        vm.refreshError?.let { Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error) }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
+        BackTitleBar(title = "알림함", onBackClick = onBack) {
             if (vm.items.any { it.readAt == null }) TextButton(onClick = vm::markAllRead) { Text("모두 읽음") }
-            if (vm.items.isNotEmpty()) TextButton(onClick = { confirmDeleteAll = true }) { Text("전체 삭제", color = Color(0xFFD32F2F)) }
+            if (vm.items.isNotEmpty()) TextButton(onClick = { confirmDeleteAll = true }) {
+                Text("전체 삭제", color = Color(0xFFD32F2F))
+            }
         }
+        vm.refreshError?.let { Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error) }
         PullToRefreshBox(isRefreshing = vm.state is InboxState.Loading, onRefresh = {
             if (vm.account == null) onRetryAccount()
             else if (vm.state !is InboxState.Loading) vm.load(true)
@@ -105,13 +111,22 @@ internal fun SwipeToHideNotification(
     val currentItem by rememberUpdatedState(item)
     val currentHide by rememberUpdatedState(onHide)
     val currentRead by rememberUpdatedState(onRead)
-    val state = rememberSwipeToDismissBoxState(
-        confirmValueChange = { target ->
-            if (target == SwipeToDismissBoxValue.EndToStart) currentHide()
-            if (target == SwipeToDismissBoxValue.StartToEnd && currentItem.readAt == null) currentRead()
-            false // The list updates only after the account-local hide state is persisted.
-        },
-    )
+    val density = LocalDensity.current
+    val state = remember(item.id, density) {
+        SwipeToDismissBoxState(
+            initialValue = SwipeToDismissBoxValue.Settled,
+            positionalThreshold = { with(density) { 56.dp.toPx() } },
+        )
+    }
+    val settled = state.settledValue
+    LaunchedEffect(settled) {
+        when (settled) {
+            SwipeToDismissBoxValue.Settled -> return@LaunchedEffect
+            SwipeToDismissBoxValue.StartToEnd -> if (currentItem.readAt == null) currentRead()
+            SwipeToDismissBoxValue.EndToStart -> currentHide()
+        }
+        state.reset()
+    }
     SwipeToDismissBox(
         state = state,
         backgroundContent = {
@@ -130,25 +145,74 @@ internal fun SwipeToHideNotification(
 @Composable
 fun NotificationSettingsScreen(vm: NotificationViewModel, onBack: () -> Unit,
     accountError: String? = null, onRetryAccount: () -> Unit = {}) {
+    val context = LocalContext.current
     LaunchedEffect(vm.account) { vm.loadSettings() }
     Column(Modifier.fillMaxSize().background(Color(0xFFF4F4F4))) {
         BackTitleBar(title = "알림 설정", onBackClick = onBack)
         val settings = vm.settings
-        if (settings == null) InboxMessage("알림 설정", accountError ?: vm.settingsError ?: if (vm.account == null) "계정 정보를 기다리고 있습니다." else "불러오는 중입니다.", if (vm.account == null) onRetryAccount else if (vm.settingsError != null) ({ vm.loadSettings() }) else null)
-        else Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            vm.settingsError?.let { Text(it, color = Color(0xFFD32F2F)) }
-            SettingSwitch("채팅 알림", settings.chatEnabled) { vm.updateSettings(NotificationSettingsPatch(chatEnabled = it)) }
-            SettingSwitch("댓글 알림", settings.commentEnabled) { vm.updateSettings(NotificationSettingsPatch(commentEnabled = it)) }
-            SettingSwitch("유사 게시글 알림", settings.similarItemEnabled) { vm.updateSettings(NotificationSettingsPatch(similarItemEnabled = it)) }
-            if (settings.similarItemEnabled) {
-                var threshold by remember(settings.similarityThreshold) { mutableFloatStateOf(settings.similarityThreshold.toFloat()) }
-                Text("알림 기준 유사도 ${(threshold * 100).toInt()}% 이상")
-                Slider(value = threshold, onValueChange = { threshold = it }, onValueChangeFinished = {
-                    val normalized = (threshold * 20).roundToInt() / 20.0
-                    if (kotlin.math.abs(normalized - settings.similarityThreshold) >= 0.001) {
-                        vm.updateSettings(NotificationSettingsPatch(similarityThreshold = normalized))
+        LazyColumn(
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            item {
+                if (settings == null) {
+                    InboxMessage("알림 설정", accountError ?: vm.settingsError ?: if (vm.account == null) "계정 정보를 기다리고 있습니다." else "불러오는 중입니다.", if (vm.account == null) onRetryAccount else if (vm.settingsError != null) ({ vm.loadSettings() }) else null)
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        vm.settingsError?.let { Text(it, color = Color(0xFFD32F2F)) }
+                        SettingSwitch("채팅 알림", settings.chatEnabled) {
+                            vm.updateSettings(NotificationSettingsPatch(chatEnabled = it))
+                        }
+                        SettingSwitch("댓글 알림", settings.commentEnabled) {
+                            vm.updateSettings(NotificationSettingsPatch(commentEnabled = it))
+                        }
+                        SettingSwitch("유사 게시글 알림", settings.similarItemEnabled) {
+                            vm.updateSettings(NotificationSettingsPatch(similarItemEnabled = it))
+                        }
+                        if (settings.similarItemEnabled) {
+                            var threshold by remember(settings.similarityThreshold) {
+                                mutableFloatStateOf(settings.similarityThreshold.toFloat())
+                            }
+                            Text("알림 기준 유사도 ${(threshold * 100).toInt()}% 이상")
+                            Slider(
+                                value = threshold,
+                                onValueChange = { threshold = it },
+                                onValueChangeFinished = {
+                                    val normalized = (threshold * 20).roundToInt() / 20.0
+                                    if (kotlin.math.abs(normalized - settings.similarityThreshold) >= 0.001) {
+                                        vm.updateSettings(NotificationSettingsPatch(similarityThreshold = normalized))
+                                    }
+                                },
+                                valueRange = 0.05f..1f,
+                                steps = 18,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = Color(0xFF1B6425), activeTrackColor = Color(0xFF1B6425),
+                                ),
+                            )
+                        }
                     }
-                }, valueRange = 0.05f..1f, steps = 18, colors = SliderDefaults.colors(thumbColor = Color(0xFF1B6425), activeTrackColor = Color(0xFF1B6425)))
+                }
+            }
+            item {
+                Text("기기 알림 표시", Modifier.padding(start = 12.dp, top = 8.dp), fontWeight = FontWeight.Medium)
+                Text(
+                    "소리, 진동, 화면 상단 팝업은 시스템 알림 설정에서 관리해요.",
+                    Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            item {
+                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                    RemoteNotificationKind.entries.forEach { kind ->
+                        TextButton(
+                            onClick = {
+                                runCatching { context.startActivity(FindersNotificationHelper.systemSettingsIntent(context, kind)) }
+                                    .onFailure { Toast.makeText(context, "설정을 열 수 없습니다.", Toast.LENGTH_SHORT).show() }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("${kind.title} 표시 설정") }
+                    }
+                }
             }
         }
     }

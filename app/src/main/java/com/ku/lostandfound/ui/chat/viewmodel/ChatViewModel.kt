@@ -42,8 +42,8 @@ class ChatViewModel(
 
     init {
         viewModelScope.launch {
-            NotificationInboxRefreshBus.events.collect {
-                if (TokenManager.isLoggedIn()) loadRooms()
+            NotificationInboxRefreshBus.events.collect { session ->
+                TokenManager.withReminderSession(session) { loadRooms() }
             }
         }
     }

@@ -4,7 +4,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -47,8 +47,12 @@ class AuthNavigationRegressionTest {
     }
     private val content: @Composable () -> Unit = {
         val controller = rememberNavController()
-        remember(controller) {
-            controller.addOnDestinationChangedListener { _, destination, _ -> destinations += destination.route }
+        DisposableEffect(controller) {
+            val listener = androidx.navigation.NavController.OnDestinationChangedListener { _, destination, _ ->
+                destinations += destination.route
+            }
+            controller.addOnDestinationChangedListener(listener)
+            onDispose { controller.removeOnDestinationChangedListener(listener) }
         }
         nav = controller
         MainNavGraph(controller, padding = PaddingValues(), isFreshLaunch = isFreshLaunch, chatViewModel = chat)

@@ -103,3 +103,6 @@ data class BoardComment(
     val content: String,
     val createdAtText: String = "방금 전",
 )
+
+internal fun mergeBoardPosts(preferred: List<BoardPost>, cached: List<BoardPost>): List<BoardPost> =
+    (preferred + cached).distinctBy { it.type to it.id }

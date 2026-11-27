@@ -12,13 +12,17 @@ import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Part
 import retrofit2.http.Path
+import retrofit2.http.Tag
 
 interface LostItemApiService {
     @GET("api/v1/lost-items")
     suspend fun getLostItems(): Response<LostItemListResponse>
 
     @GET("api/v1/lost-items/{id}")
-    suspend fun getLostItemDetail(@Path("id") id: Long): Response<LostItemCreateResponse>
+    suspend fun getLostItemDetail(
+        @Path("id") id: Long,
+        @Tag session: RequestSession? = null,
+    ): Response<LostItemCreateResponse>
 
     @GET("api/v1/lost-items/{id}/matches")
     suspend fun getLostItemMatches(@Path("id") id: Long): Response<LostItemMatchesResponse>
@@ -29,6 +33,7 @@ interface LostItemApiService {
         @Header("Authorization") authorization: String,
         @Part("request") request: RequestBody,
         @Part image: MultipartBody.Part? = null,
+        @Tag session: RequestSession? = null,
     ): Response<LostItemCreateResponse>
 
     @Multipart
@@ -38,6 +43,7 @@ interface LostItemApiService {
         @Path("id") id: Long,
         @Part("request") request: RequestBody,
         @Part image: MultipartBody.Part? = null,
+        @Tag session: RequestSession? = null,
     ): Response<LostItemCreateResponse>
 
     @DELETE("api/v1/lost-items/{id}")
@@ -50,6 +56,7 @@ interface LostItemApiService {
     suspend fun markLostItemReturned(
         @Header("Authorization") authorization: String,
         @Path("id") id: Long,
+        @Tag session: RequestSession? = null,
     ): Response<LostItemCreateResponse>
 
     @GET("api/v1/lost-items/{lostItemId}/comments")

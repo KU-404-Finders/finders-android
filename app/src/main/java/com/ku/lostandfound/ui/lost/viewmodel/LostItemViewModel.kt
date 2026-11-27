@@ -58,6 +58,10 @@ class LostItemViewModel(
         private set
     private var listRequestId = 0L
     private var lastLoadedAt: Long? = null
+    private val resolutionVersions = mutableMapOf<Long, Int>()
+    private var resolving by mutableStateOf<Set<Pair<Long, Long>>>(emptySet())
+
+    fun isResolving(id: Long): Boolean = (TokenManager.sessionGeneration() to id) in resolving
     private var listSession = -1L
 
     fun ensureLoaded() {
@@ -154,10 +158,11 @@ class LostItemViewModel(
 
     suspend fun loadLostItemDetailNow(id: Long): BoardPost? {
             val session = TokenManager.sessionGeneration()
+            val version = resolutionVersions[id]
             uiState = LostItemListUiState.Loading
             try {
                 val response = lostItemApi.getLostItemDetail(id)
-                if (!TokenManager.isCurrentSession(session)) return null
+                if (!TokenManager.isCurrentSession(session) || resolutionVersions[id] != version) return null
                 if (response.isSuccessful) {
                     val body = response.body()
                     if (body?.success == true && body.data != null) {
@@ -175,44 +180,48 @@ class LostItemViewModel(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (!TokenManager.isCurrentSession(session)) return null
+                if (!TokenManager.isCurrentSession(session) || resolutionVersions[id] != version) return null
                 NetworkLog.exception("loadLostItemDetail", e)
                 uiState = LostItemListUiState.Error("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
             }
             return null
     }
 
-    fun markReturned(id: Long, onSuccess: (BoardPost) -> Unit) {
+    fun markReturned(id: Long, onError: (String) -> Unit = {}, onSuccess: (BoardPost) -> Unit) {
         val session = TokenManager.sessionGeneration()
+        val key = session to id
+        if (id <= 0 || key in resolving) return
+        resolving = resolving + key
         viewModelScope.launch {
-            uiState = LostItemListUiState.Loading
             try {
-                val response = lostItemApi.markLostItemReturned(bearerTokenOrThrow(), id)
                 if (!TokenManager.isCurrentSession(session)) return@launch
-                if (response.isSuccessful) {
-                    val body = response.body()
-                    if (body?.success == true && body.data != null) {
-                        val updatedPost = body.data.toBoardPost()
-                        detailPost = updatedPost
-                        invalidatePendingList()
-                        lostItems = lostItems.filterNot { it.id == id }
-                        listVersion++
-                        uiState = LostItemListUiState.Idle
-                        onSuccess(updatedPost)
-                    } else {
-                        uiState = LostItemListUiState.Error(body?.message ?: "상태 변경에 실패했습니다.")
-                    }
-                } else {
-                    val errorBody = response.errorBody()?.string()
-                    NetworkLog.httpError("markReturned", response.code())
-                    uiState = LostItemListUiState.Error(httpErrorMessage(response.code(), parseErrorMessage(errorBody)))
-                }
+                val requestSession = com.ku.lostandfound.network.RequestSession(session)
+                val authorization = bearerTokenOrThrow()
+                val updatedPost = com.ku.lostandfound.network.confirmPostResolution(
+                    PostType.LOST, id, requestSession,
+                    send = { lostItemApi.markLostItemReturned(authorization, id, requestSession) },
+                    verify = { lostItemApi.getLostItemDetail(id, requestSession) },
+                    decode = { body -> body.takeIf { it.success }?.data?.toBoardPost() },
+                    httpError = { code, body -> httpErrorMessage(code, parseErrorMessage(body)) },
+                )
+                if (!TokenManager.isCurrentSession(session)) return@launch
+                resolutionVersions[id] = (resolutionVersions[id] ?: 0) + 1
+                detailPost = updatedPost
+                invalidatePendingList()
+                lostItems = lostItems.filterNot { it.id == id }
+                listVersion++
+                uiState = LostItemListUiState.Idle
+                onSuccess(updatedPost)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 if (!TokenManager.isCurrentSession(session)) return@launch
-                NetworkLog.exception("markReturned", e)
-                uiState = LostItemListUiState.Error(e.message ?: "서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
+                NetworkLog.exception("markLostItemReturned", e)
+                val message = e.message ?: "해결 완료 처리 중 오류가 발생했습니다."
+                uiState = LostItemListUiState.Error(message)
+                onError(message)
+            } finally {
+                resolving = resolving - key
             }
         }
     }

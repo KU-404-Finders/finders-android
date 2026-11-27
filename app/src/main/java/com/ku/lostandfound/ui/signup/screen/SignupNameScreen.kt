@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
@@ -24,7 +23,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.ku.lostandfound.ui.component.BottomFixedButton
 import com.ku.lostandfound.ui.component.GetBackTopAppBar
 import com.ku.lostandfound.ui.signup.viewmodel.SignupViewmodel
 import com.ku.lostandfound.ui.theme.PretendardFontFamily
@@ -41,7 +39,6 @@ fun SignupNameScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .imePadding()
             .background(Color.White)
             .pointerInput(Unit) {
                 detectTapGestures(onTap = { focusManager.clearFocus() })
@@ -115,11 +112,10 @@ fun SignupNameScreen(
             }
         }
 
-        BottomFixedButton(
+        SignupFormButton(
             text = "다음",
             onClick = { if (viewModel.hasRequiredConsent && viewModel.isNameValid) onNavigateToPw() },
             enabled = viewModel.hasRequiredConsent && viewModel.isNameValid,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp)
         )
     }
 }

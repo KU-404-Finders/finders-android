@@ -4,6 +4,7 @@ import android.graphics.Paint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
@@ -36,6 +37,10 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -198,6 +203,20 @@ fun CampusMapCanvas(
             orderedPins.forEach { pin -> drawPin(pin.point, converter, label = pin.order.toString()) }
             singlePin?.let { drawPin(it, converter, label = null) }
         }
+
+        val uriHandler = LocalUriHandler.current
+        Text(
+            text = "© OpenStreetMap",
+            color = Color(0xFF20452A),
+            fontSize = 11.sp,
+            modifier = Modifier.align(Alignment.BottomStart)
+                .background(Color.White.copy(alpha = 0.94f))
+                .clickable(role = Role.Button) {
+                    runCatching { uriHandler.openUri("https://www.openstreetmap.org/copyright") }
+                }
+                .semantics { contentDescription = "OpenStreetMap 저작권 및 지도 출처" }
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+        )
 
         MapZoomButtons(
             zoom = zoom,

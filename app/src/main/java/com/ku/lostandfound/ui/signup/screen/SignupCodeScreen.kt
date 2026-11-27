@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
@@ -26,7 +25,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.ku.lostandfound.ui.component.BottomFixedButton
 import com.ku.lostandfound.ui.component.GetBackTopAppBar
 import com.ku.lostandfound.ui.signup.viewmodel.SignupUiState
 import com.ku.lostandfound.ui.signup.viewmodel.SignupViewmodel
@@ -52,7 +50,6 @@ fun SignupCodeScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .imePadding()
             .background(Color.White)
             .pointerInput(Unit) {
                 detectTapGestures(onTap = { focusManager.clearFocus() })
@@ -134,11 +131,10 @@ fun SignupCodeScreen(
             }
         }
 
-        BottomFixedButton(
+        SignupFormButton(
             text = if (uiState is SignupUiState.Loading) "처리 중..." else "인증하기",
             onClick = { viewModel.register() },
             enabled = viewModel.hasRequiredConsent && viewModel.isVerificationCodeValid && uiState !is SignupUiState.Loading,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp)
         )
     }
 }
