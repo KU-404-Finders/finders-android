@@ -241,4 +241,11 @@ class LeaveReminderTest {
             assertFalse("no owner ${status.name}", reminderRecoveryNeeded(null, null, true, status))
         }
     }
+
+    @Test fun recoveryStopsOnceTheOutageWindowHasPassed() {
+        assertTrue(reminderRecoveryNeeded("user:1", "user:1", true, ReminderStatus.LOCATION_DISABLED, withinWindow = true))
+        assertFalse(reminderRecoveryNeeded("user:1", "user:1", true, ReminderStatus.LOCATION_DISABLED, withinWindow = false))
+        assertFalse(reminderRecoveryNeeded("user:1", "user:1", true, ReminderStatus.PRECISE_LOCATION, withinWindow = true))
+        assertEquals(24L * 60 * 60 * 1000, RECOVERY_WINDOW_MS)
+    }
 }

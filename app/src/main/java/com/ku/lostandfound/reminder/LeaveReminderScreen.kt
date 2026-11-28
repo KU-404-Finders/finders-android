@@ -57,7 +57,7 @@ import java.util.Locale
 private val ReminderGreen = Color(0xFF1B6425)
 // iOS SettingsStyle.canvas / secondary.
 private val ReminderBackground = Color(0xFFF2F2F7)
-private val ReminderSecondary = Color(0xFF8E8E93)
+private val ReminderSecondary = Color(0xFF6C6C70) // ≥4.5:1 on white and on ReminderBackground for 12sp text
 
 @Composable
 internal fun LeaveReminderScreen(

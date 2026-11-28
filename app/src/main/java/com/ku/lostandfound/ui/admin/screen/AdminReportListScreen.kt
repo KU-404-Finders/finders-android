@@ -3,6 +3,8 @@ package com.ku.lostandfound.ui.admin.screen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.heightIn
@@ -140,14 +142,14 @@ fun AdminReportListScreen(
             }
             item {
                 Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).selectableGroup(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     adminReportStatuses.forEach { (value, label) ->
                         val selected = status == value
                         Box(
                             Modifier.heightIn(min = 48.dp).clip(CircleShape)
-                                .clickable(role = Role.Tab) { if (!selected) onStatusChange(value) },
+                                .selectable(selected = selected, role = Role.Tab) { if (!selected) onStatusChange(value) },
                             contentAlignment = Alignment.Center,
                         ) {
                             Box(
@@ -180,7 +182,7 @@ fun AdminReportListScreen(
                     }
                 )
             }
-            adminPaging(hasNext, isLoading, reports.size, onMore)
+            adminPaging(hasNext, isLoading, reports.size, errorMessage != null, onMore)
         }
     }
 }

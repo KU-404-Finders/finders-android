@@ -3,6 +3,8 @@ package com.ku.lostandfound.ui.admin.screen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -137,7 +139,7 @@ fun AdminUserListScreen(
                 }
             }
         }
-        adminPaging(hasNext, isLoading, users.size, onMore)
+        adminPaging(hasNext, isLoading, users.size, errorMessage != null, onMore)
     }
 }
 
@@ -227,20 +229,21 @@ fun AdminPostListScreen(
     onTypeChange: (String) -> Unit,
     onDelete: (AdminPost) -> Unit,
     isDeleting: Boolean = false,
+    onRetry: () -> Unit = {},
 ) {
     var selectedForDeletion by remember { mutableStateOf<AdminPost?>(null) }
     AdminListLayout("게시글 관리", "게시글 목록", "해결된 글을 포함한 전체 게시글입니다. 삭제는 되돌릴 수 없습니다.", onBackClick) {
         item {
             // iOS segmented Picker over ItemType.allCases (분실물, 습득물).
             Row(
-                Modifier.fillMaxWidth().background(Color(0xFFE9E9EB), RoundedCornerShape(9.dp)).padding(2.dp),
+                Modifier.fillMaxWidth().background(Color(0xFFE9E9EB), RoundedCornerShape(9.dp)).padding(2.dp).selectableGroup(),
             ) {
                 listOf("LOST" to "분실물", "FOUND" to "습득물").forEach { (type, label) ->
                     val selected = postType == type
                     Box(
                         Modifier.weight(1f).heightIn(min = 36.dp).clip(RoundedCornerShape(7.dp))
                             .background(if (selected) Color.White else Color.Transparent)
-                            .clickable(role = Role.Tab) { if (!selected) onTypeChange(type) },
+                            .selectable(selected = selected, role = Role.Tab) { if (!selected) onTypeChange(type) },
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(label, color = AdminColor.Ink, fontSize = 13.sp,
@@ -249,7 +252,7 @@ fun AdminPostListScreen(
                 }
             }
         }
-        listState(errorMessage, isLoading, posts.isEmpty(), "표시할 게시글이 없습니다.") { onTypeChange(postType) }
+        listState(errorMessage, isLoading, posts.isEmpty(), "표시할 게시글이 없습니다.", onRetry)
         items(posts, key = { "${it.postType}-${it.id}" }) { post ->
             val type = runCatching { PostType.valueOf(post.postType.uppercase()) }.getOrNull()
                 ?: runCatching { PostType.valueOf(postType) }.getOrDefault(PostType.FOUND)
@@ -278,7 +281,7 @@ fun AdminPostListScreen(
                 }
             }
         }
-        adminPaging(hasNext, isLoading, posts.size, onMore)
+        adminPaging(hasNext, isLoading, posts.size, errorMessage != null, onMore)
     }
     selectedForDeletion?.let { post ->
         AdminAlert(
@@ -311,7 +314,7 @@ fun AdminAuditLogScreen(hasNext: Boolean, onMore: () -> Unit, onRetry: () -> Uni
                 }
             }
         }
-        adminPaging(hasNext, isLoading, audits.size, onMore)
+        adminPaging(hasNext, isLoading, audits.size, errorMessage != null, onMore)
     }
 }
 

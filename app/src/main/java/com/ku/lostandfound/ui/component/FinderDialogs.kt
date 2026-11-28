@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -53,16 +55,23 @@ fun FinderConfirmDialog(
                 .padding(horizontal = 24.dp, vertical = 26.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(title, color = Color(0xFF222222), fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-            Text(
-                message,
-                color = Color(0xFF9A9A9A),
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
-                lineHeight = 24.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 14.dp),
-            )
+            // Title and message scroll inside the remaining height so the buttons stay on screen
+            // on small windows with large font scales.
+            Column(
+                Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(title, color = Color(0xFF222222), fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                Text(
+                    message,
+                    color = Color(0xFF9A9A9A),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    lineHeight = 24.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 14.dp),
+                )
+            }
             Row(Modifier.fillMaxWidth().padding(top = 26.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
                     onClick = onDismiss,

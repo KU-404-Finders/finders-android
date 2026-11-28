@@ -295,3 +295,33 @@ v1.2.0 보고서의 도메인·API 검증과 Edge-to-edge 보고서의 최종 AP
 ### 현재 환경에서 확인할 수 없는 항목
 
 운영 서명 빌드와 AAB, 운영 서버 CHAT `recipientUserId` 배포 및 실제 Firebase 푸시, 갤럭시 실기기 Heads-up 팝업, 실제 위치 기반 진입·이탈 알림, iOS 실제 화면 비교, Play 백그라운드 위치 심사.
+
+## PR #18 2차 CodeRabbit 반영 (2026-11-28, `70da32d` 이후 미커밋)
+
+리뷰 [6096597147](https://github.com/KU-404-Finders/finders-android/pull/18#pullrequestreview-6096597147)의 Actionable 10건과 Nitpick 1건을 현재 코드와 대조해 모두 유효로 판단하고 최소 범위로 수정했다. 버전은 `1.2.0 / 12`를 유지했다.
+
+| 항목 | 처리 |
+| --- | --- |
+| 등록 저널 취소 | IO 블록 안에서 생성한 기록을 보존하고, POST 호출 전 취소(`withContext` 복귀 시점과 그 직후 `ensureActive`)이면 해당 UUID 기록만 `NonCancellable`로 정리한다. 전송 이후 취소는 기존처럼 미확정을 유지한다. 다른 계정·UUID 기록은 건드리지 않는다. JVM 3건 추가, 정리 코드를 제거한 변이에서 신규 2건이 실패함을 확인 |
+| 관리자 다음 페이지 오류 | 오류 상태에서는 자동 요청을 멈추고 기존 목록을 유지한 채 "다시 시도" 버튼으로만 같은 페이지를 다시 요청한다(회원·신고·게시글·작업 이력) |
+| 관리자 게시글 재시도 | 유형 변경과 분리한 `onRetry`가 현재 유형의 `loadPosts()`를 직접 호출한다 |
+| 유사도 저장 실패 | ViewModel의 `settingsRevision`이 현재 계정의 설정 요청이 끝날 때마다 증가하고, 슬라이더 초안은 마지막 서버 확인값으로 돌아간다. 이전 계정 응답은 기존 계정 검사로 무시된다. JVM 2건 추가 |
+| 위치 서비스 재활성화 | `PROVIDERS_CHANGED`/`MODE_CHANGED`는 Android 8+ 매니페스트 수신 예외 목록에 없어 앱 밖에서 켠 변경을 받을 수 없다. 기능이 켜져 있고 로그인·권한이 있으나 위치 서비스만 꺼진 경우 기존 복구 Job을 예약해 지수 백오프로 재시도하며, 장애 시작부터 24시간이 지나면 중단한다. 권한 철회·로그아웃·기능 끔은 기존처럼 재시도하지 않고 예약을 취소한다. 실행 중인 복구 Job에서는 재예약하지 않는다. 실제 위치 서비스 토글 실기기 검증은 하지 않았다 |
+| 다이얼로그 큰 글꼴 | 제목·본문을 남는 높이 안에서 스크롤하고 버튼은 항상 표시한다. 최대 폭 440dp 유지 |
+| 채팅 목록 긴 이름 | 발신자 이름 최대 96dp, 미리보기는 남은 폭 사용 |
+| 예방 알림 안내 대비 | `#6C6C70`: 흰 카드 5.23:1, `#F2F2F7` 배경 4.69:1 |
+| 관리자 필터·유형 탭 | `selectable(role = Tab)`과 `selectableGroup()` 적용 |
+| AppBars 접근성 설명 | 뒤로가기·작성자와 채팅·더보기·마이페이지·알림함·검색을 문자열 리소스로 이동, 문구 동일 |
+| AGENTS.md | 기준 브랜치가 체크아웃된 경우에만 `pull --ff-only origin <기준 브랜치>`, 그 외에는 `origin/<기준 브랜치>` 참조, 강제 정리 금지 |
+
+### 실행 결과
+
+| 항목 | 결과 |
+| --- | --- |
+| JVM 전체 | 333건 통과, 실패 0 |
+| Debug·Release 빌드, `git diff --check` | 성공, 출력 없음 |
+| `ReviewRound2UiTest` (신규, API 37 폰) | 6/6 통과. 다이얼로그 스크롤·페이지 오류 분기를 제거한 변이에서 각각 해당 테스트 실패 확인 |
+| 영향 범위 계측 (API 37 폰) | `UiParityCaptureTest` 11, `ChatTabHeaderTest` 2, `ParityAttributionTest` 2, `ParityInteractionTest` 8, `LeaveReminderPermissionTest` 2, `LeaveReminderPersistenceTest` 3, `SearchScreenLoadingTest` 5, `AuthNavigationRegressionTest` 6, `MainTabNavigationTest` 7, `ChatPushAccountSwitchTest` 2 통과 |
+| `ProfileSupportContactTest` | 3건 중 2건 통과. `unavailableMailAppKeepsDialogOpenAndBackDismissesIt`는 이번 에뮬레이터 부팅에서 BACK 입력이 포커스 창을 기다리다 ANR로 계측 프로세스가 종료됐다. 이전 커밋 `70da32d` 빌드도 같은 부팅에서 동일하게 멈췄고, 앞선 두 차례 전체 실행에서는 통과했으므로 이번 변경의 회귀가 아닌 환경 문제로 기록한다 |
+
+운영 서명, 운영 서버 CHAT 배포·실제 Firebase 푸시, 갤럭시 Heads-up, 실제 위치 기반 알림, 백그라운드 위치 심사는 여전히 미검증이다.

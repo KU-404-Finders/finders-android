@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -75,7 +76,7 @@ fun BackTitleBar(
         BarIconButton(onClick = onBackClick) {
             Image(
                 painter = painterResource(id = R.drawable.img_left_arrow),
-                contentDescription = "뒤로가기",
+                contentDescription = stringResource(R.string.cd_back),
                 modifier = Modifier.size(24.dp),
             )
         }
@@ -98,7 +99,7 @@ fun BackTitleBar(
             BarIconButton(onClick = chatClick) {
                 Image(
                     painter = painterResource(id = R.drawable.img_chat),
-                    contentDescription = "작성자와 채팅",
+                    contentDescription = stringResource(R.string.cd_chat_with_author),
                     modifier = Modifier.size(32.dp),
                 )
             }
@@ -106,13 +107,14 @@ fun BackTitleBar(
 
         if (onReportClick != null || onBlockClick != null) {
             Box {
+                val moreLabel = stringResource(R.string.cd_more)
                 BarIconButton(onClick = { menuExpanded = true }) {
                     Text(
                         text = "⋮",
                         fontSize = 28.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF333333),
-                        modifier = Modifier.semantics { contentDescription = "더보기" },
+                        modifier = Modifier.semantics { contentDescription = moreLabel },
                     )
                 }
 
@@ -179,7 +181,7 @@ fun HomeTopBar(
     onNotificationClick: () -> Unit = {},
     notificationCount: Int = 0,
     leadingIcon: ImageVector = Icons.Outlined.AccountCircle,
-    leadingDescription: String = "마이페이지",
+    leadingDescription: String = stringResource(R.string.cd_my_page),
     leadingIconSize: Dp = 34.dp,
 ) {
     Row(
@@ -212,7 +214,7 @@ fun HomeTopBar(
         ) {
             Icon(
                 imageVector = Icons.Outlined.Notifications,
-                contentDescription = "알림함",
+                contentDescription = stringResource(R.string.cd_inbox),
                 tint = Color.White,
                 modifier = Modifier.size(24.dp),
             )
@@ -226,7 +228,7 @@ fun HomeTopBar(
         ) {
             Icon(
                 imageVector = Icons.Outlined.Search,
-                contentDescription = "검색",
+                contentDescription = stringResource(R.string.cd_search),
                 tint = Color.White,
                 modifier = Modifier.size(24.dp),
             )

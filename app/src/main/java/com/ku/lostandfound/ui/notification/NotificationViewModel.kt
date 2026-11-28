@@ -42,6 +42,8 @@ class NotificationViewModel @JvmOverloads constructor(
     var loadingMore by mutableStateOf(false); private set
     var settings by mutableStateOf<NotificationSettingsData?>(null); private set
     var settingsError by mutableStateOf<String?>(null); private set
+    /** Bumped when a settings request for the current account settles, so drafts snap back to `settings`. */
+    var settingsRevision by mutableIntStateOf(0); private set
     var refreshError by mutableStateOf<String?>(null); private set
     internal data class Account(val id: Long, val generation: Long) {
         val settingsMutex = Mutex()
@@ -365,6 +367,7 @@ class NotificationViewModel @JvmOverloads constructor(
                 }
                 if (!current(owner)) return@withLock
                 if (updated != null) settings = updated
+                settingsRevision++
                 settingsError = when {
                     updated != null -> null
                     patch == null -> "알림 설정을 불러오지 못했습니다."

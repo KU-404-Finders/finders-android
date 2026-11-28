@@ -90,6 +90,10 @@ internal class LeaveReminderStore(context: Context) {
     fun removeOrphanFences(ids: Collection<String>): Boolean =
         prefs.edit().putStringSet("orphan_fences", orphanFences() - ids.toSet()).commit()
 
+    fun recoverySince(): Long = prefs.getLong("recovery_since", 0L)
+
+    fun setRecoverySince(at: Long?) = prefs.edit { if (at == null) remove("recovery_since") else putLong("recovery_since", at) }
+
     fun pendingCallback(): String? = prefs.getString("pending_callback", null)
 
     fun setPendingCallback(id: String?): Boolean = prefs.edit().putString("pending_callback", id).commit()

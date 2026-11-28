@@ -118,6 +118,7 @@ internal class LeaveReminderController private constructor(private val context: 
             presence.clear()
             cancelNotifications()
             LeaveReminderRestoreJob.cancel(context)
+            store.setRecoverySince(null)
         } else {
             presence.keys.removeAll(removed)
             removed.forEach { notifications.cancel(CHANNEL, NOTIFICATION_BASE + it) }
@@ -133,6 +134,19 @@ internal class LeaveReminderController private constructor(private val context: 
 
     /** Returns true when JobScheduler should retry later with backoff. */
     suspend fun restore(expected: String?): Boolean {
+        restoring = true
+        try {
+            return restoreAttempts(expected)
+        } finally {
+            restoring = false
+        }
+    }
+
+    // True while the restore job runs: it reschedules itself through jobFinished(), and scheduling
+    // the same job ID from inside would stop the running job.
+    private var restoring = false
+
+    private suspend fun restoreAttempts(expected: String?): Boolean {
         for ((index, wait) in reminderRestoreDelays.withIndex()) {
             delay(wait)
             if (TokenManager.reminderSession() != expected) return false
@@ -148,7 +162,19 @@ internal class LeaveReminderController private constructor(private val context: 
     }
 
     fun needsRecovery(expected: String?): Boolean =
-        reminderRecoveryNeeded(expected, TokenManager.reminderSession(), settings.value.enabled, status.value)
+        reminderRecoveryNeeded(expected, TokenManager.reminderSession(), settings.value.enabled, status.value,
+            withinWindow = store.recoverySince().let { it == 0L || System.currentTimeMillis() - it < RECOVERY_WINDOW_MS })
+
+    /** Starts the restore job once per outage; the window bounds how long it keeps backing off. */
+    private fun scheduleRecovery(active: String) {
+        if (store.recoverySince() == 0L) store.setRecoverySince(System.currentTimeMillis())
+        if (!restoring && needsRecovery(active)) LeaveReminderRestoreJob.enqueue(context, active, replace = false)
+    }
+
+    private fun markMonitoring() {
+        mutableStatus.value = ReminderStatus.MONITORING
+        store.setRecoverySince(null)
+    }
 
     private fun updateOwner(): String? {
         val active = TokenManager.reminderSession()
@@ -160,6 +186,7 @@ internal class LeaveReminderController private constructor(private val context: 
             cancelNotifications()
             needsRegistration = true
             LeaveReminderRestoreJob.cancel(context)
+            store.setRecoverySince(null)
         }
         return active
     }
@@ -197,6 +224,9 @@ internal class LeaveReminderController private constructor(private val context: 
         if (ready != ReminderStatus.STARTING || active == null) {
             invalidateRegistration()
             mutableStatus.value = ready
+            // Turning location back on is not broadcast to manifest receivers (API 26+), so an enabled
+            // reminder waiting for it relies on the bounded restore job instead of the next app launch.
+            if (ready == ReminderStatus.LOCATION_DISABLED && active != null) scheduleRecovery(active)
             return@withLock shouldRetryPlayServices()
         }
 
@@ -211,7 +241,7 @@ internal class LeaveReminderController private constructor(private val context: 
         val retained = existing?.requestIds.orEmpty() - removed
         val newBuildings = selected - retained.keys
         if (removed.isEmpty() && newBuildings.isEmpty()) {
-            mutableStatus.value = ReminderStatus.MONITORING
+            markMonitoring()
             return@withLock false
         }
 
@@ -243,7 +273,7 @@ internal class LeaveReminderController private constructor(private val context: 
             return@withLock requestRevision == revision && shouldRetryPlayServices()
         }
         if (newBuildings.isEmpty()) {
-            mutableStatus.value = ReminderStatus.MONITORING
+            markMonitoring()
             return@withLock false
         }
 
@@ -307,7 +337,7 @@ internal class LeaveReminderController private constructor(private val context: 
                 store.setRegistration(confirmed)
                 needsRegistration = false
                 invalidatedBuildings.removeAll(newBuildings)
-                mutableStatus.value = ReminderStatus.MONITORING
+                markMonitoring()
                 accepted = true
             }
             false
@@ -408,7 +438,7 @@ internal class LeaveReminderController private constructor(private val context: 
             presence.clear()
             store.savePresence(active, presence)
             mutableStatus.value = readiness(active).takeIf { it != ReminderStatus.STARTING } ?: ReminderStatus.ERROR
-            LeaveReminderRestoreJob.enqueue(context, active, replace = false)
+            scheduleRecovery(active)
             return
         }
         if (readiness(active) != ReminderStatus.STARTING) return
@@ -542,8 +572,12 @@ internal val reminderRestoreDelays = listOf(0L, 10_000L, 30_000L)
 private val recoverableStatuses = setOf(ReminderStatus.LOCATION_DISABLED, ReminderStatus.PLAY_SERVICES,
     ReminderStatus.STARTING, ReminderStatus.ERROR)
 
-internal fun reminderRecoveryNeeded(expected: String?, active: String?, enabled: Boolean, status: ReminderStatus) =
-    expected != null && active == expected && enabled && status in recoverableStatuses
+internal fun reminderRecoveryNeeded(
+    expected: String?, active: String?, enabled: Boolean, status: ReminderStatus, withinWindow: Boolean = true,
+) = expected != null && active == expected && enabled && status in recoverableStatuses && withinWindow
+
+/** JobScheduler backoff caps at 5h; after a day the next app launch restarts monitoring instead. */
+internal const val RECOVERY_WINDOW_MS = 24L * 60 * 60 * 1000
 
 internal class RemovalRequests(
     private val elapsed: () -> Long,

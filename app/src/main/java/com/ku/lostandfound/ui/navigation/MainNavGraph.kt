@@ -1800,6 +1800,8 @@ internal fun MainNavGraph(
                     ?: (adminViewModel.state(Section.Delete) as? AdminUiState.Error)?.message,
                 onBackClick = { navController.popBackStack() },
                 onTypeChange = { adminPostType = it },
+                // Same type: the LaunchedEffect key does not change, so reload explicitly.
+                onRetry = { adminViewModel.loadPosts(adminPostType) },
                 onDelete = { deleted ->
                     adminViewModel.deletePost(deleted) {
                         val deletedType =

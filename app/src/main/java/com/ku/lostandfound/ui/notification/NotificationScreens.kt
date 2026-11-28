@@ -267,7 +267,8 @@ fun NotificationSettingsScreen(vm: NotificationViewModel, onBack: () -> Unit,
                             }
                             if (settings.similarItemEnabled) {
                                 SettingsRowDivider()
-                                var threshold by remember(settings.similarityThreshold) {
+                                // A failed save leaves `settings` unchanged; the revision still resets the draft to it.
+                                var threshold by remember(settings.similarityThreshold, vm.settingsRevision) {
                                     mutableFloatStateOf(settings.similarityThreshold.toFloat())
                                 }
                                 Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {

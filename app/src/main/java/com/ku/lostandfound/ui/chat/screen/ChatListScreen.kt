@@ -282,7 +282,9 @@ private fun ChatRoomItem(
                     )
                 }
                 if (!senderName.isNullOrBlank()) {
-                    Text(senderName, color = Color(0xFF6B6B6B), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    Text(senderName, color = Color(0xFF6B6B6B), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
+                        // Capped so a long name cannot take the whole row from the message preview.
+                        overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 96.dp))
                 }
                 Text(
                     text = snippet,

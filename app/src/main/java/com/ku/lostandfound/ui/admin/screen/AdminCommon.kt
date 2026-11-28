@@ -96,9 +96,17 @@ internal fun AdminDetailRow(label: String, value: String) {
     }
 }
 
-/** Spinner plus the "load the next page when the end appears" trigger used by every admin list. */
-internal fun LazyListScope.adminPaging(hasNext: Boolean, loading: Boolean, size: Int, onMore: () -> Unit) {
-    if (hasNext && !loading) item(key = "admin-more") { LaunchedEffect(size) { onMore() } }
+/**
+ * Spinner plus the "load the next page when the end appears" trigger used by every admin list.
+ * After a failure the trigger stops (re-entering composition would repeat the request) and the
+ * failed page is requested again only from the explicit retry button; loaded rows stay.
+ */
+internal fun LazyListScope.adminPaging(hasNext: Boolean, loading: Boolean, size: Int, failed: Boolean, onMore: () -> Unit) {
+    if (hasNext && !loading && failed) item(key = "admin-more-retry") {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            TextButton(onClick = onMore) { Text("다시 시도", color = AdminColor.DeepGreen, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+        }
+    } else if (hasNext && !loading) item(key = "admin-more") { LaunchedEffect(size) { onMore() } }
     if (loading) item(key = "admin-loading") {
         Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(Modifier.size(22.dp), color = AdminColor.DeepGreen, strokeWidth = 2.dp)

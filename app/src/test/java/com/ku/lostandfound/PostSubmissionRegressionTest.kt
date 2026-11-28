@@ -499,4 +499,80 @@ class PostSubmissionRegressionTest : StabilityFixture() {
         .setBody("""{"success":true,"message":"ok","data":{"id":$id,"userId":5,"title":"검은 지갑",
             "kind":"지갑","content":"사진 속 물건","itemStatus":"SEARCHING","createdAt":"2026-11-26",
             "updatedAt":"2026-11-26",$location}}""")
+
+    @Test fun cancellationAfterTheJournalWriteButBeforeThePostClearsOnlyThatAttempt() {
+        journalValues["user:9"] = "FOUND:other-account"
+        var afterIo: (() -> Unit)? = null
+        // Runs IO work in place, then lets the test act before the writer resumes on main.
+        val io = object : kotlinx.coroutines.CoroutineDispatcher() {
+            override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+                block.run()
+                afterIo?.also { afterIo = null }?.invoke()
+            }
+        }
+        val writer = PostWriteViewModel(retrofit.create(FoundItemApiService::class.java),
+            retrofit.create(LostItemApiService::class.java), io)
+        writer.title = "검은 지갑"; writer.category = "지갑"; writer.content = "사진 속 물건"
+        writer.changePostType(PostType.LOST)
+        writer.setLostOutdoorPins(listOf(GeoPoint(127.076, 37.5418)))
+        var recordedBeforeCancel = false
+        afterIo = {
+            recordedBeforeCancel = journalValues.containsKey("user:5")
+            writer.reset()
+        }
+        try {
+            writer.save(application)
+            dispatch()
+            assertTrue("the journal was written before the cancel", recordedBeforeCancel)
+            assertEquals(0, server.requestCount)
+            assertFalse("an unsent attempt must not block the next post", journalValues.containsKey("user:5"))
+            assertEquals("another account's record is untouched", "FOUND:other-account", journalValues["user:9"])
+            writer.restoreCreationStatus(application)
+            assertEquals(PostWriteUiState.Idle, writer.uiState)
+        } finally {
+            writer.viewModelScope.cancel()
+        }
+    }
+
+    @Test fun cancellationAfterThePostWasSentKeepsTheUnconfirmedRecord() {
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+        vm.save(application)
+        request()
+        vm.reset()
+        dispatch()
+        assertTrue(journalValues.containsKey("user:5"))
+        vm.restoreCreationStatus(application)
+        assertEquals(PostWriteUiState.Unconfirmed, vm.uiState)
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test fun cancellationWhileTheWriterWaitsToResumeAfterAsyncJournalWriteClearsThatAttempt() {
+        val queued = ArrayDeque<Runnable>()
+        // Like Dispatchers.IO: the writer suspends first, the IO work runs later.
+        val io = object : kotlinx.coroutines.CoroutineDispatcher() {
+            override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) { queued.addLast(block) }
+        }
+        fun runIo() { while (queued.isNotEmpty()) queued.removeFirst().run() }
+        val writer = PostWriteViewModel(retrofit.create(FoundItemApiService::class.java),
+            retrofit.create(LostItemApiService::class.java), io)
+        writer.title = "검은 지갑"; writer.category = "지갑"; writer.content = "사진 속 물건"
+        writer.changePostType(PostType.LOST)
+        writer.setLostOutdoorPins(listOf(GeoPoint(127.076, 37.5418)))
+        try {
+            writer.save(application)
+            dispatch()
+            runIo()
+            assertTrue("the journal was written", journalValues.containsKey("user:5"))
+            writer.reset()
+            dispatch()
+            runIo()
+            dispatch()
+            assertEquals(0, server.requestCount)
+            assertFalse(journalValues.containsKey("user:5"))
+            writer.restoreCreationStatus(application)
+            assertEquals(PostWriteUiState.Idle, writer.uiState)
+        } finally {
+            writer.viewModelScope.cancel()
+        }
+    }
 }

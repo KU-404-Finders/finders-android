@@ -11,6 +11,8 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -138,6 +140,9 @@ class PostWriteViewModel internal constructor(
         val type = postType
         uiState = PostWriteUiState.Loading
         writeJob = viewModelScope.launch {
+            // Outside the try so a cancellation between the journal write and the POST can see them.
+            var pending: PostCreationJournal.Entry? = null
+            var requestStarted = false
             try {
                 val author = if (editedId == null) resolveAuthor() else null
                 if (!TokenManager.isCurrentSession(session)) return@launch
@@ -152,12 +157,17 @@ class PostWriteViewModel internal constructor(
                 val account = if (editedId == null) PostCreationJournal.account(session)
                     ?: error("계정 정보를 확인할 수 없습니다. 다시 로그인한 뒤 등록해 주세요.")
                 else null
-                var pending: PostCreationJournal.Entry? = null
                 val beginCreation: suspend () -> Unit = {
                     if (!TokenManager.isCurrentSession(session)) throw CancellationException()
-                    pending = withContext(ioDispatcher) {
-                        PostCreationJournal.begin(appContext, checkNotNull(account), type)
+                    // Keep the entry from inside the IO block: a cancelled withContext discards its result.
+                    withContext(ioDispatcher) {
+                        PostCreationJournal.begin(appContext, checkNotNull(account), type).also { pending = it }
                     } ?: throw UnconfirmedPostCreation()
+                    // withContext can return without a cancellation check when the IO work already
+                    // finished; check here so an unsent attempt is still recognised as unsent.
+                    currentCoroutineContext().ensureActive()
+                    // Nothing suspends between here and the POST call, so a later cancel may have sent it.
+                    requestStarted = true
                 }
                 val result = when {
                     editedId != null && type == PostType.LOST -> updateLostItem(appContext, editedId, requestSession, authorization)
@@ -188,6 +198,13 @@ class PostWriteViewModel internal constructor(
                     isEdit = editedId != null,
                 )
             } catch (e: CancellationException) {
+                // Cancelled before the POST was handed to the network: this attempt's record only.
+                val unsent = pending?.takeIf { !requestStarted }
+                if (unsent != null) {
+                    withContext(NonCancellable + ioDispatcher) {
+                        PostCreationJournal.clear(context.applicationContext, unsent)
+                    }
+                }
                 throw e
             } catch (e: Exception) {
                 if (operation == attempt && TokenManager.isCurrentSession(session)) {
