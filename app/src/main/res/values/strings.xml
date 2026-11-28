@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">찾을건대</string>
+    <string name="osm_attribution_description">OpenStreetMap 저작권 및 지도 출처</string>
 </resources>

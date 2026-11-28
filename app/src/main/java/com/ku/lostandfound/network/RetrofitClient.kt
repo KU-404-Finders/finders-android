@@ -11,6 +11,9 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.CompletableFuture
 
+/** Thrown before `chain.proceed`, so the server never received the request. */
+class RequestNotSentException(message: String) : java.io.IOException(message)
+
 sealed interface RefreshSessionResult {
     data object Success : RefreshSessionResult
     data object InvalidSession : RefreshSessionResult
@@ -39,7 +42,7 @@ object RetrofitClient {
         if (required != null && required.generation != sessionGeneration &&
             (originalRequest.isPostMutation() || originalRequest.header("Authorization") == null)
         ) {
-            throw java.io.IOException("Session changed")
+            throw RequestNotSentException("Session changed")
         }
         val path = originalRequest.url.encodedPath
         val withdrawal = originalRequest.tag(WithdrawalRequest::class.java)

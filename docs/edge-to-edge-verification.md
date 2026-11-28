@@ -1,12 +1,20 @@
 # Android Edge-to-edge 검토
 
+> **버전 이력 (2026-11-28 기준)**
+> - `1.1.2 / 9`: 기존 테스트 버전. 이 문서의 과거 검증 다수가 이 메타데이터로 빌드됐다.
+> - `1.2.0 / 10`: 이전 프로덕션 출시 후보. AAB가 Play Console에 업로드됨.
+> - `1.2.0 / 11`: 이전 출시 후보. AAB가 Play Console에 업로드됨. PR #18 리뷰 반영·UI 통일 변경은 포함되지 않음.
+> - `1.2.0 / 12`: **현재 출시 후보이자 Gradle 설정**(2026-11-28 사용자 승인). PR #18 리뷰 반영·iOS UI 통일 변경을 포함한다. 운영 서명과 Play Console 업로드는 출시 담당자가 직접 진행한다.
+>
+> 아래 본문의 과거 검증 결과는 기록 당시 소스에서 실행한 것이며, 현재 수정된 소스에서 재실행한 결과가 아니다. 현재 소스의 재검증은 `production-release-verification.md`의 "PR #18 리뷰 반영" 절을 따른다.
+
 Play Console의 1.1.2 (versionCode 9) Edge-to-edge 경고를 기준으로 Android 앱을 점검했다.
 
 ## 작업 기준
 
 - 작업 브랜치 `feature/ios-parity-stability`, 원격 `develop`, 로컬 `origin/develop`은 모두 `8fbb680fb8fd74f1818019e2fc06a0bbaab0da8a`를 가리켰다. `git ls-remote`와 `git fetch --prune origin`으로 확인했다. 기존 변경이 있는 작업 트리에서 인셋 관련 부분만 수정했다.
 - Android 레이아웃과 의존성만 참조했다. iOS 및 Server 코드 참조가 필요한 변경은 없었다.
-- 로컬 빌드 설정은 `compileSdk 37`, `targetSdk 36`, `versionCode 9`다.
+- 점검 당시 로컬 빌드 설정은 `compileSdk 37`, `targetSdk 36`, `versionCode 9`였다(과거 결과). 현재 Gradle은 `1.2.0 / 12`이다.
 
 ## 시스템 바 및 IME 처리
 

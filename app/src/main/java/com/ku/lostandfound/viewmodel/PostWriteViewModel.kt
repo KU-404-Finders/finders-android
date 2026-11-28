@@ -10,6 +10,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -44,6 +45,7 @@ import com.ku.lostandfound.network.LostItemErrorResponse
 import com.ku.lostandfound.network.LostItemIndoorRequest
 import com.ku.lostandfound.network.LostItemOutdoorRequest
 import com.ku.lostandfound.network.NetworkLog
+import com.ku.lostandfound.network.RequestNotSentException
 import com.ku.lostandfound.network.RetrofitClient
 import com.ku.lostandfound.network.TokenManager
 import com.ku.lostandfound.network.httpErrorMessage
@@ -67,7 +69,7 @@ sealed class PostWriteUiState {
 class PostWriteViewModel internal constructor(
     private val foundItemApi: FoundItemApiService,
     private val lostItemApi: LostItemApiService,
-    private val imageDispatcher: CoroutineDispatcher,
+    private val ioDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
     constructor() : this(RetrofitClient.foundItemApi, RetrofitClient.lostItemApi, Dispatchers.IO)
 
@@ -151,10 +153,11 @@ class PostWriteViewModel internal constructor(
                     ?: error("계정 정보를 확인할 수 없습니다. 다시 로그인한 뒤 등록해 주세요.")
                 else null
                 var pending: PostCreationJournal.Entry? = null
-                val beginCreation = {
+                val beginCreation: suspend () -> Unit = {
                     if (!TokenManager.isCurrentSession(session)) throw CancellationException()
-                    pending = PostCreationJournal.begin(appContext, checkNotNull(account), type)
-                        ?: throw UnconfirmedPostCreation()
+                    pending = withContext(ioDispatcher) {
+                        PostCreationJournal.begin(appContext, checkNotNull(account), type)
+                    } ?: throw UnconfirmedPostCreation()
                 }
                 val result = when {
                     editedId != null && type == PostType.LOST -> updateLostItem(appContext, editedId, requestSession, authorization)
@@ -162,8 +165,14 @@ class PostWriteViewModel internal constructor(
                     type == PostType.LOST -> createLostItem(appContext, requestSession, authorization, beginCreation)
                     else -> createFoundItem(appContext, requestSession, authorization, beginCreation)
                 }
+                // Settled outcomes (saved, rejected, or never sent) release the journal; cleanup
+                // failure is retried by the journal and never turns a saved post into a failure.
                 if (result.exceptionOrNull() !is UnconfirmedPostCreation) {
-                    pending?.let { PostCreationJournal.clear(appContext, it) }
+                    pending?.let { entry ->
+                        withContext(NonCancellable + ioDispatcher) {
+                            PostCreationJournal.clear(appContext, entry) || PostCreationJournal.clear(appContext, entry)
+                        }
+                    }
                 }
                 if (operation != attempt || !TokenManager.isCurrentSession(session)) return@launch
                 val post = result.getOrThrow()
@@ -199,7 +208,9 @@ class PostWriteViewModel internal constructor(
         if (uiState != PostWriteUiState.Unconfirmed) return
         val context = journalContext ?: return
         val entry = displayedCreation?.takeIf { it.key == PostCreationJournal.account() } ?: return
-        if (PostCreationJournal.clear(context, entry)) restoreCreationStatus(context)
+        viewModelScope.launch {
+            if (withContext(ioDispatcher) { PostCreationJournal.clear(context, entry) }) restoreCreationStatus(context)
+        }
     }
 
     private class UnconfirmedPostCreation : IllegalStateException()
@@ -209,6 +220,8 @@ class PostWriteViewModel internal constructor(
             send()
         } catch (e: CancellationException) {
             throw e
+        } catch (e: RequestNotSentException) {
+            throw e // Rejected before dispatch: the server cannot have saved it.
         } catch (e: Exception) {
             // Once dispatched, a transport or decoding failure cannot establish whether the server saved it.
             throw UnconfirmedPostCreation()
@@ -279,7 +292,7 @@ class PostWriteViewModel internal constructor(
     }
 
     private suspend fun createLostItem(
-        context: Context, session: RequestSession, authorization: String, beginCreation: () -> Unit,
+        context: Context, session: RequestSession, authorization: String, beginCreation: suspend () -> Unit,
     ): Result<BoardPost> {
         return try {
             val request = createJsonPart(toLostItemCreateRequest())
@@ -297,8 +310,9 @@ class PostWriteViewModel internal constructor(
                         throw UnconfirmedPostCreation()
                     })
                 } else {
-                    if (body == null || body.success == true) throw UnconfirmedPostCreation()
-                    Result.failure(IllegalStateException(body.message ?: "분실물 등록에 실패했습니다."))
+                    // Only an explicit `false` is a rejection; a missing/null flag or missing data is unknown.
+                    if (body?.success != false) throw UnconfirmedPostCreation()
+                    Result.failure(IllegalStateException(body?.message ?: "분실물 등록에 실패했습니다."))
                 }
             } else {
                 val errorBody = response.errorBody()?.string()
@@ -321,7 +335,7 @@ class PostWriteViewModel internal constructor(
     }
 
     private suspend fun createFoundItem(
-        context: Context, session: RequestSession, authorization: String, beginCreation: () -> Unit,
+        context: Context, session: RequestSession, authorization: String, beginCreation: suspend () -> Unit,
     ): Result<BoardPost> {
         return try {
             val request = createJsonPart(toFoundItemCreateRequest())
@@ -340,8 +354,8 @@ class PostWriteViewModel internal constructor(
                         throw UnconfirmedPostCreation()
                     })
                 } else {
-                    if (body == null || body.success == true) throw UnconfirmedPostCreation()
-                    Result.failure(IllegalStateException(body.message ?: "습득물 등록에 실패했습니다."))
+                    if (body?.success != false) throw UnconfirmedPostCreation()
+                    Result.failure(IllegalStateException(body?.message ?: "습득물 등록에 실패했습니다."))
                 }
             } else {
                 val errorBody = response.errorBody()?.string()
@@ -448,7 +462,7 @@ class PostWriteViewModel internal constructor(
 
     private suspend fun prepareImage(context: Context, uriString: String): MultipartBody.Part {
         val type = postType
-        return withContext(imageDispatcher) { createImagePart(context, uriString, type) }
+        return withContext(ioDispatcher) { createImagePart(context, uriString, type) }
     }
 
     private fun createImagePart(context: Context, uriString: String, type: PostType): MultipartBody.Part {

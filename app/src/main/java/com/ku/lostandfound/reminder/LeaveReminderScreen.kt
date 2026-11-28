@@ -41,6 +41,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
@@ -54,10 +55,15 @@ import java.text.Collator
 import java.util.Locale
 
 private val ReminderGreen = Color(0xFF1B6425)
-private val ReminderBackground = Color(0xFFF4F4F4)
+// iOS SettingsStyle.canvas / secondary.
+private val ReminderBackground = Color(0xFFF2F2F7)
+private val ReminderSecondary = Color(0xFF8E8E93)
 
 @Composable
-internal fun LeaveReminderScreen(onBack: () -> Unit) {
+internal fun LeaveReminderScreen(
+    onBack: () -> Unit,
+    sendPreview: (suspend () -> ReminderPreview)? = null,
+) {
     val context = LocalContext.current
     val controller = remember(context) { LeaveReminderController.get(context) }
     val settings by controller.settings.collectAsState()
@@ -213,7 +219,8 @@ internal fun LeaveReminderScreen(onBack: () -> Unit) {
                                 TextButton(onClick = ::requestNotifications) { Text("예방 알림 허용") }
                             } else {
                                 if (!highImportance) {
-                                    ReminderFooter("화면 상단에 표시하려면 시스템에서 이 알림 채널의 팝업 설정을 확인해 주세요.")
+                                    // An existing channel keeps the importance it was created with (older builds used DEFAULT).
+                                    ReminderFooter("지금은 알림창에만 표시돼요. 화면 상단 팝업으로 받으려면 아래 ‘예방 알림 채널 설정’에서 ‘팝업으로 표시’(또는 중요도 ‘긴급’)를 켜 주세요.")
                                 }
                                 TextButton(onClick = ::requestNotifications) { Text("예방 알림 채널 설정") }
                             }
@@ -291,7 +298,11 @@ internal fun LeaveReminderScreen(onBack: () -> Unit) {
                                 focusManager.clearFocus()
                                 sending = true
                                 scope.launch {
-                                    try { preview = controller.preview() } finally { sending = false }
+                                    try {
+                                        preview = sendPreview?.invoke() ?: controller.preview()
+                                    } finally {
+                                        sending = false
+                                    }
                                 }
                             }, modifier = Modifier.padding(horizontal = 4.dp)) {
                                 Text(if (sending) "날씨 확인 중…" else "테스트 알림 보내기")
@@ -345,7 +356,7 @@ internal fun LeaveReminderScreen(onBack: () -> Unit) {
 @Composable
 private fun ReminderCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -356,8 +367,8 @@ private fun ReminderCard(content: @Composable ColumnScope.() -> Unit) {
 @Composable
 private fun ReminderFooter(text: String) {
     Text(
-        text, Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        text, Modifier.padding(horizontal = 16.dp, vertical = 7.dp),
+        fontSize = 12.sp, lineHeight = 17.sp, color = ReminderSecondary,
     )
 }
 

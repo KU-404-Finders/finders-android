@@ -479,6 +479,11 @@ internal fun MainNavGraph(
         createdAt = com.ku.lostandfound.ui.chat.ChatTimeFormatter.formatListTime(createdAt),
         isProcessed = isProcessed,
         processedAction = processedAction,
+        postId = postId,
+        postKind = when (postType?.uppercase()) { "LOST" -> "분실물"; "FOUND" -> "습득물"; else -> null },
+        detail = detail,
+        processingNote = processingNote,
+        processedAt = processedAt?.let { com.ku.lostandfound.ui.chat.ChatTimeFormatter.formatFullDateTime(it) },
     )
 
     fun MyLostItemData.toBoardPost(): BoardPost {
@@ -581,7 +586,7 @@ internal fun MainNavGraph(
             }
         }
         composable(route = Route.PasswordResetPassword.route) {
-            AuthStepGuard(navController, Route.PasswordResetPassword, passwordResetViewModel.hasPasswordResetCredentials, ::closePasswordReset) {
+            AuthStepGuard(navController, Route.PasswordResetPassword, passwordResetViewModel.hasPasswordResetCredentials || passwordResetViewModel.resetCompleted, ::closePasswordReset) {
                 PasswordResetPasswordScreen(
                     vm = passwordResetViewModel,
                     done = ::closePasswordReset,
@@ -987,7 +992,13 @@ internal fun MainNavGraph(
                     if (chatRoom.creatorId == userId) chatRoom.recipientId else chatRoom.creatorId
                 }
             }
+            // iOS ChatRoom.roomSubtitle: partner (when known) and the kind of chat.
+            val roomKind = when (room?.postType?.uppercase()) {
+                "LOST" -> "분실물 게시글 채팅"; "FOUND" -> "습득물 게시글 채팅"; null -> null; else -> "1:1 채팅"
+            } ?: room?.let { "1:1 채팅" }
+            val partnerName = postAuthor?.takeIf { it.first == otherUserId }?.second?.takeIf { it.isNotBlank() }
             ChatRoomScreen(
+                roomSubtitle = roomKind?.let { kind -> partnerName?.let { "$it · $kind" } ?: kind },
                 roomId = roomId,
                 roomTitle = room?.postTitle
                     ?.takeIf { it.isNotBlank() }
@@ -1126,6 +1137,8 @@ internal fun MainNavGraph(
                 },
                 onHomeClick = { navigateMainTab(Route.Found.route) },
                 onSearchClick = { navigateSingleTop(Route.Search.route) },
+                onNotificationClick = { navController.navigate(Route.Notifications.route) },
+                notificationCount = notificationViewModel.unreadCount,
                 selectedType = PostType.FOUND,
                 onFoundTabClick = { navigateMainTab(Route.Found.route) },
                 onLostTabClick = { navigateMainTab(Route.Lost.route) },
@@ -1704,7 +1717,7 @@ internal fun MainNavGraph(
             AdminAccessGate(userViewModel.me, userViewModel.uiState, navController) {
                 LaunchedEffect(Unit) { adminViewModel.loadDashboard() }
                 AdminDashboardScreen(
-                pendingReportCount = adminViewModel.dashboard?.pendingReportCount?.toInt() ?: 0,
+                dashboard = adminViewModel.dashboard,
                 errorMessage = (adminViewModel.state(Section.Dashboard) as? AdminUiState.Error)?.message,
 
                 onBackClick = {
@@ -1765,11 +1778,8 @@ internal fun MainNavGraph(
                 errorMessage = (adminViewModel.state(Section.User) as? AdminUiState.Error)?.message,
                 onRetry = { userId?.let(adminViewModel::loadUser) },
                 onBackClick = { navController.popBackStack() },
-                onSuspensionChange = { suspended ->
-                    if (userId != null) adminViewModel.setUserSuspension(
-                        userId,
-                        suspended
-                    ) {}
+                onSuspensionChange = { suspended, reason ->
+                    if (userId != null) adminViewModel.setUserSuspension(userId, suspended, reason) {}
                 },
                 )
             }
@@ -1831,6 +1841,8 @@ internal fun MainNavGraph(
                 AdminReportListScreen(
                 onRetry = { adminViewModel.loadReports(more = adminViewModel.hasNext(Section.Reports)) },
                 reports = adminViewModel.reports.map { it.toUiModel() },
+                status = adminViewModel.reportStatus,
+                onStatusChange = adminViewModel::selectReportStatus,
                 hasNext = adminViewModel.hasNext(Section.Reports),
                 onMore = { adminViewModel.loadReports(more = true) },
                 isLoading = adminViewModel.state(Section.Reports) is AdminUiState.Loading,
@@ -1881,7 +1893,7 @@ internal fun MainNavGraph(
                     navController.popBackStack()
                 },
 
-                onActionConfirmed = { action ->
+                onActionConfirmed = { action, note ->
                     val apiAction = when (action) {
                         "신고 반려" -> "DISMISS_REPORT"
                         "게시글 삭제" -> "DELETE_POST"
@@ -1889,7 +1901,7 @@ internal fun MainNavGraph(
                         else -> return@AdminReportDetailScreen
                     }
                     if (numericReportId != null) {
-                        adminViewModel.processReport(numericReportId, apiAction) {
+                        adminViewModel.processReport(numericReportId, apiAction, note) {
                             navController.popIfCurrent(backStackEntry)
                         }
                     }

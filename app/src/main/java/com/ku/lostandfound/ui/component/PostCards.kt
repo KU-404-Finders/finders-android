@@ -34,8 +34,8 @@ private val Danger = Color(0xFFFF5D7A)
 private val LightDanger = Color(0xFFFFECEF)
 private val TextGray = Color(0xFF8A8A8A)
 private val FieldGray = Color(0xFFF4F4F4)
-private val FoundBlue = Color(0xFF246FB5)
-private val LightFoundBlue = Color(0xFFE6F2FB)
+private val FoundBlue = Color(0xFF1565C0) // iOS FinderTheme.blue
+private val LightFoundBlue = Color(0xFFE3F2FD) // iOS FinderTheme.sky
 
 @Composable
 fun PostTypeBadge(

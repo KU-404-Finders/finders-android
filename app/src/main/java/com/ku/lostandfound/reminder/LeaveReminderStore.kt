@@ -82,6 +82,14 @@ internal class LeaveReminderStore(context: Context) {
         remove("pending_removal")
     }.commit()
 
+    fun orphanFences(): Set<String> = prefs.getStringSet("orphan_fences", null).orEmpty().toSet()
+
+    fun addOrphanFences(ids: Collection<String>): Boolean =
+        prefs.edit().putStringSet("orphan_fences", orphanFences() + ids).commit()
+
+    fun removeOrphanFences(ids: Collection<String>): Boolean =
+        prefs.edit().putStringSet("orphan_fences", orphanFences() - ids.toSet()).commit()
+
     fun pendingCallback(): String? = prefs.getString("pending_callback", null)
 
     fun setPendingCallback(id: String?): Boolean = prefs.edit().putString("pending_callback", id).commit()

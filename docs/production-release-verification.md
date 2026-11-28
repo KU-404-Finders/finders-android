@@ -1,6 +1,31 @@
 # 찾을건대 Android 프로덕션 출시 전 최종 통합 검증
 
-**판정은 NOT READY다.** 작업 트리의 버전은 `1.2.0 / 10`이다. 사용자 확인 기준으로 코드 10의 기존 AAB는 이미 Play Console에 업로드됐다. 이번 변경을 제출할 새 버전 코드와 운영 서명, 운영 CHAT 배포 및 실환경 검증, 백그라운드 위치 심사가 남았다. 개인정보 처리방침은 별도 작업에서 갱신 중이다.
+> **버전 이력 (2026-11-28 기준)**
+> - `1.1.2 / 9`: 기존 테스트 버전. 이 문서의 과거 검증 다수가 이 메타데이터로 빌드됐다.
+> - `1.2.0 / 10`: 이전 프로덕션 출시 후보. AAB가 Play Console에 업로드됨.
+> - `1.2.0 / 11`: 이전 출시 후보. AAB가 Play Console에 업로드됨. PR #18 리뷰 반영·UI 통일 변경은 포함되지 않음.
+> - `1.2.0 / 12`: **현재 출시 후보이자 Gradle 설정**(2026-11-28 사용자 승인). PR #18 리뷰 반영·iOS UI 통일 변경을 포함한다. 운영 서명과 Play Console 업로드는 출시 담당자가 직접 진행한다.
+>
+> 아래 과거 검증 결과는 당시 산출물의 기록이다. 현재 작업 트리의 검증은 바로 아래 절에 있다.
+
+**판정은 NOT READY다.** 현재 출시 후보는 `1.2.0 / 12`(Gradle 설정)이다. 코드 10과 11의 AAB는 이미 Play Console에 업로드됐고, PR #18 리뷰 반영·UI 통일 변경은 코드 12에만 포함된다. 운영 서명, 운영 CHAT 배포 및 실환경 검증, 실제 Firebase 푸시, 갤럭시 Heads-up, 실제 위치 기반 알림 검증, 백그라운드 위치 심사가 남았다. 개인정보 처리방침은 별도 작업에서 갱신 중이다.
+
+## 최종 로컬 출시 후보 검증
+
+Android `feature/ios-parity-stability`의 `f1a331ff4b7a367998373057b606f8e081842904`와 기존 미커밋 변경을 기준으로 작성·수정 입력란 및 예방 알림 계측을 조정했다. iOS와 Server는 앞선 비교 기록을 사용했다. 공식 문의 주소의 확인은 팀 내부 과제이며 기존 주소를 유지했다. Windows에서 iOS 실화면 비교는 미검증이다. [UI 비교 및 스크린샷 목록](ios-android-ui-parity-audit.md)
+
+| 영향 범위 | 최종 결과 |
+| --- | --- |
+| 7인치 API 34 가로(1920×1200) 키보드 | **3건 통과.** 채팅 입력·전송, 게시글 작성과 수정 본문, 회원가입 입력과 하단 버튼이 키보드 위에 들어왔다. 게시글 본문은 가로에서 실제 스크롤 영역에 맞춰 184dp 이하로 조절하고 세로의 기존 184dp를 유지한다. 처음에는 에뮬레이터 System UI 응답 없음 창으로 IME 대기가 실패했고 창을 닫은 뒤 동일 APK에서 통과했다. `build/local-candidate-7in-insets-retry.log` |
+| 예방 알림 계측 및 JVM | **계측 2건, JVM 13건 통과.** 미리보기 계측은 고정 `RAIN`을 주입해 우산이 포함된 실제 시스템 알림까지 확인했다. 제품의 Open-Meteo 조회와 기존 시간 제한을 유지했다. `build/local-candidate-reminder.log` |
+| `ChatPushSessionRestoreTest` | **seed 1건, restore 1건 통과.** 직접 계측을 두 번 실행하고 `-e pushRestorePhase seed`, `-e pushRestorePhase restore`를 각각 사용했다. 다른 PID에서 세션을 복원하고 현재 수신자는 허용, 다른 수신자는 차단했다. 단계 사이의 앱 데이터는 유지했다. `build/local-candidate-chat-restore-seed.log`, `build/local-candidate-chat-restore.log` |
+| 로컬 산출물 | **빌드 성공.** Debug APK, 계측 APK, 미서명 Release AAB를 만들었다. AAB의 ZIP CRC, 기본 모듈 매니페스트와 DEX, 서명 레코드 부재를 확인했다. `build/local-candidate-build.log` |
+
+위 표의 미서명 AAB(SHA-256 `60bc7da639520773a79b42bbe810663c7ef4e5bed199e301346068e8093b9fb2`)는 버전 코드를 올리기 전의 `1.2.0 / 11` 로컬 검증용 산출물이다(과거 결과).
+
+### 출시 후보 `1.2.0 / 12` 산출물 (2026-11-28)
+
+사용자 승인에 따라 `versionCode`를 12로 올린 뒤 같은 작업 트리에서 JVM 전체 327건 통과(실패 0), Debug APK, 미서명 Release APK(SHA-256 `32a8b7f539442f95fa6081e3721e2883b7715e8e0e890ab388f4d838012b18c4`), 미서명 AAB `app/build/outputs/bundle/release/app-release.aab`(SHA-256 `3f678bc9668f61030637830041a2c6f58deacfc5ace56ac163b6879058b1f000`)를 생성했다. 같은 APK로 7인치 API 34에서 EdgeToEdge 3건(2회), 예방 알림 계측 5건(2회), 10인치 API 34에서 EdgeToEdge 3건이 통과했다. 운영 서명과 Play Console 업로드는 출시 담당자가 진행한다.
 
 ## iOS UI 통일 및 Android 알림 표시 개선
 
@@ -193,9 +218,80 @@ v1.2.0 보고서의 도메인·API 검증과 Edge-to-edge 보고서의 최종 AP
 
 ## 이전 출시 차단 사항 기록
 
-1. **RELEASE BLOCKER · 버전과 운영 서명.** 검증 번들은 이미 게시한 `versionCode 9`를 사용한다. `1.2.0 / 10`은 후보이며 Console의 실제 코드 사용 이력 확인 후 승인받아 확정해야 한다. 기존 운영 업로드 키로 서명된 제출 후보의 검증도 남았다. [Google Play 앱 설정](https://support.google.com/googleplay/android-developer/answer/9859152)
+1. **RELEASE BLOCKER · 운영 서명.** 과거 검증 번들은 `versionCode 9`, 코드 10·11은 업로드 완료, 현재 후보는 사용자 승인한 `1.2.0 / 12`다. 코드 12의 운영 업로드 키 서명과 Play Console 업로드는 출시 담당자가 진행한다. 기존 운영 업로드 키로 서명된 제출 후보의 검증도 남았다. [Google Play 앱 설정](https://support.google.com/googleplay/android-developer/answer/9859152)
 2. **개인정보 처리방침과 Data safety.** 공개 페이지는 정상 열렸지만 날씨 제공자로 WeatherKit만 설명한다. Android는 Open-Meteo의 무료 엔드포인트에 캠퍼스 고정 좌표를 보내며, 제공자 약관은 기술적 목적의 IP 처리 가능성을 명시한다. 공개 문서에는 접속 로그, 탈퇴 후 채팅·신고 보관 기간, 인증 메일 업체에 관한 확인용 문구도 남아 있다. 실제 처리와 보관 정책을 확정해 문서 및 Console 답변에 일치시켜야 한다. [공개 개인정보 처리방침](https://cypress-monkey-570.notion.site/41129506e322803fafc1eae07ce4925c) · [Open-Meteo 약관](https://open-meteo.com/en/terms) · [Google Play 사용자 데이터 정책](https://support.google.com/googleplay/android-developer/answer/10144311)
 3. **백그라운드 위치 심사.** 매니페스트에 `ACCESS_BACKGROUND_LOCATION`이 있고 기능 최초 활성화 때 사용 목적과 기기 내 처리를 안내한다. Google은 핵심 기능에 필요한 백그라운드 위치만 허용한다. 예방 알림이 기본 OFF이고 공개 약관상 앱의 주목적이 분실물 공유·연락이므로, 앱 미사용 상태에서 건물 이탈을 감지하는 기능이 핵심 목적에서 필수라는 근거와 심사 판단이 필요하다. Console 신고, 스토어 설명, 안내·권한 선택·백그라운드 실제 알림을 보여 주는 Android 영상, 접근 가능한 심사 계정, 권한 승인 및 개인정보·Data safety 정합성의 증거가 필요하다. [백그라운드 위치 심사 요구사항](https://support.google.com/googleplay/android-developer/answer/9799150) · [앱 심사 준비](https://support.google.com/googleplay/android-developer/answer/9859455) · [계정 삭제 외부 경로 요구사항](https://support.google.com/googleplay/android-developer/answer/13327111)
 4. **RELEASE BLOCKER · 운영 CHAT 계약과 실환경 확인.** 새 CHAT 계약이 적용된 운영 배포를 먼저 확인하고, 실제 Firebase와 승인된 계정으로 지연 도착·계정 전환·정상 채팅방 이동을 확인한다. 갤럭시 출시 후보와 캠퍼스 권한·알림 종단 검증도 남아 있다.
 
 버전 변경, 커밋, 푸시, PR 병합 및 프로덕션 배포는 수행하지 않았다.
+
+## PR #18 리뷰 반영 (2026-11-28, 현재 작업 트리)
+
+### 기준 소스
+
+| 저장소 | 브랜치 | 전체 SHA | 동기화 |
+| --- | --- | --- | --- |
+| Android | `feature/ios-parity-stability` (PR #18 HEAD) | `f1a331ff4b7a367998373057b606f8e081842904` + 미커밋 변경 | `fetch --prune` 성공, 원격과 동일 |
+| Android 기준 | `origin/develop` | `8fbb680fb8fd74f1818019e2fc06a0bbaab0da8a` | 작업 브랜치의 조상 |
+| iOS | `main` | `665ff149e2f2c63beb4478b004eec7796043c5b0` | `fetch` + `pull --ff-only` (Already up to date) |
+| Server | `main` | `f68cafb2b4e50564cd179cd20432a5deb28c83fb` | `fetch` + `pull --ff-only` (Already up to date) |
+
+`gh` CLI는 설치되어 있지 않아 공개 GitHub REST API로 PR #18의 인라인 코멘트 13건과 리뷰 본문의 Nitpick 4건(접힌 영역 포함)을 조회했다.
+
+### 등록 안정성
+
+- 등록 전용 응답 `LostItemCreatedResponse`/`FoundItemCreatedResponse`(`success: Boolean?`)를 추가했다. 상세·수정·상태 변경은 기존 모델을 그대로 쓴다. `success=false`만 거절이고, 누락·`null`·`true`+데이터 누락은 미확정이다. 서버 계약(`ApiResponse`, 2xx는 `success=true`)은 Server `f68cafb` 소스로 확인했다.
+- 인터셉터의 전송 전 세션 거절을 `RequestNotSentException`으로 구분한다. 이 경우 저널을 지우고 미확정으로 남기지 않는다. 그 외 전송 실패는 기존처럼 미확정이다. 클라이언트는 중복 전송만 막으며 서버 멱등성은 보장하지 않는다.
+- `PostCreationJournal`: `commit()` 실패 시 메모리에 남은 기록을 제거하고 POST를 보내지 않는다. 삭제 실패를 기억해 같은 항목의 확인 시 디스크 삭제를 재시도하며 다른 UUID 항목은 지우지 않는다. 저널 쓰기는 I/O 디스패처에서 실행하고 객체 모니터로 직렬화한다. `commit()`을 유지했다. 성공 후 정리 실패는 1회 재시도하며 `Saved`를 되돌리지 않는다. 정리 실패 직후 프로세스가 종료되면 다음 실행에서 미확정 안내가 한 번 나타날 수 있다(재전송 없음).
+
+### 분실물 예방 알림
+
+- 취소된 추가 요청의 지오펜스 ID를 `orphan_fences`에 저장하고 삭제 성공 확인 후에만 지운다. 매 `reconcile()`과 프로세스 재생성 후 재시도한다.
+- 현재 등록의 `GEOFENCE_NOT_AVAILABLE` 등 오류를 준비 상태 검사보다 먼저 처리해 체류 상태를 지우고 `LeaveReminderRestoreJob`을 예약한다(같은 소유자의 예약이 있으면 유지). 위치 서비스 꺼짐·Play 서비스·오류·시작 중 상태만 재시도하며 JobScheduler 지수 백오프(초기 60초)를 쓴다. 권한 누락, 기능 끔, 로그아웃, 계정 전환은 재시도하지 않고 예약을 취소한다.
+- `onStopJob()`은 같은 계정에서 복구가 아직 필요할 때만 재예약을 요청한다.
+
+### 알림 팝업 점검
+
+실제 예방 알림과 테스트 알림은 모두 `finders_leave_reminders` 채널, `PRIORITY_HIGH`, `CATEGORY_REMINDER`를 쓰고 즉시 취소하지 않는다. 신규 설치는 `IMPORTANCE_HIGH`로 생성된다. 이전 빌드는 같은 채널을 `IMPORTANCE_DEFAULT`로 만들었고 Android는 기존 채널 중요도를 유지하므로, 이전 빌드에서 업데이트한 기기는 알림창에만 표시될 수 있다. 이것이 확인된 코드상 원인 후보다. 채널을 지우거나 ID를 바꾸지 않았고, 중요도가 HIGH 미만이면 예방 알림 화면에서 원인과 ‘팝업으로 표시’ 설정 방법을 안내하고 해당 채널 설정으로 이동한다. **갤럭시 실기기에서는 검증하지 못했다(NOT VERIFIED).**
+
+### 이번 작업에서 새로 실행한 검증
+
+| 항목 | 결과 |
+| --- | --- |
+| JVM 전체 (`testDebugUnitTest`) | 326건 통과, 실패 0 (신규: 등록 응답·전송 전 세션·저널 실패/재시도·403 비재전송 8건, 복구 판정 1건) |
+| 계측 (Android API 37 `phone_360_800` 에뮬레이터) | LeaveReminderPermission, EdgeToEdgeInputFixture, RestoredEditNavigation, ParityAttribution, ParityInteraction, ProfileSupportContact, ChatTabHeader, SearchScreenLoading, AuthNavigationRegression 32건 통과. 신규 `UiParityCaptureTest` 4건 통과 |
+| Release R8 | `assembleRelease` 성공. DEX에서 신규 등록 응답 클래스의 `success`(`java.lang.Boolean`)·`message`·`errors`·`data` 필드명 유지 확인 |
+
+한 번의 재실행에서 `LeaveReminderPermissionTest` 첫 테스트가 멈춘 적이 있으며, 이후 깨끗한 데이터로 2회 재실행해 모두 통과했다. 재현되지 않은 불안정 사항으로 기록한다. 태블릿 AVD, 실기기, 실제 Firebase 푸시, 실제 위치 진입·이탈, 운영 서명 빌드는 이번에 실행하지 않았다.
+
+## PR #18 리뷰 반영 2차 (2026-11-28)
+
+### 추가 변경
+
+- 관리자 화면 전체를 iOS `AdminViews.swift` 기준으로 정렬했다(대시보드 건수, 신고 상태 필터, 처리 메모, 회원 상세·이용 제한 사유, 게시글 관리, 작업 이력 라벨). 처리 메모와 사유는 기존 서버 DTO의 `note`/`reason`(최대 1000자)으로 전송한다.
+- 채팅방 상단바에 iOS 부제와 쉐브런·가로 점 메뉴를 적용했다. 공통 확인 다이얼로그의 최대 폭을 440dp로 제한했다.
+- 계측 테스트를 Android Test Orchestrator(`clearPackageData=true`)로 실행하도록 설정했다.
+
+### 알림 권한 계측 테스트 격리 검증
+
+- 격리 전 상태: 이전 실행 후 설치된 앱에 `POST_NOTIFICATIONS granted=true`가 남아 있었다. 주석만으로는 격리되지 않았다.
+- `pm clear`가 해당 권한을 `granted=false`로 되돌리는 것을 확인했다.
+- 오케스트레이터 적용 후 같은 실행에서 `LeaveReminderPermissionTest`(18:15) → `ChatPushAccountSwitchTest`(18:18) → `TestIsolationProbeTest`(18:22, 각각 다른 프로세스) 순서로 실행됐다. 프로브는 권한이 거부 상태이고 세션이 없음을 단언하며 통과했다.
+- 두 단계 실행 테스트인 `ChatPushSessionRestoreTest`는 인자로 `am instrument`를 직접 두 번 실행하는 방식이라 영향을 받지 않는다.
+
+### 실행 결과
+
+| 항목 | 결과 |
+|---|---|
+| JVM 전체 | 327건 통과, 실패 0 |
+| 계측 전체, `phone_360_800` API 37 콜드 부팅, Gradle+오케스트레이터 | 75건: 통과 71, 인자 필요 opt-in 3건(`ReleaseRetrofitProbeTest` 2, `ChatPushSessionRestoreTest` 1)은 assumption으로 실패 처리됨, `LeaveReminderPermissionTest` 미리보기 알림 1건 5초 대기 초과. 해당 클래스 단독 재실행 3회 모두 2/2 통과(Open-Meteo 조회를 포함하는 네트워크 의존 대기) |
+| `EdgeToEdgeSignupTest` (API 37 폰) | 직전 에뮬레이터 세션에서 반복 실패. 같은 AVD에서 수정 전 HEAD(`f1a331f`)도 실패했다. 하드웨어 키보드 AVD(`hw.keyboard=yes`)의 IME 상태 문제로, 콜드 부팅 후 전체 실행에서는 통과 |
+| `EdgeToEdgeInputFixtureTest`·`EdgeToEdgeSignupTest` 7인치 API 34 | 처음에는 3건 중 2건 통과(작성 화면 본문 입력란 6px 가림). 가로 화면 본문 높이 조정 후 3/3 통과(위 "최종 로컬 출시 후보 검증"과 `1.2.0 / 12` 산출물 절 참조) |
+| 동일 10인치 API 34 | 3/3 통과 |
+| `UiParityCaptureTest` | 폰·7인치·10인치 각각 11/11 통과, 스크린샷 45장 |
+| Release R8 Gson 프로브 (`assembleRelease`, APK SHA-256 `9060f3bdc8f1b4470458145559bd97cdeddd456826d46bd1fe2a0ba0f666cfc8`, 7인치 API 34) | `OK (2 tests)`. 분실·습득 등록 응답의 `success`가 Release DEX에서 `true`/`false`/`null`(누락)로 역직렬화됨을 확인 |
+| Debug 빌드, `git diff --check` | 성공, 출력 없음 |
+
+### 현재 환경에서 확인할 수 없는 항목
+
+운영 서명 빌드와 AAB, 운영 서버 CHAT `recipientUserId` 배포 및 실제 Firebase 푸시, 갤럭시 실기기 Heads-up 팝업, 실제 위치 기반 진입·이탈 알림, iOS 실제 화면 비교, Play 백그라운드 위치 심사.

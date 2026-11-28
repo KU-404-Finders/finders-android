@@ -35,7 +35,7 @@ class ChatTabHeaderTest {
         compose.onNodeWithContentDescription("뒤로가기").assertDoesNotExist()
         compose.onNodeWithContentDescription("마이페이지").performClick()
         compose.onNodeWithContentDescription("알림함").performClick()
-        compose.onNodeWithText("⌕").performClick()
+        compose.onNodeWithContentDescription("검색").performClick()
         compose.runOnIdle { assertEquals(listOf("profile", "notifications", "search"), selections) }
     }
 

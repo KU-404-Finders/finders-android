@@ -188,6 +188,10 @@ class AuthNavigationRegressionTest {
             reset.updateNewPasswordConfirm("Fixture1")
         }
         compose.onNodeWithText("비밀번호 변경").performClick()
+        // iOS parity: a completion step is shown before returning to the login.
+        compose.onNodeWithText("새 비밀번호로 다시 로그인해주세요.").assertIsDisplayed()
+        assertRoute(Route.PasswordResetPassword)
+        compose.onNodeWithText("로그인하기").performClick()
         assertLoginOnly()
         compose.runOnIdle {
             assertEquals("", reset.emailInput)

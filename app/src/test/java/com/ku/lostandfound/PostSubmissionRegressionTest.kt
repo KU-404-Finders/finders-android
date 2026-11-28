@@ -12,6 +12,10 @@ import com.ku.lostandfound.network.FoundItemApiService
 import com.ku.lostandfound.network.LostItemApiService
 import com.ku.lostandfound.network.RetrofitClient
 import com.ku.lostandfound.network.RefreshSessionResult
+import com.ku.lostandfound.network.RequestNotSentException
+import com.ku.lostandfound.network.RequestSession
+import com.ku.lostandfound.viewmodel.PostCreationJournal
+import okhttp3.RequestBody.Companion.toRequestBody
 import com.ku.lostandfound.ui.navigation.PostEditRestore
 import com.ku.lostandfound.network.TokenManager
 import com.ku.lostandfound.viewmodel.PostWriteUiState
@@ -41,6 +45,7 @@ class PostSubmissionRegressionTest : StabilityFixture() {
     private lateinit var vm: PostWriteViewModel
     private lateinit var retrofit: Retrofit
     private val journalValues = mutableMapOf<String, String>()
+    private lateinit var journalEditor: SharedPreferences.Editor
 
     @Before fun setupWriter() {
         server = MockWebServer()
@@ -53,6 +58,7 @@ class PostSubmissionRegressionTest : StabilityFixture() {
         val values = journalValues
         val journal = mock(SharedPreferences::class.java)
         val editor = mock(SharedPreferences.Editor::class.java)
+        journalEditor = editor
         `when`(application.getSharedPreferences("post_creation_attempts", 0)).thenReturn(journal)
         `when`(journal.getString(anyString(), isNull())).thenAnswer { values[it.getArgument<String>(0)] }
         `when`(journal.edit()).thenReturn(editor)
@@ -148,6 +154,7 @@ class PostSubmissionRegressionTest : StabilityFixture() {
         dispatch()
         assertEquals(1, server.requestCount)
         vm.acknowledgeUnconfirmed()
+        dispatch()
         assertEquals(PostWriteUiState.Idle, vm.uiState)
     }
 
@@ -159,6 +166,7 @@ class PostSubmissionRegressionTest : StabilityFixture() {
         assertEquals(1, server.requestCount)
 
         vm.acknowledgeUnconfirmed()
+        dispatch()
         server.enqueue(MockResponse().setResponseCode(401))
         vm.save(application)
         request()
@@ -244,6 +252,7 @@ class PostSubmissionRegressionTest : StabilityFixture() {
         assertEquals(PostType.LOST, recreated.unconfirmedType)
         assertEquals(PostWriteUiState.Unconfirmed, recreated.uiState)
         recreated.acknowledgeUnconfirmed()
+        dispatch()
         assertEquals(PostWriteUiState.Idle, recreated.uiState)
         assertEquals(1, server.requestCount)
     }
@@ -314,6 +323,138 @@ class PostSubmissionRegressionTest : StabilityFixture() {
         login(jwt(5, email = "renamed@example.invalid"))
         vm.restoreCreationStatus(application)
         assertEquals(PostWriteUiState.Unconfirmed, vm.uiState)
+    }
+
+    @Test fun createResponseWithoutSuccessNullSuccessOrMissingDataStaysUnconfirmed() {
+        val bodies = listOf(
+            """{"message":"ok","data":null}""",
+            """{"success":null,"message":"ok"}""",
+            """{"success":true,"message":"ok","data":null}""",
+            "{}",
+        )
+        bodies.forEachIndexed { index, body ->
+            server.enqueue(MockResponse().setHeader("Content-Type", "application/json").setBody(body))
+            vm.save(application)
+            request()
+            awaitState { it == PostWriteUiState.Unconfirmed }
+            assertTrue("journal must survive for $body", journalValues.containsKey("user:5"))
+            vm.save(application)
+            dispatch()
+            assertEquals("no replay for $body", index + 1, server.requestCount)
+            vm.acknowledgeUnconfirmed()
+            dispatch()
+            assertEquals(PostWriteUiState.Idle, vm.uiState)
+        }
+    }
+
+    @Test fun explicitSuccessFalseIsARejectionThatReleasesTheJournal() {
+        server.enqueue(MockResponse().setHeader("Content-Type", "application/json")
+            .setBody("""{"success":false,"message":"등록 거절","data":null}"""))
+        vm.save(application)
+        request()
+        awaitState { it is PostWriteUiState.Error }
+        assertEquals("등록 거절", (vm.uiState as PostWriteUiState.Error).message)
+        assertTrue(journalValues.isEmpty())
+        vm.resetUiState()
+        server.enqueue(success(""""indoorSpots":[],"outdoorPoints":[]"""))
+        vm.save(application)
+        request()
+        awaitState { it is PostWriteUiState.Saved }
+        assertTrue(journalValues.isEmpty())
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test fun sessionChangeBeforeDispatchClearsTheJournalWithoutSending() {
+        val first = TokenManager.accessToken!!
+        // Retrofit tags the call with the old session; switching accounts before execution trips the interceptor.
+        val switching = Retrofit.Builder().baseUrl(server.url("/")).callFactory { request ->
+            login(jwt(6, email = "other@example.invalid"))
+            RetrofitClient.newCall(request)
+        }.addConverterFactory(GsonConverterFactory.create()).build()
+        vm.viewModelScope.cancel()
+        vm = PostWriteViewModel(switching.create(FoundItemApiService::class.java),
+            switching.create(LostItemApiService::class.java), main)
+        vm.title = "검은 지갑"; vm.category = "지갑"; vm.content = "사진 속 물건"
+        vm.changePostType(PostType.LOST)
+        vm.setLostOutdoorPins(listOf(GeoPoint(127.076, 37.5418)))
+        vm.save(application)
+        awaitState { it == PostWriteUiState.Idle }
+        assertEquals(0, server.requestCount)
+        assertTrue(journalValues.isEmpty())
+        login(first)
+        vm.restoreCreationStatus(application)
+        assertEquals(PostWriteUiState.Idle, vm.uiState)
+    }
+
+    @Test fun staleSessionMutationIsRejectedBeforeDispatch() {
+        val stale = RequestSession(TokenManager.sessionGeneration())
+        login(jwt(6))
+        val request = okhttp3.Request.Builder().url(server.url("/api/v1/lost-items"))
+            .post("{}".toRequestBody()).tag(RequestSession::class.java, stale).build()
+        assertThrows(RequestNotSentException::class.java) { RetrofitClient.newCall(request).execute() }
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test fun authenticationFailureOnUnauthorizedMutationNeverReissuesOrReplays() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(403)
+            .setBody("""{"timestamp":"2026-11-26T00:00:00Z","status":403,"error":"Forbidden"}"""))
+        server.enqueue(MockResponse().setBody("""{"success":true,"data":{"accessToken":"${jwt(5)}","refreshToken":"r"}}"""))
+        val request = okhttp3.Request.Builder().url(server.url("/api/v1/lost-items"))
+            .post("{}".toRequestBody())
+            .tag(RequestSession::class.java, RequestSession(TokenManager.sessionGeneration())).build()
+        withLocalRefresh {
+            RetrofitClient.newCall(request).execute().use { assertEquals(403, it.code) }
+        }
+        val sent = checkNotNull(server.takeRequest(1, TimeUnit.SECONDS))
+        assertEquals("/api/v1/lost-items", sent.path)
+        assertNotNull("the interceptor attached the session token", sent.getHeader("Authorization"))
+        assertNull(server.takeRequest(200, TimeUnit.MILLISECONDS))
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test fun failedJournalWriteNeverSendsAndDoesNotBlockTheNextAttempt() {
+        `when`(journalEditor.commit()).thenReturn(false, true)
+        vm.save(application)
+        awaitState { it is PostWriteUiState.Error }
+        assertEquals(0, server.requestCount)
+        assertTrue("an unsaved record must not linger in memory", journalValues.isEmpty())
+        vm.resetUiState()
+        `when`(journalEditor.commit()).thenReturn(true)
+        server.enqueue(success(""""indoorSpots":[],"outdoorPoints":[]"""))
+        vm.save(application)
+        request()
+        awaitState { it is PostWriteUiState.Saved }
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test fun cleanupFailureAfterSuccessKeepsSavedAndRetriesTheSameEntry() {
+        server.enqueue(success(""""indoorSpots":[],"outdoorPoints":[]"""))
+        // begin succeeds; both success-path clear attempts fail to reach disk.
+        `when`(journalEditor.commit()).thenReturn(true, false, false)
+        vm.save(application)
+        request()
+        awaitState { it is PostWriteUiState.Saved }
+        assertEquals(1, server.requestCount)
+        verify(journalEditor, times(3)).commit()
+    }
+
+    @Test fun journalRetriesAFailedDeletionButNeverRemovesAnotherAttempt() {
+        val entry = checkNotNull(PostCreationJournal.begin(application, "user:5", PostType.LOST))
+        `when`(journalEditor.commit()).thenReturn(false)
+        assertFalse(PostCreationJournal.clear(application, entry))
+        `when`(journalEditor.commit()).thenReturn(true)
+        clearInvocations(journalEditor)
+        assertTrue(PostCreationJournal.clear(application, entry))
+        verify(journalEditor).commit()
+        clearInvocations(journalEditor)
+        assertTrue(PostCreationJournal.clear(application, entry))
+        verify(journalEditor, never()).commit()
+
+        val other = checkNotNull(PostCreationJournal.begin(application, "user:5", PostType.FOUND))
+        assertTrue(PostCreationJournal.clear(application, entry))
+        assertEquals(other, PostCreationJournal.pending(application, "user:5"))
+        assertTrue(PostCreationJournal.clear(application, other))
+        assertNull(PostCreationJournal.pending(application, "user:5"))
     }
 
     private fun jwt(id: Long, expiry: Long = 4102444800, email: String = "new@example.invalid"): String {

@@ -184,13 +184,26 @@ class ReleaseRetrofitProbeTest {
                 val service = "${kind}ItemApiService"
                 val fields = if (kind == "Found") ""","locationType":"OUTDOOR","associatedBuildingNames":[]"""
                     else ""","indoorSpots":[],"outdoorPoints":[]"""
-                json = """{"success":true,"data":{"id":7,"userId":2,"title":"wire-probe","itemStatus":"SEARCHING"$fields}}"""
+                val created = """{"success":true,"data":{"id":7,"userId":2,"title":"wire-probe","itemStatus":"SEARCHING"$fields}}"""
+                json = created
                 val post = data(call(api, service, "create${kind}Item", authorization, body,
                     if (kind == "Found") image else null, session, raw = true))
                 val multipart = assertRequest("POST", "$path,")
                 assertTrue(multipart, multipart.contains("name=\"request\"") && multipart.contains("wire-probe"))
                 if (kind == "Found") assertTrue(multipart, multipart.contains("name=\"image\"") && multipart.contains("image-probe"))
                 assertEquals(7L, dtoField(post, "id"))
+                // Create-only responses keep `success` nullable in the R8 build: true, false and missing.
+                fun createSuccess(payload: String): Any? {
+                    json = payload
+                    val response = call(api, service, "create${kind}Item", authorization, body,
+                        if (kind == "Found") image else null, session, raw = true)
+                    assertRequest("POST", "$path,")
+                    return dtoField(checkNotNull(value("retrofit2.Response", "body", response)), "success")
+                }
+                assertEquals(true, createSuccess("""{"success":true,"data":{"id":8,"userId":2,"title":"wire-probe","itemStatus":"SEARCHING"$fields}}"""))
+                assertEquals(false, createSuccess("""{"success":false,"message":"rejected"}"""))
+                assertNull(createSuccess("""{"message":"no flag","data":null}"""))
+                json = created
                 val updated = data(call(api, service, "update${kind}Item", authorization, 7L, body, null, session, raw = true))
                 assertTrue(assertRequest("PATCH", "$path/7,").contains("name=\"request\""))
                 assertEquals("wire-probe", dtoField(updated, "title"))
@@ -206,7 +219,7 @@ class ReleaseRetrofitProbeTest {
             assertRequest("GET", "/api/v1/users/me/blocks?page=0,")
             assertEquals("탈퇴한 사용자", dtoField(rows[0]!!, "blockedUserName"))
             assertNull(dtoField(rows[1]!!, "blockedUserName"))
-            assertEquals(6, calls.get())
+            assertEquals(12, calls.get())
         }
 
         fun run(before: Boolean) {

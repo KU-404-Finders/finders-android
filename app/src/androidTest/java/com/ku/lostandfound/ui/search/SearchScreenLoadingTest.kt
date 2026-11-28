@@ -37,9 +37,9 @@ class SearchScreenLoadingTest {
 
     @Test fun blankQueryKeepsGuideAndBackAction() {
         show()
-        compose.onNodeWithText("검색어를 입력해보세요").assertIsDisplayed()
+        compose.onNodeWithText("찾는 물건이나 장소를 검색해보세요").assertIsDisplayed()
         compose.onNodeWithText("지갑 1").assertDoesNotExist()
-        compose.onNodeWithText("‹").performClick()
+        compose.onNodeWithContentDescription("뒤로가기").performClick()
         compose.runOnIdle { assertEquals(1, backs) }
     }
 
@@ -49,7 +49,7 @@ class SearchScreenLoadingTest {
         compose.onNodeWithText("게시글을 불러오는 중입니다.").assertIsDisplayed()
         compose.runOnIdle { loading.value = false }
         compose.onNodeWithText("게시글을 불러오는 중입니다.").assertDoesNotExist()
-        compose.onNodeWithText("검색 결과가 없습니다.").assertIsDisplayed()
+        compose.onNodeWithText("검색 결과가 없습니다").assertIsDisplayed()
     }
 
     @Test fun partialResultsStayVisibleAndClickableUntilLoadingCompletes() {

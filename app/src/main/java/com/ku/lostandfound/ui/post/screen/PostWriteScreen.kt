@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.media.ExifInterface
+import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -38,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -53,7 +55,10 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -98,6 +103,15 @@ fun PostWriteScreen(
     val contentFocusRequester = remember { FocusRequester() }
     val titleBringIntoViewRequester = remember { BringIntoViewRequester() }
     val contentBringIntoViewRequester = remember { BringIntoViewRequester() }
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    var formViewportHeight by remember { mutableIntStateOf(0) }
+    val bodyHeight = if (landscape && formViewportHeight > 0) {
+        // The header and safe drawing insets are outside the scroll viewport.
+        val viewport = with(LocalDensity.current) { formViewportHeight.toDp() }
+        (viewport - 8.dp).coerceIn(0.dp, 184.dp)
+    } else {
+        184.dp
+    }
     val scope = rememberCoroutineScope()
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -118,6 +132,7 @@ fun PostWriteScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .onSizeChanged { formViewportHeight = it.height }
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 26.dp)
         ) {
@@ -181,7 +196,7 @@ fun PostWriteScreen(
                     if (uiState is PostWriteUiState.Error) viewModel.resetUiState()
                 },
                 placeholder = "ex )\n검은색 지갑을 공학관에서 잃어버렸습니다.\n바깥에 물결무늬가 있고, 오리 캐릭터가 달려있습니다.",
-                minHeight = 184.dp,
+                minHeight = bodyHeight,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
                 modifier = Modifier
                     .focusRequester(contentFocusRequester)

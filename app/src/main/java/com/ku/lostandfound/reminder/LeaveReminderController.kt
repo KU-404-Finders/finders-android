@@ -117,6 +117,7 @@ internal class LeaveReminderController private constructor(private val context: 
             needsRegistration = true
             presence.clear()
             cancelNotifications()
+            LeaveReminderRestoreJob.cancel(context)
         } else {
             presence.keys.removeAll(removed)
             removed.forEach { notifications.cancel(CHANNEL, NOTIFICATION_BASE + it) }
@@ -130,21 +131,24 @@ internal class LeaveReminderController private constructor(private val context: 
         invalidateRegistration()
     }
 
-    suspend fun restoreAfterBoot() {
-        val bootOwner = TokenManager.reminderSession()
+    /** Returns true when JobScheduler should retry later with backoff. */
+    suspend fun restore(expected: String?): Boolean {
         for ((index, wait) in reminderRestoreDelays.withIndex()) {
             delay(wait)
-            if (TokenManager.reminderSession() != bootOwner) break
-            Log.i(LOG_TAG, "restore attempt=${index + 1} signedIn=${bootOwner != null}")
+            if (TokenManager.reminderSession() != expected) return false
+            Log.i(LOG_TAG, "restore attempt=${index + 1} signedIn=${expected != null}")
             val retry = reconcile()
-            Log.i(LOG_TAG, "restore status=${status.value.name} retry=${retry && index < reminderRestoreDelays.lastIndex}")
-            if (!retry) {
+            Log.i(LOG_TAG, "restore status=${status.value.name} retry=$retry")
+            if (!retry && !needsRecovery(expected)) {
                 Log.i(LOG_TAG, "restore finished status=${status.value.name}")
-                return
+                return false
             }
         }
-        Log.i(LOG_TAG, "restore finished")
+        return needsRecovery(expected).also { Log.i(LOG_TAG, "restore deferred=$it") }
     }
+
+    fun needsRecovery(expected: String?): Boolean =
+        reminderRecoveryNeeded(expected, TokenManager.reminderSession(), settings.value.enabled, status.value)
 
     private fun updateOwner(): String? {
         val active = TokenManager.reminderSession()
@@ -155,6 +159,7 @@ internal class LeaveReminderController private constructor(private val context: 
             store.savePresence(active, presence)
             cancelNotifications()
             needsRegistration = true
+            LeaveReminderRestoreJob.cancel(context)
         }
         return active
     }
@@ -181,6 +186,7 @@ internal class LeaveReminderController private constructor(private val context: 
     @SuppressLint("MissingPermission")
     private suspend fun reconcile(): Boolean = syncLock.withLock {
         val active = updateOwner()
+        retryOrphanRemoval()
         // A previous process may have died between submitting and confirming an add.
         store.pendingCallback()?.let { interrupted ->
             removeCallback(interrupted)
@@ -264,8 +270,7 @@ internal class LeaveReminderController private constructor(private val context: 
         var accepted = false
         val attempt = RegistrationAttempt {
             if (existing == null) removeCallback(intent)
-            else removeIds(target.requestIds.values.toList())
-            Unit
+            else discardFences(target.requestIds.values)
         }
         adding = target to attempt
         try {
@@ -344,6 +349,18 @@ internal class LeaveReminderController private constructor(private val context: 
         store.savePresence(owner, presence)
     }
 
+    // An abandoned add shares the live callback, so only its own IDs may go. They stay
+    // persisted until the platform confirms removal, including across process restarts.
+    private fun discardFences(ids: Collection<String>) {
+        store.addOrphanFences(ids)
+        scope.launch { if (removeIds(ids.toList()).await()) store.removeOrphanFences(ids) }
+    }
+
+    private fun retryOrphanRemoval() {
+        val ids = store.orphanFences()
+        if (ids.isNotEmpty()) scope.launch { if (removeIds(ids.toList()).await()) store.removeOrphanFences(ids) }
+    }
+
     @SuppressLint("MissingPermission")
     private fun removeIds(ids: List<String>): CompletableDeferred<Boolean> {
         val result = CompletableDeferred<Boolean>()
@@ -382,6 +399,18 @@ internal class LeaveReminderController private constructor(private val context: 
             inFlight.second.monitoringUnavailable()
             return
         }
+        val live = registration
+        // Checked before readiness: GEOFENCE_NOT_AVAILABLE usually arrives because location just went off.
+        if (event.hasError() && live != null && live.owner == active && live.id == callbackId && !needsRegistration) {
+            Log.i(LOG_TAG, "monitoring error=${event.errorCode}")
+            revision++
+            needsRegistration = true
+            presence.clear()
+            store.savePresence(active, presence)
+            mutableStatus.value = readiness(active).takeIf { it != ReminderStatus.STARTING } ?: ReminderStatus.ERROR
+            LeaveReminderRestoreJob.enqueue(context, active, replace = false)
+            return
+        }
         if (readiness(active) != ReminderStatus.STARTING) return
         if (inFlight != null) {
             val (target, attempt) = inFlight
@@ -391,15 +420,7 @@ internal class LeaveReminderController private constructor(private val context: 
             ) pendingEvents += Intent(intent)
         }
         val record = registration ?: return
-        if (record.owner != active || record.id != callbackId || needsRegistration) return
-        if (event.hasError()) {
-            revision++
-            needsRegistration = true
-            mutableStatus.value = ReminderStatus.ERROR
-            presence.clear()
-            store.savePresence(active, presence)
-            return
-        }
+        if (record.owner != active || record.id != callbackId || needsRegistration || event.hasError()) return
         val now = System.currentTimeMillis()
         val at = event.triggeringLocation?.time ?: return
         if (at !in (now - MAX_STAY_MS)..now) return
@@ -443,12 +464,12 @@ internal class LeaveReminderController private constructor(private val context: 
         store.savePresence(active, presence)
     }
 
-    suspend fun preview(): ReminderPreview {
+    suspend fun preview(lookupWeather: suspend () -> EntryWeather = { weather.lookup() }): ReminderPreview {
         val active = TokenManager.reminderSession() ?: return ReminderPreview(null, false)
         if (!canNotify()) return ReminderPreview(null, false)
         val snapshot = settings.value
         if (!snapshot.enabled) return ReminderPreview(null, false)
-        val sampled = if (snapshot.needsWeather) weather.lookup() else null
+        val sampled = if (snapshot.needsWeather) lookupWeather() else null
         val building = snapshot.buildingIds.firstNotNullOfOrNull { regionsById[it]?.name }
         val sent = settings.value.enabled && post(active, PREVIEW_ID,
             ReminderMessage.make(building, snapshot.items, sampled ?: EntryWeather.UNKNOWN))
@@ -515,6 +536,14 @@ internal class LeaveReminderController private constructor(private val context: 
 }
 
 internal val reminderRestoreDelays = listOf(0L, 10_000L, 30_000L)
+
+// Only states that can clear without the user opening the app are retried; missing
+// permissions or a deliberate opt-out never schedule background work.
+private val recoverableStatuses = setOf(ReminderStatus.LOCATION_DISABLED, ReminderStatus.PLAY_SERVICES,
+    ReminderStatus.STARTING, ReminderStatus.ERROR)
+
+internal fun reminderRecoveryNeeded(expected: String?, active: String?, enabled: Boolean, status: ReminderStatus) =
+    expected != null && active == expected && enabled && status in recoverableStatuses
 
 internal class RemovalRequests(
     private val elapsed: () -> Long,

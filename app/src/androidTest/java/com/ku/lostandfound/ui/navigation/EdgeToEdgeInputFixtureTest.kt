@@ -14,6 +14,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -73,7 +74,7 @@ class EdgeToEdgeInputFixtureTest {
             val keyboardTop = awaitKeyboardTop(scenario)
             field.performTextInput("hello")
             assertAboveKeyboard(field, keyboardTop)
-            val send = compose.onNodeWithText("➤")
+            val send = compose.onNodeWithContentDescription("보내기")
             assertAboveKeyboard(send, keyboardTop)
             send.performClick()
             compose.runOnIdle { assertEquals("hello", sent) }
@@ -134,7 +135,11 @@ class EdgeToEdgeInputFixtureTest {
     }
 
     private fun assertAboveKeyboard(node: SemanticsNodeInteraction, keyboardTop: Float) {
-        val bounds = node.assertIsDisplayed().fetchSemanticsNode().boundsInWindow
-        assertTrue("$bounds must fit above the IME at $keyboardTop", bounds.height > 0f && bounds.bottom <= keyboardTop + 1f)
+        // boundsInWindow is clipped by the viewport; use the unclipped layout bounds instead.
+        val semantics = node.assertIsDisplayed().fetchSemanticsNode()
+        val top = semantics.positionInWindow.y
+        val bottom = top + semantics.size.height
+        assertTrue("[$top, $bottom] must fit above the IME at $keyboardTop",
+            semantics.size.height > 0 && bottom <= keyboardTop + 1f)
     }
 }

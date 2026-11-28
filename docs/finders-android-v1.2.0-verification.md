@@ -1,5 +1,13 @@
 # 찾을건대 Android v1.2.0 통합 검증 보고서
 
+> **버전 이력 (2026-11-28 기준)**
+> - `1.1.2 / 9`: 기존 테스트 버전. 이 문서의 과거 검증 다수가 이 메타데이터로 빌드됐다.
+> - `1.2.0 / 10`: 이전 프로덕션 출시 후보. AAB가 Play Console에 업로드됨.
+> - `1.2.0 / 11`: 이전 출시 후보. AAB가 Play Console에 업로드됨. PR #18 리뷰 반영·UI 통일 변경은 포함되지 않음.
+> - `1.2.0 / 12`: **현재 출시 후보이자 Gradle 설정**(2026-11-28 사용자 승인). PR #18 리뷰 반영·iOS UI 통일 변경을 포함한다. 운영 서명과 Play Console 업로드는 출시 담당자가 직접 진행한다.
+>
+> 아래 본문의 과거 검증 결과는 기록 당시 소스에서 실행한 것이며, 현재 수정된 소스에서 재실행한 결과가 아니다. 현재 소스의 재검증은 `production-release-verification.md`의 "PR #18 리뷰 반영" 절을 따른다.
+
 ## 기준 소스
 
 | 프로젝트 | 기준 브랜치 | 실제 참조한 전체 SHA |
@@ -229,7 +237,7 @@ Android `develop` 및 현재 작업 브랜치의 기준 SHA는 `8fbb680fb8fd74f1
 
 ## Google Play 준비와 남은 제한
 
-- 기존 `release/v1.1.2` 라인과 위치 권한이 포함된 신규 기능 브랜치를 분리했다. Play Console에 접근하여 code 10의 이력을 확인할 수 없었으므로 Gradle의 `versionName = "1.1.2"`, `versionCode = 9`는 수정하지 않았다. `1.2.0 / 10`은 확인 후 적용할 후보이며 이번 빌드의 메타데이터는 현재 브랜치 설정을 따른다.
+- 기존 `release/v1.1.2` 라인과 위치 권한이 포함된 신규 기능 브랜치를 분리했다. 이 절을 기록한 검증 빌드는 당시 Gradle 설정인 `1.1.2 / 9`로 만들어졌다(과거 결과). code 10과 11은 이미 Play Console에 업로드됐다. 현재 출시 후보는 사용자 승인에 따라 `1.2.0 / 12`다.
 - 백그라운드 위치 신고에서 실제 기능 경로, 앱이 닫혀 있을 때의 최소 권한 사용, 최초 공개 및 동의 안내를 설명한다. 공개 개인정보 처리방침 및 데이터 보안 답변을 검토하고 권한 선택과 실제 알림을 담은 심사용 영상이 필요하다. 승인 이후 운영 릴리스를 진행한다. [Android 백그라운드 위치 권한](https://developer.android.com/develop/sensors-and-location/location/permissions/background) · [Google Play 백그라운드 위치 정책](https://support.google.com/googleplay/android-developer/answer/9799150)
 - 지오펜스는 인접 건물 겹침, GPS·Wi-Fi 정확도, OS 도착 지연, Play Services 가용 여부의 영향을 받는다. 앱을 강제 종료하면 다시 실행해야 한다. 24시간에 걸친 stale 체류는 알림을 만들지 않는다. 권한을 철회했을 때 어플리케이션은 다음 복귀에서 상태를 재확인한다. [Android Geofencing](https://developer.android.com/develop/sensors-and-location/location/geofencing)
 - 작성 결과를 서버에서 조회할 멱등성 키가 없으므로 앱이 응답 유실이나 프로세스 강제 종료 후 특정 생성 요청의 저장 여부를 자동으로 판정할 수 없다. 내 게시글과 서버 DB를 통해 검증한다.

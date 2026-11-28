@@ -38,7 +38,7 @@ class ParityAttributionTest {
             }
         }
         compose.onNodeWithText("© OpenStreetMap").assertIsDisplayed()
-        compose.onNodeWithContentDescription("OpenStreetMap 저작권 및 지도 출처").performClick()
+        compose.onNodeWithContentDescription(compose.activity.getString(com.ku.lostandfound.R.string.osm_attribution_description)).performClick()
         compose.runOnIdle { assertEquals(listOf("https://www.openstreetmap.org/copyright"), url) }
     }
 

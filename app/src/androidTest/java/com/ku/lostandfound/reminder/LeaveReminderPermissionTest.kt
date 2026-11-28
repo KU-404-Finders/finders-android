@@ -36,16 +36,16 @@ class LeaveReminderPermissionTest {
             controller = LeaveReminderController.get(context)
             assumeFalse(TokenManager.isLoggedIn())
             initial = controller.settings.value
-            controller.update(initial.copy(enabled = false))
         }
-        compose.setContent { LeaveReminderScreen(onBack = {}) }
-        compose.onNodeWithText("꺼짐").assertIsDisplayed()
-        compose.onNodeWithText("예방 알림 사용").performClick()
-        compose.onNodeWithText("분실물 예방 알림에 위치를 사용해요").assertIsDisplayed()
-        compose.onNodeWithText("취소").performClick()
-        compose.onNodeWithText("꺼짐").assertIsDisplayed()
-
         try {
+            compose.runOnIdle { controller.update(initial.copy(enabled = false)) }
+            compose.setContent { LeaveReminderScreen(onBack = {}) }
+            compose.onNodeWithText("꺼짐").assertIsDisplayed()
+            compose.onNodeWithText("예방 알림 사용").performClick()
+            compose.onNodeWithText("분실물 예방 알림에 위치를 사용해요").assertIsDisplayed()
+            compose.onNodeWithText("취소").performClick()
+            compose.onNodeWithText("꺼짐").assertIsDisplayed()
+
             compose.runOnIdle {
                 check(TokenManager.saveNewSessionTokens(TokenManager.sessionGeneration(), "fixture-a", "fixture-r"))
                 controller.update(initial.copy(enabled = true, buildingIds = setOf(controller.regions.first().id)))
@@ -68,9 +68,6 @@ class LeaveReminderPermissionTest {
         val context = compose.activity
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val captureUi = InstrumentationRegistry.getArguments().getString("captureReminderUi") == "true"
-        if (Build.VERSION.SDK_INT >= 33) {
-            instrumentation.uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
-        }
         val manager = context.getSystemService(NotificationManager::class.java)
         lateinit var initial: LeaveReminderSettings
         lateinit var fixture: LeaveReminderSettings
@@ -79,17 +76,29 @@ class LeaveReminderPermissionTest {
             controller = LeaveReminderController.get(context)
             assumeFalse(TokenManager.isLoggedIn())
             initial = controller.settings.value
-            fixture = initial.copy(
-                enabled = true,
-                buildingIds = setOf(controller.regions.first().id),
-                dwellMinutes = 30,
-                items = listOf(ReminderItem("필통", ReminderCondition.ALWAYS)),
-            )
-            check(TokenManager.saveNewSessionTokens(TokenManager.sessionGeneration(), "fixture-a", "fixture-r"))
-            controller.update(fixture)
+        }
+        // Granted only after the signed-out precondition holds. Revoking in-process would kill the
+        // instrumented app, so the grant is confined to this disposable test install (see tools/README.md).
+        if (Build.VERSION.SDK_INT >= 33) {
+            instrumentation.uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
         }
         try {
-            compose.setContent { LeaveReminderScreen(onBack = {}) }
+            compose.runOnIdle {
+                fixture = initial.copy(
+                    enabled = true,
+                    buildingIds = setOf(controller.regions.first().id),
+                    dwellMinutes = 30,
+                    items = listOf(
+                        ReminderItem("필통", ReminderCondition.ALWAYS),
+                        ReminderItem("우산", ReminderCondition.RAIN),
+                    ),
+                )
+                check(TokenManager.saveNewSessionTokens(TokenManager.sessionGeneration(), "fixture-a", "fixture-r"))
+                controller.update(fixture)
+            }
+            compose.setContent {
+                LeaveReminderScreen(onBack = {}, sendPreview = { controller.preview { EntryWeather.RAIN } })
+            }
             compose.onNode(hasScrollAction()).performScrollToNode(hasText("방문 판단 기준"))
             compose.onNodeWithText("30분 이상").assertIsDisplayed()
             if (captureUi) saveScreenshot("reminder-settings")
@@ -104,6 +113,8 @@ class LeaveReminderPermissionTest {
             val notification = manager.activeNotifications.single { it.notification.channelId == LeaveReminderController.CHANNEL }.notification
             assertEquals(Notification.CATEGORY_REMINDER, notification.category)
             assertEquals("소지품 챙기셨나요?", notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
+            val body = notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString()
+            assertEquals("${controller.regions.first().name}에서 나오셨어요. 필통, 우산 챙기셨나요?", body)
             assertEquals(fixture, LeaveReminderStore(context).settings())
             if (captureUi) {
                 SystemClock.sleep(750)

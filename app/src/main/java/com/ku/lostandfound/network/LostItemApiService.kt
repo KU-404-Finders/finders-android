@@ -34,7 +34,7 @@ interface LostItemApiService {
         @Part("request") request: RequestBody,
         @Part image: MultipartBody.Part? = null,
         @Tag session: RequestSession? = null,
-    ): Response<LostItemCreateResponse>
+    ): Response<LostItemCreatedResponse>
 
     @Multipart
     @PATCH("api/v1/lost-items/{id}")

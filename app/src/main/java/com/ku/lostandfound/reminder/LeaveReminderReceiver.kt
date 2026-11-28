@@ -18,7 +18,7 @@ class LeaveReminderReceiver : BroadcastReceiver() {
         if (action != TRANSITION) {
             Log.i(LeaveReminderController.LOG_TAG, "received $action")
             LeaveReminderController.get(context).invalidateAfterBoot()
-            LeaveReminderRestoreJob.enqueue(context)
+            LeaveReminderRestoreJob.enqueue(context, com.ku.lostandfound.network.TokenManager.reminderSession())
             return
         }
         val pending = goAsync()

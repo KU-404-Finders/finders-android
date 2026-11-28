@@ -48,12 +48,14 @@ class PasswordResetViewModel(private val api: PasswordResetApiService = Retrofit
         else error("passwordReset.verify", response, "인증번호를 확인해주세요.", false)
     }
     } // verifyCode 종료
+    /** True after the server confirmed the change; keeps the completion step on screen (iOS step .done). */
+    var resetCompleted by mutableStateOf(false); private set
     fun confirmPassword(done: () -> Unit) {
         if (!isPasswordValid || !passwordsMatch) { uiState=uiState.copy(errors=buildMap { if(!isPasswordValid) put("newPassword", "영문과 숫자를 포함한 6~72자의 비밀번호를 입력해주세요."); if(!passwordsMatch) put("newPasswordConfirm", "비밀번호가 일치하지 않습니다.") }); return }
         val token=resetToken ?: run { uiState=uiState.copy(message="인증 시간이 만료되었습니다. 처음부터 다시 진행해주세요.", shouldRestart=true); return }
-        launchRequest("passwordReset.confirm") { val response=api.confirmReset(PasswordResetConfirmRequest(token,newPassword,newPasswordConfirm)); if(response.isSuccessful && response.body()?.success==true) { TokenManager.clear(); clearSensitive(); done() } else error("passwordReset.confirm", response,"비밀번호 변경에 실패했습니다.",true) }
+        launchRequest("passwordReset.confirm") { val response=api.confirmReset(PasswordResetConfirmRequest(token,newPassword,newPasswordConfirm)); if(response.isSuccessful && response.body()?.success==true) { TokenManager.clear(); clearSensitive(); resetCompleted = true; done() } else error("passwordReset.confirm", response,"비밀번호 변경에 실패했습니다.",true) }
     }
-    fun returnToEmail() { authCode=""; resetToken=null; newPassword=""; newPasswordConfirm=""; uiState=PasswordResetUiState() }
+    fun returnToEmail() { resetCompleted=false; authCode=""; resetToken=null; newPassword=""; newPasswordConfirm=""; uiState=PasswordResetUiState() }
     fun restart() { emailInput=""; cooldownJob?.cancel(); resendRemainingSeconds=0; returnToEmail() }
     fun clearSensitive() { authCode=""; newPassword=""; newPasswordConfirm=""; resetToken=null; cooldownJob?.cancel(); resendRemainingSeconds=0; uiState=PasswordResetUiState() }
     private fun launchRequest(action: String, block: suspend () -> Unit) {

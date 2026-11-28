@@ -28,7 +28,7 @@ interface FoundItemApiService {
         @Part("request") request: RequestBody,
         @Part image: MultipartBody.Part,
         @Tag session: RequestSession? = null,
-    ): Response<FoundItemDetailResponse>
+    ): Response<FoundItemCreatedResponse>
 
     @Multipart
     @PATCH("api/v1/found-items/{id}")

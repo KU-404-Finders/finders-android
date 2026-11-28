@@ -19,6 +19,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.semantics.Role
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -1409,22 +1416,25 @@ private fun CommentInputBar(
         modifier = Modifier
             .fillMaxWidth()
             .background(Color.White)
-            .padding(horizontal = 20.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .drawBehind { drawRect(Color.Black.copy(alpha = 0.06f), size = androidx.compose.ui.geometry.Size(size.width, 0.5.dp.toPx())) }
+            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.Bottom
     ) {
+        // iOS commentInput: pill field (22dp) up to four lines and a 44pt paper-plane button.
         TextField(
             value = commentText,
             onValueChange = { commentText = it },
             enabled = !isSubmitting,
             placeholder = {
                 Text(
-                    text = "댓글을 입력해보세요.",
+                    text = "댓글을 입력해보세요",
                     color = TextGray,
-                    fontSize = 12.sp
+                    fontSize = 15.sp
                 )
             },
-            singleLine = true,
-            shape = RoundedCornerShape(10.dp),
+            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp),
+            maxLines = 4,
+            shape = RoundedCornerShape(22.dp),
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = FieldGray,
                 unfocusedContainerColor = FieldGray,
@@ -1437,38 +1447,28 @@ private fun CommentInputBar(
             ),
             modifier = Modifier
                 .weight(1f)
-                // Material TextField's minimum content height is 56dp. Keeping it at
-                // that height leaves room for Korean glyph descenders instead of
-                // constraining and clipping the text at the bottom.
-                .height(56.dp)
+                // Material TextField needs 56dp for Korean descenders; it grows for extra lines.
+                .heightIn(min = 56.dp)
         )
 
         Spacer(Modifier.size(10.dp))
 
+        val canSubmit = commentText.isNotBlank() && !isSubmitting
         Box(
             modifier = Modifier
-                .size(38.dp)
+                .padding(bottom = 4.dp)
+                .size(48.dp)
                 .clip(CircleShape)
-                .background(
-                    if (commentText.isBlank() || isSubmitting) Color(0xFFB7CBB9) else DeepGreen
-                )
-                .noRippleClickable {
-                    val text = commentText.trim()
-                    if (text.isNotBlank() && !isSubmitting) {
-                        onSubmit(text) {
-                            commentText = ""
-                            focusManager.clearFocus()
-                        }
+                .background(if (canSubmit) DeepGreen else Color(0xFFC8D6CA))
+                .clickable(enabled = canSubmit, role = Role.Button) {
+                    onSubmit(commentText.trim()) {
+                        commentText = ""
+                        focusManager.clearFocus()
                     }
                 },
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = "➤",
-                color = Color.White,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold
-            )
+            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "댓글 등록", tint = Color.White, modifier = Modifier.size(20.dp))
         }
     }
 }

@@ -229,4 +229,16 @@ class LeaveReminderTest {
          "hourly":{"time":["2026-11-26T23:00","2026-11-27T00:00"],
          "precipitation":[1,$amount],"precipitation_probability":[100,$probability]}}
     """.trimIndent()
+
+    @Test fun recoveryRetriesOnlyTransientStatesForTheSameSignedInEnabledOwner() {
+        for (status in ReminderStatus.entries) {
+            val expected = status in setOf(ReminderStatus.LOCATION_DISABLED, ReminderStatus.PLAY_SERVICES,
+                ReminderStatus.STARTING, ReminderStatus.ERROR)
+            assertEquals(status.name, expected, reminderRecoveryNeeded("user:1", "user:1", true, status))
+            assertFalse("disabled ${status.name}", reminderRecoveryNeeded("user:1", "user:1", false, status))
+            assertFalse("account switch ${status.name}", reminderRecoveryNeeded("user:1", "user:2", true, status))
+            assertFalse("signed out ${status.name}", reminderRecoveryNeeded("user:1", null, true, status))
+            assertFalse("no owner ${status.name}", reminderRecoveryNeeded(null, null, true, status))
+        }
+    }
 }

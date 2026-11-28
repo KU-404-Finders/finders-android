@@ -56,6 +56,15 @@ class AdminViewModel(
         private set
     var audits: List<AdminAudit> by mutableStateOf(emptyList())
         private set
+    /** iOS AdminReportListView opens on 미처리 (RECEIVED); null lists every status. */
+    var reportStatus: String? by mutableStateOf(DEFAULT_REPORT_STATUS)
+        private set
+
+    fun selectReportStatus(status: String?) {
+        if (status == reportStatus) return
+        reportStatus = status
+        loadReports()
+    }
     fun loadDashboard() = request(Section.Dashboard, { adminApi.dashboard() }) { dashboard = it }
 
     fun loadReport(id: Long) {
@@ -68,9 +77,10 @@ class AdminViewModel(
         request(Section.User, { adminApi.user(id) }) { selectedUser = it }
     }
 
-    fun processReport(id: Long, action: String, onSuccess: () -> Unit) {
+    fun processReport(id: Long, action: String, note: String? = null, onSuccess: () -> Unit) {
         if (selectedReport?.id != id || state(Section.Report) == AdminUiState.Loading) return
-        request(Section.Report, { adminApi.processReport(id, ProcessAdminReportRequest(action)) },
+        val memo = note?.trim()?.takeIf { it.isNotEmpty() }?.take(MAX_NOTE)
+        request(Section.Report, { adminApi.processReport(id, ProcessAdminReportRequest(action, memo)) },
             mutationKey = "report:$id", confirmed = { loadReports(); loadDashboard() }) { updated ->
             selectedReport = updated
             reports = reports.map { if (it.id == updated.id) updated else it }
@@ -78,9 +88,10 @@ class AdminViewModel(
         }
     }
 
-    fun setUserSuspension(id: Long, suspended: Boolean, onSuccess: () -> Unit) {
+    fun setUserSuspension(id: Long, suspended: Boolean, reason: String? = null, onSuccess: () -> Unit) {
         if (selectedUser?.id != id || state(Section.User) == AdminUiState.Loading) return
-        request(Section.User, { adminApi.setSuspension(id, AdminSuspensionRequest(suspended)) },
+        val memo = reason?.trim()?.takeIf { it.isNotEmpty() }?.take(MAX_NOTE)
+        request(Section.User, { adminApi.setSuspension(id, AdminSuspensionRequest(suspended, memo)) },
             mutationKey = "user:$id", confirmed = { loadUsers(keyword = searchKeyword) }) { updated ->
             selectedUser = updated
             users = users.map { if (it.id == id) updated else it }
@@ -101,7 +112,8 @@ class AdminViewModel(
 
     fun loadReports(more: Boolean = false) {
         if (!more) reports = emptyList()
-        page(Section.Reports, more, { adminApi.reports(page = it) }) {
+        val status = reportStatus
+        page(Section.Reports, more, { adminApi.reports(status = status, page = it) }) {
             reports = (reports + it).distinctBy { report -> report.id }
         }
     }
@@ -164,6 +176,7 @@ class AdminViewModel(
         nextPages.clear()
         searchKeyword = null
         selectedPostType = null
+        reportStatus = DEFAULT_REPORT_STATUS
     }
 
     private fun <T> request(
@@ -222,4 +235,9 @@ class AdminViewModel(
 
     private fun isCurrentRequest(requestGeneration: Long, sessionGeneration: Long): Boolean =
         cacheGeneration == requestGeneration && TokenManager.isCurrentSession(sessionGeneration)
+
+    private companion object {
+        const val DEFAULT_REPORT_STATUS = "RECEIVED"
+        const val MAX_NOTE = 1000 // server @Size(max = 1000)
+    }
 }

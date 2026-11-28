@@ -38,6 +38,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.stringResource
+import com.ku.lostandfound.R
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -205,6 +207,7 @@ fun CampusMapCanvas(
         }
 
         val uriHandler = LocalUriHandler.current
+        val attribution = stringResource(R.string.osm_attribution_description)
         Text(
             text = "© OpenStreetMap",
             color = Color(0xFF20452A),
@@ -214,7 +217,7 @@ fun CampusMapCanvas(
                 .clickable(role = Role.Button) {
                     runCatching { uriHandler.openUri("https://www.openstreetmap.org/copyright") }
                 }
-                .semantics { contentDescription = "OpenStreetMap 저작권 및 지도 출처" }
+                .semantics { contentDescription = attribution }
                 .padding(horizontal = 6.dp, vertical = 4.dp),
         )
 

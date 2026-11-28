@@ -12,9 +12,12 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.ku.lostandfound.data.PostType
+import com.ku.lostandfound.network.TokenManager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assume.assumeFalse
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -32,6 +35,18 @@ class RestoredEditNavigationTest {
     }
 
     @Test fun restoresLostAndFoundWithTheSameNumericId() {
+        TokenManager.init(InstrumentationRegistry.getInstrumentation().targetContext)
+        assumeFalse(TokenManager.isLoggedIn())
+        check(TokenManager.saveNewSessionTokens(TokenManager.sessionGeneration(), "fixture-a", "fixture-r"))
+        try {
+            assertRestores()
+        } finally {
+            TokenManager.clear()
+        }
+    }
+
+    private fun assertRestores() {
+        val owner = checkNotNull(TokenManager.reminderSession())
         val restoration = StateRestorationTester(compose)
         lateinit var controller: NavHostController
         restoration.setContent {
@@ -54,10 +69,13 @@ class RestoredEditNavigationTest {
             }
         }
         for (type in listOf(PostType.LOST, PostType.FOUND)) {
-            compose.runOnIdle { controller.navigate(Route.PostEdit.create(7, type)) }
+            val expected = PostEditRestore(owner, type, 7)
+            // The real path MainActivity uses, so a lost owner write would fail here.
+            compose.runOnIdle { expected.navigate(controller) }
             compose.onNodeWithText("${type.name} 7").assertIsDisplayed()
             restoration.emulateSavedInstanceStateRestore()
             compose.onNodeWithText("${type.name} 7").assertIsDisplayed()
+            compose.runOnIdle { assertEquals(expected, PostEditRestore.fromEntry(controller.currentBackStackEntry)) }
             compose.runOnIdle { controller.popBackStack() }
         }
     }
