@@ -61,12 +61,13 @@ class NotificationViewModel @JvmOverloads constructor(
         val draft = similarityDraft ?: return
         val normalized = (draft * 20).roundToInt() / 20.0
         val edit = similarityEdit
-        if (settings?.similarityThreshold?.let { abs(normalized - it) < 0.001 } == true) {
-            similarityDraft = null
-            return
-        }
         // On success `settings` holds the new value; on failure the last confirmed value shows again.
-        requestSettings(NotificationSettingsPatch(similarityThreshold = normalized)) {
+        requestSettings(
+            NotificationSettingsPatch(similarityThreshold = normalized),
+            // Decided under the settings Mutex, after earlier saves applied their results: a value
+            // chosen back while another save was in flight is still sent if that save changed it.
+            alreadySaved = { settings?.similarityThreshold?.let { abs(normalized - it) < 0.001 } == true },
+        ) {
             if (edit == similarityEdit) similarityDraft = null
         }
     }
@@ -379,11 +380,19 @@ class NotificationViewModel @JvmOverloads constructor(
 
     fun updateSettings(patch: NotificationSettingsPatch) = requestSettings(patch)
 
-    private fun requestSettings(patch: NotificationSettingsPatch?, onSettled: () -> Unit = {}) {
+    private fun requestSettings(
+        patch: NotificationSettingsPatch?,
+        alreadySaved: () -> Boolean = { false },
+        onSettled: () -> Unit = {},
+    ) {
         val owner = account ?: return
         viewModelScope.launch {
             owner.settingsMutex.withLock {
                 if (!current(owner)) return@withLock
+                if (alreadySaved()) {
+                    onSettled()
+                    return@withLock
+                }
                 val updated = try {
                     val api = notificationApi
                     val response = if (patch == null) api.settings() else api.updateSettings(patch)

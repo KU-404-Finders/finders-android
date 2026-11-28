@@ -115,4 +115,58 @@ class NotificationSimilarityDraftTest : StabilityFixture() {
         assertNull(vm.settings)
         assertNull(vm.similarityDraft)
     }
+
+    @Test fun valueChosenBackDuringAPendingSaveIsSavedWhenThatSaveSucceeds() {
+        vm.editSimilarity(0.8)
+        vm.commitSimilarity()
+        dispatch()
+        vm.editSimilarity(0.5) // back to the confirmed value before the 80% save answers
+        vm.commitSimilarity()
+        dispatch()
+        assertEquals("the second save waits for the first", 1, patches.size)
+        replies[0].complete(saved.copy(similarityThreshold = 0.8))
+        dispatch()
+        assertEquals(listOf(0.8, 0.5), patches.map { it.similarityThreshold })
+        replies[1].complete(saved.copy(similarityThreshold = 0.5))
+        dispatch()
+        assertNull(vm.similarityDraft)
+        assertEquals(0.5, shown(), 0.0001)
+    }
+
+    @Test fun valueChosenBackDuringAPendingSaveIsNotResentWhenThatSaveFails() {
+        vm.editSimilarity(0.8)
+        vm.commitSimilarity()
+        dispatch()
+        vm.editSimilarity(0.5)
+        vm.commitSimilarity()
+        dispatch()
+        replies[0].complete(null)
+        dispatch()
+        assertEquals("50% is already the confirmed value", 1, patches.size)
+        assertNull(vm.similarityDraft)
+        assertEquals(0.5, shown(), 0.0001)
+    }
+
+    @Test fun rapidChangesEndOnTheLastChoice() {
+        for (value in listOf(0.8, 0.6, 0.9)) {
+            vm.editSimilarity(value)
+            vm.commitSimilarity()
+            dispatch()
+        }
+        for (i in 0 until 3) {
+            replies[i].complete(saved.copy(similarityThreshold = patches[i].similarityThreshold!!))
+            dispatch()
+        }
+        assertEquals(listOf(0.8, 0.6, 0.9), patches.map { it.similarityThreshold })
+        assertNull(vm.similarityDraft)
+        assertEquals(0.9, shown(), 0.0001)
+    }
+
+    @Test fun choosingTheConfirmedValueWithNothingPendingSendsNothing() {
+        vm.editSimilarity(0.5)
+        vm.commitSimilarity()
+        dispatch()
+        assertEquals(0, patches.size)
+        assertNull(vm.similarityDraft)
+    }
 }

@@ -344,3 +344,16 @@ Minor 2건을 현재 코드와 대조해 모두 유효로 판단하고 최소 �
 | Debug·Release 빌드, `git diff --check` | 성공, 출력 없음 |
 
 24시간 경과는 주입한 시계로 검증했으며, 실제 Play 서비스 장애를 24시간 유지하는 기기 검증은 하지 않았다. 운영 서명, 운영 서버 CHAT 배포·실제 Firebase 푸시, 갤럭시 Heads-up, 실제 위치 기반 알림, 백그라운드 위치 심사는 여전히 미검증이다.
+
+## PR #18 4차 CodeRabbit 반영 (2026-11-28, `4b461d0` 이후)
+
+[리뷰 코멘트](https://github.com/KU-404-Finders/finders-android/pull/18#discussion_r4726852428)의 Minor 1건을 수정했다. `commitSimilarity()`가 진행 중인 유사도 저장이 있을 때 아직 바뀌지 않은 이전 확정값과 비교해 되돌린 값의 저장을 생략하던 문제다. 동일값 생략 판단을 계정별 설정 Mutex 안으로 옮겨, 앞선 설정 요청의 결과가 `settings`에 반영된 뒤 비교한다. 초안 삭제는 기존 편집 번호 조건을 유지했다. 버전은 `1.2.0 / 12`를 유지했다.
+
+| 검증 | 결과 |
+| --- | --- |
+| JVM 전체 | 342건 통과, 실패 0 (`NotificationSimilarityDraftTest` 4건 추가: 50→80 대기 중 50 선택 후 첫 요청 성공 시 50 저장, 첫 요청 실패 시 추가 요청 없음, 연속 변경 시 마지막 값, 대기 요청 없을 때 동일값 미전송) |
+| `SimilaritySliderEditTest` (API 37 폰, 실제 슬라이더) | 7/7 통과 (3건 추가: 같은 시나리오를 슬라이더 조작과 PATCH 기록으로 확인). 다른 설정 저장·이전 응답 보호 기존 4건 유지. 계정 전환 보호는 JVM `previousAccountsSimilarityResponseIsIgnored` 유지 |
+| 변이 확인 | 비교를 Mutex 밖에서 미리 계산하는 변이에서 JVM 1건과 슬라이더 계측 1건이 실패 |
+| Debug·Release 빌드, `git diff --check` | 성공, 출력 없음 |
+
+운영 서명, 운영 서버 CHAT 배포·실제 Firebase 푸시, 갤럭시 Heads-up, 실제 위치 기반 알림, 백그라운드 위치 심사는 여전히 미검증이다.

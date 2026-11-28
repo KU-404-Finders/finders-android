@@ -1,6 +1,7 @@
 package com.ku.lostandfound.ui
 
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
@@ -8,6 +9,7 @@ import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.percentOffset
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -128,5 +130,38 @@ class SimilaritySliderEditTest {
         slider.performTouchInput { up() }
         awaitReplies(2)
         assertEquals(newer, "${Math.round(checkNotNull(patches[1].similarityThreshold) * 100)}% 이상")
+    }
+
+    private fun setSlider(value: Float) = compose.onNodeWithContentDescription("알림 기준 유사도")
+        .performSemanticsAction(SemanticsActions.SetProgress) { it(value) }
+
+    @Test fun returningTo50WhileThe80SaveIsPendingEndsAt50WhenItSucceeds() {
+        setSlider(0.8f)
+        awaitReplies(1)
+        setSlider(0.5f) // back to the confirmed value before the first reply
+        compose.onNodeWithText("50% 이상").assertIsDisplayed()
+        compose.runOnIdle { replies[0].complete(saved.copy(similarityThreshold = 0.8)) }
+        awaitReplies(2)
+        assertEquals(listOf(0.8, 0.5), patches.map { it.similarityThreshold })
+        compose.runOnIdle { replies[1].complete(saved.copy(similarityThreshold = 0.5)) }
+        compose.onNodeWithText("50% 이상").assertIsDisplayed()
+    }
+
+    @Test fun returningTo50WhileThe80SaveIsPendingSendsNothingMoreWhenItFails() {
+        setSlider(0.8f)
+        awaitReplies(1)
+        setSlider(0.5f)
+        compose.runOnIdle { replies[0].complete(null) }
+        compose.onNodeWithText("설정 저장에 실패했습니다.").assertIsDisplayed()
+        compose.onNodeWithText("50% 이상").assertIsDisplayed()
+        compose.waitForIdle()
+        assertEquals(1, patches.size)
+    }
+
+    @Test fun confirmedValueWithNothingPendingIsNotSent() {
+        setSlider(0.5f)
+        compose.onNodeWithText("50% 이상").assertIsDisplayed()
+        compose.waitForIdle()
+        assertEquals(0, patches.size)
     }
 }
