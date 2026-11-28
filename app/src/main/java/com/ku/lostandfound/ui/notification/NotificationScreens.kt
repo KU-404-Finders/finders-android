@@ -267,10 +267,8 @@ fun NotificationSettingsScreen(vm: NotificationViewModel, onBack: () -> Unit,
                             }
                             if (settings.similarItemEnabled) {
                                 SettingsRowDivider()
-                                // A failed save leaves `settings` unchanged; the revision still resets the draft to it.
-                                var threshold by remember(settings.similarityThreshold, vm.settingsRevision) {
-                                    mutableFloatStateOf(settings.similarityThreshold.toFloat())
-                                }
+                                // The draft lives in the ViewModel and is tied to its own save (see commitSimilarity).
+                                val threshold = (vm.similarityDraft ?: settings.similarityThreshold).toFloat()
                                 Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text("알림 기준 유사도", Modifier.weight(1f), fontSize = 16.sp)
@@ -278,13 +276,8 @@ fun NotificationSettingsScreen(vm: NotificationViewModel, onBack: () -> Unit,
                                     }
                                     Slider(
                                         value = threshold,
-                                        onValueChange = { threshold = it },
-                                        onValueChangeFinished = {
-                                            val normalized = (threshold * 20).roundToInt() / 20.0
-                                            if (kotlin.math.abs(normalized - settings.similarityThreshold) >= 0.001) {
-                                                vm.updateSettings(NotificationSettingsPatch(similarityThreshold = normalized))
-                                            }
-                                        },
+                                        onValueChange = { vm.editSimilarity(it.toDouble()) },
+                                        onValueChangeFinished = vm::commitSimilarity,
                                         valueRange = 0.05f..1f,
                                         steps = 18,
                                         modifier = Modifier.semantics { contentDescription = "알림 기준 유사도" },

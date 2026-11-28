@@ -161,13 +161,13 @@ internal class LeaveReminderController private constructor(private val context: 
         return needsRecovery(expected).also { Log.i(LOG_TAG, "restore deferred=$it") }
     }
 
-    fun needsRecovery(expected: String?): Boolean =
-        reminderRecoveryNeeded(expected, TokenManager.reminderSession(), settings.value.enabled, status.value,
-            withinWindow = store.recoverySince().let { it == 0L || System.currentTimeMillis() - it < RECOVERY_WINDOW_MS })
+    private val recoveryWindow = RecoveryWindow(store::recoverySince, store::setRecoverySince, System::currentTimeMillis)
 
-    /** Starts the restore job once per outage; the window bounds how long it keeps backing off. */
+    /** Boot and error recovery both decide here, so both share the 24h window from the first outage. */
+    fun needsRecovery(expected: String?): Boolean = recoveryWindow.allows(
+        reminderRecoveryNeeded(expected, TokenManager.reminderSession(), settings.value.enabled, status.value))
+
     private fun scheduleRecovery(active: String) {
-        if (store.recoverySince() == 0L) store.setRecoverySince(System.currentTimeMillis())
         if (!restoring && needsRecovery(active)) LeaveReminderRestoreJob.enqueue(context, active, replace = false)
     }
 
@@ -572,12 +572,31 @@ internal val reminderRestoreDelays = listOf(0L, 10_000L, 30_000L)
 private val recoverableStatuses = setOf(ReminderStatus.LOCATION_DISABLED, ReminderStatus.PLAY_SERVICES,
     ReminderStatus.STARTING, ReminderStatus.ERROR)
 
-internal fun reminderRecoveryNeeded(
-    expected: String?, active: String?, enabled: Boolean, status: ReminderStatus, withinWindow: Boolean = true,
-) = expected != null && active == expected && enabled && status in recoverableStatuses && withinWindow
+internal fun reminderRecoveryNeeded(expected: String?, active: String?, enabled: Boolean, status: ReminderStatus) =
+    expected != null && active == expected && enabled && status in recoverableStatuses
 
 /** JobScheduler backoff caps at 5h; after a day the next app launch restarts monitoring instead. */
 internal const val RECOVERY_WINDOW_MS = 24L * 60 * 60 * 1000
+
+/**
+ * Persisted start of the current outage. The first retry decision in a recoverable state records
+ * it (also on the boot path, where nothing recorded it before); later decisions and new processes
+ * keep it. A non-recoverable state ends the outage and clears it, so the next one starts fresh.
+ */
+internal class RecoveryWindow(
+    private val load: () -> Long,
+    private val save: (Long?) -> Unit,
+    private val now: () -> Long,
+) {
+    fun allows(recoverable: Boolean): Boolean {
+        if (!recoverable) {
+            if (load() != 0L) save(null)
+            return false
+        }
+        val since = load().takeIf { it != 0L } ?: now().also(save)
+        return now() - since < RECOVERY_WINDOW_MS
+    }
+}
 
 internal class RemovalRequests(
     private val elapsed: () -> Long,

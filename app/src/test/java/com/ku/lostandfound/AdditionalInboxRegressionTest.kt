@@ -240,29 +240,4 @@ class AdditionalInboxRegressionTest : StabilityFixture() {
         dispatch()
         assertNull(vm.items.single().readAt)
     }
-
-    @Test fun failedSimilaritySaveKeepsTheSavedValueAndSignalsTheDraftToReset() {
-        vm.loadSettings()
-        dispatch()
-        val saved = checkNotNull(vm.settings)
-        val before = vm.settingsRevision
-        vm.updateSettings(NotificationSettingsPatch(similarityThreshold = 0.8))
-        dispatch()
-        patch.completeExceptionally(java.io.IOException("offline"))
-        dispatch()
-        assertEquals(saved, vm.settings)
-        assertEquals("설정 저장에 실패했습니다.", vm.settingsError)
-        assertEquals(before + 1, vm.settingsRevision)
-    }
-
-    @Test fun previousAccountsSettingsResponseDoesNotTouchTheNewAccountsRevision() {
-        vm.updateSettings(NotificationSettingsPatch(similarityThreshold = 0.8))
-        dispatch()
-        vm.attachAccount(2)
-        val before = vm.settingsRevision
-        patch.complete(settings.copy(similarityThreshold = 0.8))
-        dispatch()
-        assertEquals(before, vm.settingsRevision)
-        assertNotEquals(0.8, vm.settings?.similarityThreshold ?: 0.0, 0.0001)
-    }
 }

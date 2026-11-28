@@ -242,10 +242,52 @@ class LeaveReminderTest {
         }
     }
 
-    @Test fun recoveryStopsOnceTheOutageWindowHasPassed() {
-        assertTrue(reminderRecoveryNeeded("user:1", "user:1", true, ReminderStatus.LOCATION_DISABLED, withinWindow = true))
-        assertFalse(reminderRecoveryNeeded("user:1", "user:1", true, ReminderStatus.LOCATION_DISABLED, withinWindow = false))
-        assertFalse(reminderRecoveryNeeded("user:1", "user:1", true, ReminderStatus.PRECISE_LOCATION, withinWindow = true))
-        assertEquals(24L * 60 * 60 * 1000, RECOVERY_WINDOW_MS)
+    private class FakeClock(var now: Long)
+    private class Stored(var since: Long = 0L)
+    private fun window(stored: Stored, clock: FakeClock) =
+        RecoveryWindow({ stored.since }, { stored.since = it ?: 0L }, { clock.now })
+    private val hour = 60L * 60 * 1000
+
+    @Test fun bootRecoveryWithoutARecordedOutageStillStopsAfterADay() {
+        val stored = Stored()
+        val clock = FakeClock(1_000)
+        // Boot: nothing recorded yet, Play services keeps failing.
+        val needed = reminderRecoveryNeeded("user:1", "user:1", true, ReminderStatus.PLAY_SERVICES)
+        assertTrue(window(stored, clock).allows(needed))
+        assertEquals("first outage time recorded", 1_000, stored.since)
+        clock.now += 23 * hour
+        assertTrue(window(stored, clock).allows(needed))
+        assertEquals("kept across retries and new processes", 1_000, stored.since)
+        clock.now += hour
+        assertFalse("no background retries after 24h", window(stored, clock).allows(needed))
+        assertEquals(24L * hour, RECOVERY_WINDOW_MS)
+    }
+
+    @Test fun everyRecoverableStatusSharesTheWindowAndOthersNeverRecordIt() {
+        for (status in ReminderStatus.entries) {
+            val stored = Stored()
+            val recoverable = reminderRecoveryNeeded("user:1", "user:1", true, status)
+            assertEquals(status.name, recoverable, window(stored, FakeClock(5)).allows(recoverable))
+            assertEquals(status.name, if (recoverable) 5L else 0L, stored.since)
+        }
+    }
+
+    @Test fun recoveredDisabledOrSwitchedAccountsEndTheOutage() {
+        val stored = Stored(since = 1_000)
+        val clock = FakeClock(2_000)
+        // Disabled, signed out or another account: not recoverable, so the record is cleared.
+        for (needed in listOf(
+            reminderRecoveryNeeded("user:1", "user:1", false, ReminderStatus.PLAY_SERVICES),
+            reminderRecoveryNeeded("user:1", "user:2", true, ReminderStatus.PLAY_SERVICES),
+            reminderRecoveryNeeded("user:1", "user:1", true, ReminderStatus.MONITORING),
+        )) {
+            stored.since = 1_000
+            assertFalse(window(stored, clock).allows(needed))
+            assertEquals(0L, stored.since)
+        }
+        // A later outage starts a fresh window.
+        clock.now = 30 * hour
+        assertTrue(window(stored, clock).allows(true))
+        assertEquals(30 * hour, stored.since)
     }
 }

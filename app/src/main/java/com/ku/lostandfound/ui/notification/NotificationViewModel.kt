@@ -16,6 +16,8 @@ import com.ku.lostandfound.network.RetrofitClient
 import com.ku.lostandfound.notification.NotificationInboxRefreshBus
 import com.ku.lostandfound.network.TokenManager
 import kotlinx.coroutines.CancellationException
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -42,8 +44,32 @@ class NotificationViewModel @JvmOverloads constructor(
     var loadingMore by mutableStateOf(false); private set
     var settings by mutableStateOf<NotificationSettingsData?>(null); private set
     var settingsError by mutableStateOf<String?>(null); private set
-    /** Bumped when a settings request for the current account settles, so drafts snap back to `settings`. */
-    var settingsRevision by mutableIntStateOf(0); private set
+    /**
+     * Slider position while the user edits the similarity threshold; null shows `settings`.
+     * Only the similarity save started from the latest edit may clear it, so other settings
+     * requests and older saves never overwrite an edit in progress.
+     */
+    var similarityDraft by mutableStateOf<Double?>(null); private set
+    private var similarityEdit = 0L
+
+    fun editSimilarity(value: Double) {
+        similarityEdit++
+        similarityDraft = value
+    }
+
+    fun commitSimilarity() {
+        val draft = similarityDraft ?: return
+        val normalized = (draft * 20).roundToInt() / 20.0
+        val edit = similarityEdit
+        if (settings?.similarityThreshold?.let { abs(normalized - it) < 0.001 } == true) {
+            similarityDraft = null
+            return
+        }
+        // On success `settings` holds the new value; on failure the last confirmed value shows again.
+        requestSettings(NotificationSettingsPatch(similarityThreshold = normalized)) {
+            if (edit == similarityEdit) similarityDraft = null
+        }
+    }
     var refreshError by mutableStateOf<String?>(null); private set
     internal data class Account(val id: Long, val generation: Long) {
         val settingsMutex = Mutex()
@@ -96,6 +122,8 @@ class NotificationViewModel @JvmOverloads constructor(
         loadingMore = false
         settings = null
         settingsError = null
+        similarityDraft = null
+        similarityEdit++
         refreshError = null
         state = InboxState.Ready
         if (next != null) {
@@ -351,7 +379,7 @@ class NotificationViewModel @JvmOverloads constructor(
 
     fun updateSettings(patch: NotificationSettingsPatch) = requestSettings(patch)
 
-    private fun requestSettings(patch: NotificationSettingsPatch?) {
+    private fun requestSettings(patch: NotificationSettingsPatch?, onSettled: () -> Unit = {}) {
         val owner = account ?: return
         viewModelScope.launch {
             owner.settingsMutex.withLock {
@@ -367,12 +395,12 @@ class NotificationViewModel @JvmOverloads constructor(
                 }
                 if (!current(owner)) return@withLock
                 if (updated != null) settings = updated
-                settingsRevision++
                 settingsError = when {
                     updated != null -> null
                     patch == null -> "알림 설정을 불러오지 못했습니다."
                     else -> "설정 저장에 실패했습니다."
                 }
+                onSettled()
             }
         }
     }
