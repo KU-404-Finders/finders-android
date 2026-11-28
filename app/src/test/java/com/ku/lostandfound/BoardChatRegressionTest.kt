@@ -134,7 +134,7 @@ class BoardChatRegressionTest : StabilityFixture() {
         val first = CompletableDeferred<LostItemCreateResponse>()
         val detail = LostItemData(3, 5, "writer", null, "post", "", "", null, "SEARCHING", emptyList(), emptyList(), "", "")
         val lost = object : LostItemApiService by mock(LostItemApiService::class.java) {
-            override suspend fun getLostItemDetail(id: Long) = Response.success(
+            override suspend fun getLostItemDetail(id: Long, session: com.ku.lostandfound.network.RequestSession?) = Response.success(
                 if (++calls == 1) first.await() else LostItemCreateResponse(true, "", detail)
             )
         }

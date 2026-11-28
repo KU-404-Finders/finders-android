@@ -43,8 +43,9 @@ fun AdminReportDetailScreen(
     isLoading: Boolean = false,
     errorMessage: String? = null,
     onBackClick: () -> Unit,
-    onActionConfirmed: (String) -> Unit,
+    onActionConfirmed: (action: String, note: String) -> Unit,
 ) {
+    var note by remember { mutableStateOf("") }
 
     if (report == null && (isLoading || errorMessage != null)) {
         Column(
@@ -146,8 +147,9 @@ fun AdminReportDetailScreen(
             ) {
                 DetailRow(
                     label = "게시글",
-                    value = report.postTitle,
+                    value = listOfNotNull(report.postKind, report.postTitle).joinToString(" · "),
                 )
+                report.postId?.let { DetailRow(label = "게시글 ID", value = it.toString()) }
             }
 
             Spacer(
@@ -171,6 +173,7 @@ fun AdminReportDetailScreen(
                     label = "신고 사유",
                     value = report.reason,
                 )
+                report.detail?.takeIf { it.isNotBlank() }?.let { DetailRow(label = "상세 내용", value = it) }
 
                 DetailRow(
                     label = "신고 일시",
@@ -192,6 +195,8 @@ fun AdminReportDetailScreen(
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                     )
+                    report.processingNote?.takeIf { it.isNotBlank() }?.let { DetailRow(label = "메모", value = it) }
+                    report.processedAt?.takeIf { it.isNotBlank() }?.let { DetailRow(label = "처리 일시", value = it) }
                 }
             }
 
@@ -212,6 +217,7 @@ fun AdminReportDetailScreen(
 
             Button(
                 onClick = {
+                    note = ""
                     selectedAction = "신고 반려"
                 },
                 enabled = completedAction == null && !isLoading && errorMessage == null,
@@ -235,6 +241,7 @@ fun AdminReportDetailScreen(
 
             Button(
                 onClick = {
+                    note = ""
                     selectedAction = "게시글 삭제"
                 },
                 enabled = completedAction == null && !isLoading && errorMessage == null,
@@ -258,6 +265,7 @@ fun AdminReportDetailScreen(
 
             Button(
                 onClick = {
+                    note = ""
                     selectedAction = "사용자 이용 제한"
                 },
                 enabled = completedAction == null && !isLoading && errorMessage == null,
@@ -278,40 +286,22 @@ fun AdminReportDetailScreen(
     }
 
     selectedAction?.let { action ->
-        val accent = if (action == "게시글 삭제") DangerRed else DeepGreen
-        AlertDialog(
-            onDismissRequest = { selectedAction = null },
-            title = {
-                Text("$action 처리", color = Color(0xFF202A22), fontWeight = FontWeight.Bold)
+        AdminAlert(
+            title = "$action 처리",
+            message = "이 신고를 '$action' 상태로 처리하시겠습니까?",
+            confirmText = "처리",
+            confirmColor = if (action == "게시글 삭제") DangerRed else DeepGreen,
+            onDismiss = { selectedAction = null },
+            onConfirm = {
+                onActionConfirmed(action, note)
+                selectedAction = null
             },
-            text = {
-                Text("이 신고를 '$action' 상태로 처리하시겠습니까?", color = Color(0xFF536156))
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        onActionConfirmed(action)
-                        selectedAction = null
-                    },
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Color.White),
-                ) {
-                    Text("처리하기", fontWeight = FontWeight.SemiBold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { selectedAction = null }) {
-                    Text("취소", color = Color(0xFF627367))
-                }
-            },
-            shape = RoundedCornerShape(20.dp),
-            containerColor = Color.White,
-            titleContentColor = Color(0xFF202A22),
-            textContentColor = Color(0xFF536156),
+            working = isLoading,
+            note = note,
+            onNoteChange = { note = it },
+            notePlaceholder = "처리 메모 (선택, 1000자 이하)",
         )
     }
-
-
 }
 
 @Composable

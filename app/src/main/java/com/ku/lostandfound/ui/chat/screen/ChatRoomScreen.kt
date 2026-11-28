@@ -4,7 +4,12 @@ package com.ku.lostandfound.ui.chat.screen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -19,7 +24,9 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,9 +45,10 @@ import com.ku.lostandfound.ui.chat.ChatTimeFormatter
 import com.ku.lostandfound.ui.component.noRippleClickable
 
 private val DeepGreen = Color(0xFF1B6425)
-private val FieldGray = Color(0xFFF4F4F4)
+// iOS ChatColors.
+private val FieldGray = Color(0xFFF2F4F2)
+private val IncomingColor = Color(0xFFF1F3F1)
 private val TextGray = Color(0xFF8A8A8A)
-private val MyMessageColor = Color(0xFFE5F5E8)
 
 @Composable
 fun ChatRoomScreen(
@@ -61,6 +69,7 @@ fun ChatRoomScreen(
     onViewPost: () -> Unit = {},
     onBlockUser: () -> Unit = {},
     onLeaveRoom: () -> Unit = {},
+    roomSubtitle: String? = null,
 ) {
     val listState = rememberLazyListState()
 
@@ -84,21 +93,31 @@ fun ChatRoomScreen(
             .fillMaxSize()
             .background(Color.White)
     ) {
+        // iOS FinderNavBar with subtitle: chevron, title/subtitle that opens the post, ellipsis menu.
         Row(
             modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onBackClick) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "뒤로가기", tint = DeepGreen)
+            IconButton(onClick = onBackClick, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "뒤로가기", tint = Color.Black, modifier = Modifier.size(30.dp))
             }
-            Text(
-                text = roomTitle?.takeIf { it.isNotBlank() } ?: "채팅",
-                modifier = Modifier.weight(1f).noRippleClickable { if (hasLinkedPost) onViewPost() },
-                color = Color(0xFF222222), fontSize = 17.sp, fontWeight = FontWeight.Bold,
-            )
+            Column(
+                Modifier.weight(1f).heightIn(min = 48.dp)
+                    .clickable(enabled = hasLinkedPost, role = Role.Button, onClickLabel = "게시글 보기") { onViewPost() },
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    text = roomTitle?.takeIf { it.isNotBlank() } ?: "채팅",
+                    color = Color(0xFF1E1E1E), fontSize = if (roomSubtitle == null) 20.sp else 17.sp, fontWeight = FontWeight.Bold,
+                    maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+                roomSubtitle?.let {
+                    Text(it, color = TextGray, fontSize = 12.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                }
+            }
             Box {
-                IconButton(onClick = { menuExpanded = true }) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "더보기", tint = DeepGreen)
+                IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Default.MoreHoriz, contentDescription = "더보기", tint = Color(0xFF222222))
                 }
                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                     DropdownMenuItem(
@@ -119,20 +138,19 @@ fun ChatRoomScreen(
             }
         }
 
-        // 기존 상단바 아래의 중복 제목은 제거함
+        HorizontalDivider(thickness = 0.5.dp, color = Color.Black.copy(alpha = 0.06f))
 
         if (!isConnected || connectionMessage != null) {
             Text(
                 text = connectionMessage
-                    ?: "실시간 채팅 연결 중...",
+                    ?: "실시간 채팅에 연결하는 중입니다…",
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(
-                        horizontal = 16.dp,
-                        vertical = 8.dp
-                    ),
-                color = Color(0xFFD32F2F),
+                    .background(Color(0xFFFFF4E0))
+                    .padding(horizontal = 16.dp, vertical = 9.dp),
+                color = Color(0xFF8A5A00),
                 fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
             )
         }
 
@@ -161,10 +179,10 @@ fun ChatRoomScreen(
 
                 messages.isEmpty() -> {
                     Text(
-                        text = "아직 메시지가 없습니다.",
-                        modifier = Modifier.align(Alignment.Center),
+                        text = "첫 메시지를 보내 대화를 시작해보세요.",
+                        modifier = Modifier.align(Alignment.Center).padding(horizontal = 32.dp),
                         color = TextGray,
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                     )
                 }
 
@@ -178,30 +196,20 @@ fun ChatRoomScreen(
                             vertical = 16.dp
                         ),
                         verticalArrangement =
-                            Arrangement.spacedBy(12.dp),
+                            Arrangement.spacedBy(10.dp),
                     ) {
-                        items(
+                        itemsIndexed(
                             items = messages,
-                            key = { it.id }
-                        ) { message ->
-
-                            val isMine =
-                                currentUserId != null &&
-                                        message.senderId == currentUserId
-
-                            val senderName =
-                                if (postAuthorId != null &&
-                                    message.senderId == postAuthorId
-                                ) {
-                                    postAuthorName
-                                } else {
-                                    null
-                                }
-
+                            key = { _, message -> message.id }
+                        ) { index, message ->
+                            val previous = messages.getOrNull(index - 1)
+                            val sameDay = previous != null &&
+                                ChatTimeFormatter.dayKey(previous.createdAt) == ChatTimeFormatter.dayKey(message.createdAt)
+                            if (!sameDay) DaySeparator(message.createdAt)
                             ChatMessageBubble(
                                 message = message,
-                                isMine = isMine,
-                                senderName = senderName,
+                                isMine = currentUserId != null && message.senderId == currentUserId,
+                                continued = sameDay && previous?.senderId == message.senderId,
                             )
                         }
                     }
@@ -209,16 +217,13 @@ fun ChatRoomScreen(
             }
         }
 
+        HorizontalDivider(thickness = 0.5.dp, color = Color.Black.copy(alpha = 0.06f))
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .imePadding()
                 .background(Color.White)
-                .padding(
-                    horizontal = 16.dp,
-                    vertical = 10.dp
-                ),
-            verticalAlignment = Alignment.CenterVertically,
+                .padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.Bottom,
         ) {
             TextField(
                 value = messageText,
@@ -231,16 +236,17 @@ fun ChatRoomScreen(
                 placeholder = {
                     Text(
                         text = if (isConnected) {
-                            "메시지를 입력하세요."
+                            "메시지를 입력하세요"
                         } else {
-                            "서버 연결을 기다리는 중..."
+                            "서버 연결을 기다리는 중…"
                         },
-                        fontSize = 13.sp,
+                        fontSize = 15.sp,
                         color = TextGray,
                     )
                 },
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp),
+                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp),
+                maxLines = 5,
+                shape = RoundedCornerShape(22.dp),
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = FieldGray,
                     unfocusedContainerColor = FieldGray,
@@ -251,34 +257,22 @@ fun ChatRoomScreen(
                 ),
                 modifier = Modifier
                     .weight(1f)
-                    .height(56.dp),
+                    .heightIn(min = 48.dp),
             )
 
             Spacer(Modifier.width(10.dp))
 
             Box(
                 modifier = Modifier
-                    .size(42.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(
-                        if (canSend) DeepGreen
-                        else Color(0xFFB7CBB9)
-                    )
-                    .noRippleClickable {
-                        if (canSend &&
-                            onSendMessage(messageText)
-                        ) {
-                            messageText = ""
-                        }
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(if (canSend) DeepGreen else Color(0xFFC8D6CA))
+                    .clickable(enabled = canSend, role = Role.Button, onClickLabel = "보내기") {
+                        if (onSendMessage(messageText)) messageText = ""
                     },
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "➤",
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                )
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "보내기", tint = Color.White, modifier = Modifier.size(20.dp))
             }
         }
 
@@ -301,91 +295,72 @@ fun ChatRoomScreen(
 
 
 @Composable
+private fun DaySeparator(createdAt: String) {
+    Box(Modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
+        Text(
+            ChatTimeFormatter.formatDayLabel(createdAt),
+            color = TextGray, fontSize = 11.sp, fontWeight = FontWeight.Medium,
+            modifier = Modifier.background(FieldGray, CircleShape).padding(horizontal = 12.dp, vertical = 5.dp),
+        )
+    }
+}
+
+// iOS messageBubble: green outgoing / grey incoming, metadata beside the bubble, tail corner on the first of a run.
+@Composable
 private fun ChatMessageBubble(
     message: ChatMessageResponse,
     isMine: Boolean,
-    senderName: String?,
+    continued: Boolean,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isMine) {
-            Arrangement.End
-        } else {
-            Arrangement.Start
-        }
+        modifier = Modifier.fillMaxWidth().padding(
+            start = if (isMine) 48.dp else 0.dp,
+            end = if (isMine) 0.dp else 48.dp,
+            top = if (continued) 0.dp else 6.dp,
+        ),
+        horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
+        verticalAlignment = Alignment.Bottom,
     ) {
-        Column(
-            horizontalAlignment = if (isMine) {
-                Alignment.End
-            } else {
-                Alignment.Start
-            }
-        ) {
-            if (!isMine) {
-                Text(
-                    text = senderName
-                        ?.takeIf { it.isNotBlank() }
-                        ?: "상대방",
-                    color = TextGray,
-                    fontSize = 11.sp
-                )
-                Spacer(Modifier.height(4.dp))
-            }
-
-            Box(
-                modifier = Modifier
-                    .widthIn(max = 280.dp)
-                    .clip(
-                        RoundedCornerShape(
-                            topStart = 16.dp,
-                            topEnd = 16.dp,
-                            bottomStart =
-                                if (isMine) 16.dp else 4.dp,
-                            bottomEnd =
-                                if (isMine) 4.dp else 16.dp,
-                        )
-                    )
-                    .background(
-                        if (isMine) MyMessageColor
-                        else FieldGray
-                    )
-                    .padding(
-                        horizontal = 14.dp,
-                        vertical = 10.dp
-                    )
-            ) {
-                Text(
-                    text = message.content,
-                    color = Color(0xFF222222),
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp
-                )
-            }
-
-            Spacer(Modifier.height(4.dp))
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement =
-                    Arrangement.spacedBy(6.dp),
-            ) {
-                Text(
-                    text = ChatTimeFormatter.formatTime(
-                        message.createdAt
-                    ),
-                    color = TextGray,
-                    fontSize = 10.sp
-                )
-
-                if (isMine && message.unreadCount > 0) {
-                    Text(
-                        text = message.unreadCount.toString(),
-                        color = TextGray,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
+        if (isMine) {
+            MessageMeta(message, mine = true)
+            Spacer(Modifier.width(6.dp))
         }
+        Box(
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .widthIn(max = 320.dp)
+                .clip(
+                    RoundedCornerShape(
+                        topStart = if (isMine || continued) 18.dp else 6.dp,
+                        topEnd = if (isMine && !continued) 6.dp else 18.dp,
+                        bottomStart = 18.dp,
+                        bottomEnd = 18.dp,
+                    )
+                )
+                .background(if (isMine) DeepGreen else IncomingColor)
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+        ) {
+            Text(
+                text = message.content,
+                color = if (isMine) Color.White else Color(0xFF222222),
+                fontSize = 15.sp,
+                lineHeight = 21.sp
+            )
+        }
+        if (!isMine) {
+            Spacer(Modifier.width(6.dp))
+            MessageMeta(message, mine = false)
+        }
+    }
+}
+
+@Composable
+private fun MessageMeta(message: ChatMessageResponse, mine: Boolean) {
+    Column(horizontalAlignment = if (mine) Alignment.End else Alignment.Start, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        if (mine) {
+            val read = message.unreadCount == 0
+            Text(if (read) "읽음" else "안읽음", color = if (read) DeepGreen else TextGray, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+        }
+        Text(ChatTimeFormatter.formatTime(message.createdAt), color = TextGray, fontSize = 10.sp)
     }
 }

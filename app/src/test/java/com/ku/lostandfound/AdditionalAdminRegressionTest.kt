@@ -222,4 +222,41 @@ class AdditionalAdminRegressionTest : StabilityFixture() {
         assertNull(vm.selectedReport)
         assertNull(vm.dashboard)
     }
+
+    @Test fun reportStatusFilterIsSentAndNotesAndReasonsAreTrimmedForTheServer() {
+        val statuses = mutableListOf<String?>()
+        val notes = mutableListOf<String?>()
+        val reasons = mutableListOf<String?>()
+        val user = AdminUser(1, "", "name", "USER", false, createdAt = "")
+        val api = object : AdminApiService by mock(AdminApiService::class.java) {
+            override suspend fun report(id: Long) = ok(report)
+            override suspend fun user(id: Long) = ok(user)
+            override suspend fun reports(status: String?, page: Int, size: Int): Response<ApiResponse<AdminPage<AdminReport>>> {
+                statuses += status; return ok(AdminPage(emptyList(), 0, 20, false))
+            }
+            override suspend fun processReport(id: Long, request: ProcessAdminReportRequest): Response<ApiResponse<AdminReport>> {
+                notes += request.note; return ok(report.copy(isProcessed = true))
+            }
+            override suspend fun setSuspension(id: Long, request: AdminSuspensionRequest): Response<ApiResponse<AdminUser>> {
+                reasons += request.reason; return ok(user.copy(suspended = request.suspended))
+            }
+            override suspend fun users(keyword: String?, page: Int, size: Int) = ok(AdminPage(listOf(user), 0, 20, false))
+            override suspend fun dashboard() = ok(AdminDashboard(0, 0, 0, 0))
+        }
+        val vm = keep(AdminViewModel(api))
+        vm.loadReports(); dispatch()
+        vm.selectReportStatus(null); dispatch()
+        vm.selectReportStatus("ACTION_TAKEN"); dispatch()
+        assertEquals(listOf("RECEIVED", null, "ACTION_TAKEN"), statuses.take(3))
+        vm.loadReport(1); dispatch()
+        vm.processReport(1, "DISMISS_REPORT", "  중복 신고  ") {}; dispatch()
+        vm.loadReport(1); dispatch()
+        vm.processReport(1, "DISMISS_REPORT", "   ") {}; dispatch()
+        assertEquals(listOf("중복 신고", null), notes)
+        vm.loadUser(1); dispatch()
+        vm.setUserSuspension(1, true, "x".repeat(1200)) {}; dispatch()
+        assertEquals(1000, reasons.single()!!.length)
+        vm.clearSession()
+        assertEquals("RECEIVED", vm.reportStatus)
+    }
 }

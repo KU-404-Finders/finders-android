@@ -6,6 +6,8 @@ from pathlib import Path
 PACKAGES = ("com.ku.lostandfound.network.", "okhttp3.", "okio.", "retrofit2.", "kotlin.")
 CLASSES = {
     "okhttp3.Interceptor", "okhttp3.OkHttpClient", "okhttp3.Protocol", "okhttp3.Response",
+    "okhttp3.Headers", "okhttp3.MultipartBody$Part", "okhttp3.RequestBody",
+    "okhttp3.RequestBody$Companion$toRequestBody$2", "okio.BufferedSink",
     "okhttp3.Response$Builder", "okhttp3.internal.http.RealInterceptorChain",
     "okhttp3.internal.http.RealResponseBody", "okio.Buffer", "retrofit2.Response",
     "kotlin.coroutines.Continuation", "kotlin.coroutines.EmptyCoroutineContext",

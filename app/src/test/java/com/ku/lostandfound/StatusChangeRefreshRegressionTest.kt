@@ -7,6 +7,7 @@ import com.ku.lostandfound.ui.found.viewmodel.*
 import com.ku.lostandfound.ui.lost.viewmodel.*
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancel
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
@@ -30,12 +31,24 @@ class StatusChangeRefreshRegressionTest : StabilityFixture() {
         val filters = mutableListOf<String?>()
         val lists = mutableListOf<CompletableDeferred<FoundItemListResponse>>()
         val status = CompletableDeferred<FoundItemDetailResponse>()
+        var httpStatus: Int? = null
+        var detailReads = 0
+        var writeSession: Long? = null
         val api = object : FoundItemApiService by mock(FoundItemApiService::class.java) {
             override suspend fun getFoundItems(buildingName: String?): Response<FoundItemListResponse> {
                 filters += buildingName
                 return Response.success(CompletableDeferred<FoundItemListResponse>().also(lists::add).await())
             }
-            override suspend fun updateFoundItemStatus(authorization: String, id: Long) = Response.success(status.await())
+            override suspend fun updateFoundItemStatus(authorization: String, id: Long, session: RequestSession?): Response<FoundItemDetailResponse> {
+                writeSession = session?.generation
+                return httpStatus?.let { Response.error(it, "fixture".toResponseBody()) }
+                    ?: Response.success(status.await())
+            }
+            override suspend fun getFoundItemDetail(id: Long, session: RequestSession?): Response<FoundItemDetailResponse> {
+                assertEquals(writeSession, session?.generation)
+                detailReads++
+                return Response.success(FoundItemDetailResponse(true, "", foundDetail()))
+            }
         }
         val vm = FoundItemViewModel(api) { 0L }.also(models::add)
         var callbacks = 0
@@ -53,9 +66,21 @@ class StatusChangeRefreshRegressionTest : StabilityFixture() {
     private inner class Lost {
         val lists = mutableListOf<CompletableDeferred<LostItemListResponse>>()
         val status = CompletableDeferred<LostItemCreateResponse>()
+        var detailReads = 0
+        var writeSession: Long? = null
+        var verificationSucceeds = true
         val api = object : LostItemApiService by mock(LostItemApiService::class.java) {
             override suspend fun getLostItems() = Response.success(CompletableDeferred<LostItemListResponse>().also(lists::add).await())
-            override suspend fun markLostItemReturned(authorization: String, id: Long) = Response.success(status.await())
+            override suspend fun markLostItemReturned(authorization: String, id: Long, session: RequestSession?): Response<LostItemCreateResponse> {
+                writeSession = session?.generation
+                return Response.success(status.await())
+            }
+            override suspend fun getLostItemDetail(id: Long, session: RequestSession?): Response<LostItemCreateResponse> {
+                assertEquals(writeSession, session?.generation)
+                detailReads++
+                if (!verificationSucceeds) throw java.io.IOException("offline")
+                return Response.success(LostItemCreateResponse(true, "", lostDetail()))
+            }
         }
         val vm = LostItemViewModel(api) { 0L }.also(models::add)
         var callbacks = 0
@@ -66,6 +91,52 @@ class StatusChangeRefreshRegressionTest : StabilityFixture() {
         fun finishList(index: Int, vararg rows: LostItemSummaryData) {
             lists[index].complete(LostItemListResponse(true, "", rows.toList())); dispatch()
         }
+    }
+
+    @Test fun foundConflictReloadsResolvedDetailWithTheOriginalSession() {
+        val h = Found()
+        h.httpStatus = 409
+        h.changeStatus()
+        assertEquals(TokenManager.sessionGeneration(), h.writeSession)
+        assertEquals(1, h.detailReads)
+        assertEquals(1, h.callbacks)
+        assertEquals(com.ku.lostandfound.data.PostStatus.RESOLVED, h.vm.detailPost?.status)
+    }
+
+    @Test fun foundForbiddenDoesNotTreatAnotherFailureAsSuccess() {
+        val h = Found()
+        h.httpStatus = 403
+        h.changeStatus()
+        assertEquals(0, h.detailReads)
+        assertEquals(0, h.callbacks)
+        assertTrue(h.vm.uiState is FoundItemUiState.Error)
+    }
+
+    @Test fun lostTransportFailureRechecksStatusAndKeepsTheActionLockedUntilItFinishes() {
+        val h = Lost()
+        h.changeStatus()
+        assertTrue(h.vm.isResolving(1))
+        h.vm.markReturned(1) { fail("Duplicate resolution callback") }
+        h.status.completeExceptionally(java.io.IOException("response lost"))
+        dispatch()
+        assertEquals(TokenManager.sessionGeneration(), h.writeSession)
+        assertEquals(1, h.detailReads)
+        assertEquals(1, h.callbacks)
+        assertFalse(h.vm.isResolving(1))
+        assertEquals(com.ku.lostandfound.data.PostStatus.RESOLVED, h.vm.detailPost?.status)
+    }
+
+    @Test fun lostUnreachableVerificationShowsAnUnconfirmedResult() {
+        val h = Lost()
+        h.verificationSucceeds = false
+        var message: String? = null
+        h.vm.markReturned(1, onError = { message = it }) { fail("Unverified resolution") }
+        dispatch()
+        h.status.completeExceptionally(java.io.IOException("response lost"))
+        dispatch()
+        assertEquals(1, h.detailReads)
+        assertTrue(message.orEmpty().contains("확인하지 못했습니다"))
+        assertFalse(h.vm.isResolving(1))
     }
 
     @Test fun foundStatusDuringBuildingRequestReloadsSameBuildingAndRejectsOldRows() {

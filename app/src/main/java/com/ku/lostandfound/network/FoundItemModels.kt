@@ -25,6 +25,14 @@ data class FoundItemDetailResponse(
     val errors: Map<String, String>? = null,
 )
 
+// Create-only: a missing `success` must stay distinguishable from an explicit `false`.
+data class FoundItemCreatedResponse(
+    val success: Boolean?,
+    val message: String?,
+    val data: FoundItemDetailData?,
+    val errors: Map<String, String>? = null,
+)
+
 data class FoundItemDetailData(
     val id: Long,
     val userId: Long,

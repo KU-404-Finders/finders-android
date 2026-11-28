@@ -75,5 +75,23 @@ object ChatTimeFormatter {
             ?: runCatching { LocalDateTime.parse(value).atZone(koreaZone).toInstant() }.getOrNull()
     }
 
+    /** iOS chatDayLabel: "오늘" or "2026년 11월 28일 금요일" (KST). */
+    fun formatDayLabel(raw: String?): String {
+        val dateTime = parseToKst(raw) ?: return raw?.take(10).orEmpty()
+        val date = dateTime.toLocalDate()
+        return if (date == LocalDate.now(koreaZone)) "오늘"
+        else date.format(DateTimeFormatter.ofPattern("yyyy년 M월 d일 EEEE", Locale.KOREAN))
+    }
+
+    fun dayKey(raw: String?): String? = parseToKst(raw)?.toLocalDate()?.toString() ?: raw?.take(10)
+
+    /** "3분 전" style label like iOS RelativeDateTimeFormatter; empty when the time does not parse. */
+    fun formatRelative(raw: String?, now: Long = System.currentTimeMillis()): String {
+        val millis = instant(raw)?.toEpochMilli() ?: return ""
+        return android.text.format.DateUtils.getRelativeTimeSpanString(
+            millis, now, android.text.format.DateUtils.MINUTE_IN_MILLIS,
+        ).toString()
+    }
+
     fun compareNewest(first: String?, second: String?): Int = compareValues(instant(first), instant(second))
 }

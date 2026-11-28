@@ -1,5 +1,7 @@
 package com.ku.lostandfound.ui.navigation
 
+import com.ku.lostandfound.data.PostType
+
 sealed class Route(val route: String) {
     object Login : Route(route = "login")
     object SignupCode : Route(route = "SignupCode")
@@ -16,6 +18,7 @@ sealed class Route(val route: String) {
     object Lost : Route(route = "lost")
     object Board : Route(route = "board")
     object Profile : Route(route = "profile")
+    object LeaveReminder : Route(route = "leaveReminder")
     object BlockedUsers : Route(route = "blockedUsers")
     object MyLostPosts : Route(route = "myPosts/lost")
     object MyFoundPosts : Route(route = "myPosts/found")
@@ -25,9 +28,16 @@ sealed class Route(val route: String) {
     object NotificationSettings : Route(route = "notificationSettings")
 
     object PostWrite : Route(route = "postWrite")
-    object PostEdit : Route(route = "postEdit/{postId}") {
+    object PostEdit : Route(route = "postEdit/{postType}/{postId}") {
+        const val ARG_POST_TYPE = "postType"
         const val ARG_POST_ID = "postId"
-        fun create(postId: String): String = "postEdit/$postId"
+        fun create(postId: Long, postType: PostType): String =
+            "postEdit/${postType.name}/$postId"
+
+        fun parse(postType: String?, postId: Long?): Pair<PostType, Long>? {
+            val type = PostType.entries.firstOrNull { it.name == postType } ?: return null
+            return postId?.takeIf { it > 0 }?.let { type to it }
+        }
     }
     object PostDetail : Route(route = "postDetail/{postType}/{postId}") {
         const val ARG_POST_TYPE = "postType"

@@ -21,16 +21,19 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.content.edit
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.google.firebase.messaging.FirebaseMessaging
 import com.ku.lostandfound.network.TokenManager
+import com.ku.lostandfound.reminder.refreshLeaveReminders
 import com.ku.lostandfound.notification.FindersNotificationHelper
 import com.ku.lostandfound.notification.PushDeviceManager
 import com.ku.lostandfound.ui.navigation.AppBottomBar
 import com.ku.lostandfound.ui.navigation.MainNavGraph
+import com.ku.lostandfound.ui.navigation.PostEditRestore
 import com.ku.lostandfound.ui.navigation.isPublicRoute
 import com.ku.lostandfound.ui.navigation.Route
 import com.ku.lostandfound.ui.navigation.navigateToMainTab
@@ -39,6 +42,7 @@ import android.content.Intent
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.ku.lostandfound.notification.NotificationTarget
+import com.ku.lostandfound.notification.PendingNotification
 import androidx.compose.ui.graphics.Color
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
@@ -58,53 +62,74 @@ class MainActivity : ComponentActivity() {
             )
         }
 
-    private var pendingNotificationTarget
-            by mutableStateOf<NotificationTarget?>(null)
-
+    private var pendingNotification by mutableStateOf<PendingNotification?>(null)
+    private val consumedNotifications = linkedSetOf<String>()
     private var navigationKey = 0
-    private var pendingNotificationOwner: String? = null
+    private var restoredEdit by mutableStateOf<PostEditRestore?>(null)
     private var activeController: androidx.navigation.NavHostController? = null
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putInt("navigationKey", navigationKey)
         outState.putBoolean("publicDestination", isPublicRoute(activeController?.currentDestination?.route))
-        pendingNotificationTarget?.let { target ->
-            outState.putBundle("pendingNotification", Intent().also { target.putInto(it) }.extras)
-            outState.putString("pendingNotificationOwner", pendingNotificationOwner)
+        outState.putString("navigationOwner", TokenManager.reminderSession())
+        pendingNotification?.let { pending ->
+            outState.putBundle("pendingNotification", Intent().also { pending.target.putInto(it) }.extras)
+            outState.putString("pendingNotificationOwner", pending.owner)
+            outState.putString("pendingNotificationDelivery", pending.delivery)
+            pending.recipientUserId?.let { outState.putLong("pendingNotificationRecipient", it) }
         }
+        outState.putStringArrayList("consumedNotifications", ArrayList(consumedNotifications))
+        val nav = activeController
+        val entry = nav?.currentBackStackEntry
+        val editEntry = if (entry?.destination?.route == Route.LocationPicker.route) nav.previousBackStackEntry else entry
+        val edit = restoredEdit ?: PostEditRestore.fromEntry(editEntry)
+        edit?.takeIf(PostEditRestore::belongsToCurrentSession)?.let { outState.putBundle("postEditRestore", it.toBundle()) }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshLeaveReminders(applicationContext)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
-
-        TokenManager.init(applicationContext)
-        if (savedInstanceState == null) {
-            pendingNotificationTarget =
-                NotificationTarget.fromIntent(intent)
-            pendingNotificationOwner = com.ku.lostandfound.notification.notificationAccountKey(TokenManager.accessToken, TokenManager.sessionGeneration())
-        } else {
-            pendingNotificationTarget = savedInstanceState.getBundle("pendingNotification")?.let {
-                NotificationTarget.fromIntent(Intent().putExtras(it))
-            }
-            pendingNotificationOwner = savedInstanceState.getString("pendingNotificationOwner")
-        }
-
-        TokenManager.init(applicationContext)
-        if (savedInstanceState != null) {
-            navigationKey = savedInstanceState.getInt("navigationKey")
-            if (!savedInstanceState.getBoolean("publicDestination") &&
-                (!TokenManager.hasTokens() || TokenManager.isAccessTokenExpired())
-            ) navigationKey++
-        }
-        PushDeviceManager.init(applicationContext)
-        FindersNotificationHelper.createChannel(applicationContext)
-
         enableEdgeToEdge()
         WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = true
             isAppearanceLightNavigationBars = true
+        }
+
+        TokenManager.init(applicationContext)
+        if (savedInstanceState == null) {
+            queueNotification(intent)
+        } else {
+            consumedNotifications.addAll(savedInstanceState.getStringArrayList("consumedNotifications").orEmpty())
+            pendingNotification = savedInstanceState.getBundle("pendingNotification")?.let {
+                NotificationTarget.fromIntent(Intent().putExtras(it))
+            }?.let { target -> PendingNotification(target, savedInstanceState.getString("pendingNotificationOwner"),
+                savedInstanceState.getString("pendingNotificationDelivery"),
+                savedInstanceState.getLong("pendingNotificationRecipient").takeIf { it > 0 }) }
+        }
+
+        if (savedInstanceState != null) {
+            navigationKey = savedInstanceState.getInt("navigationKey")
+            val savedEdit = PostEditRestore.fromBundle(savedInstanceState.getBundle("postEditRestore"))
+            val ownsEdit = savedEdit?.belongsToCurrentSession() == true
+            val needsFreshNavigation = savedEdit != null && !ownsEdit ||
+                !savedInstanceState.getBoolean("publicDestination") &&
+                (!TokenManager.hasTokens() || TokenManager.isAccessTokenExpired() ||
+                    savedInstanceState.getString("navigationOwner") != TokenManager.reminderSession())
+            if (needsFreshNavigation) {
+                navigationKey++
+                restoredEdit = savedEdit?.takeIf { ownsEdit }
+            }
+        }
+        PushDeviceManager.init(applicationContext)
+        FindersNotificationHelper.createChannel(applicationContext)
+        synchronized(TokenManager) {
+            if (!TokenManager.hasTokens()) FindersNotificationHelper.cancelRemoteNotifications(applicationContext)
         }
 
         // FID 기반 FCM 등록을 시작한다. 성공 FID는 onRegistered에서만 서버에 전달한다.
@@ -141,82 +166,79 @@ class MainActivity : ComponentActivity() {
                     Route.Profile.route,
                 )
 
-                LaunchedEffect(
-                    pendingNotificationTarget,
-                    currentRoute
-                ) {
-                    val target = pendingNotificationTarget
-                        ?: return@LaunchedEffect
+                val sessionGeneration by TokenManager.sessionChanges.collectAsState()
+                LaunchedEffect(pendingNotification, currentRoute, sessionGeneration, restoredEdit) {
+                    if (restoredEdit != null) return@LaunchedEffect
+                    val queued = pendingNotification ?: return@LaunchedEffect
+                    synchronized(TokenManager) {
+                        val session = TokenManager.reminderSession()
+                        val current = queued.forSession(session, TokenManager.tokenUserId(TokenManager.accessToken))
+                        pendingNotification = current
+                        if (current == null || session == null || currentRoute == null || isPublicRoute(currentRoute)) {
+                            return@synchronized
+                        }
+                        pendingNotification = null
+                        current.delivery?.let { id ->
+                            if (!consumedNotifications.add(id)) return@synchronized
+                            if (consumedNotifications.size > 32) consumedNotifications.remove(consumedNotifications.first())
+                        }
+                        val target = current.target
 
-                    // 로그아웃 상태라면 로그인 완료 후 이동
-                    if (
-                        !TokenManager.isLoggedIn() ||
-                        currentRoute == null ||
-                        isPublicRoute(currentRoute)
-                    ) {
-                        return@LaunchedEffect
-                    }
+                        when (target) {
 
-                    // 중복 이동 방지
-                    pendingNotificationTarget = null
-                    val owner = pendingNotificationOwner
-                    pendingNotificationOwner = null
-                    if (owner != null && owner != com.ku.lostandfound.notification.notificationAccountKey(TokenManager.accessToken, TokenManager.sessionGeneration())) return@LaunchedEffect
+                            is NotificationTarget.Chat -> {
 
-                    when (target) {
+                                val alreadyOpened =
+                                    currentRoute == Route.ChatRoom.route &&
+                                            backStackEntry?.arguments?.getLong(
+                                                Route.ChatRoom.ARG_ROOM_ID
+                                            ) == target.roomId
 
-                        is NotificationTarget.Chat -> {
+                                if (!alreadyOpened) {
+                                    // 뒤로 가면 채팅 목록으로 돌아가도록 처리
+                                    navController.navigateToMainTab(
+                                        Route.ChatList.route
+                                    )
 
-                            val alreadyOpened =
-                                currentRoute == Route.ChatRoom.route &&
-                                        backStackEntry?.arguments?.getLong(
-                                            Route.ChatRoom.ARG_ROOM_ID
-                                        ) == target.roomId
-
-                            if (!alreadyOpened) {
-                                // 뒤로 가면 채팅 목록으로 돌아가도록 처리
-                                navController.navigateToMainTab(
-                                    Route.ChatList.route
-                                )
-
-                                navController.navigate(
-                                    Route.ChatRoom.create(target.roomId)
-                                ) {
-                                    launchSingleTop = true
+                                    navController.navigate(
+                                        Route.ChatRoom.create(target.roomId)
+                                    ) {
+                                        launchSingleTop = true
+                                    }
                                 }
                             }
-                        }
 
-                        is NotificationTarget.Post -> {
+                            is NotificationTarget.Post -> {
 
-                            val alreadyOpened =
-                                currentRoute == Route.PostDetail.route &&
-                                        backStackEntry?.arguments?.getString(
-                                            Route.PostDetail.ARG_POST_ID
-                                        ) == target.postId.toString() &&
-                                        backStackEntry!!.arguments?.getString(
-                                            Route.PostDetail.ARG_POST_TYPE
-                                        ) == target.postType
+                                val alreadyOpened =
+                                    currentRoute == Route.PostDetail.route &&
+                                            backStackEntry?.arguments?.getString(
+                                                Route.PostDetail.ARG_POST_ID
+                                            ) == target.postId.toString() &&
+                                            backStackEntry!!.arguments?.getString(
+                                                Route.PostDetail.ARG_POST_TYPE
+                                            ) == target.postType
 
-                            if (!alreadyOpened) {
+                                if (!alreadyOpened) {
 
-                                val boardRoute =
-                                    if (target.postType == "LOST") {
-                                        Route.Lost.route
-                                    } else {
-                                        Route.Found.route
+                                    val boardRoute =
+                                        if (target.postType == "LOST") {
+                                            Route.Lost.route
+                                        } else {
+                                            Route.Found.route
+                                        }
+
+                                    // 뒤로 가면 해당 게시판으로 돌아감
+                                    navController.navigateToMainTab(boardRoute)
+
+                                    navController.navigate(
+                                        Route.PostDetail.create(
+                                            postId = target.postId.toString(),
+                                            postTypeName = target.postType
+                                        )
+                                    ) {
+                                        launchSingleTop = true
                                     }
-
-                                // 뒤로 가면 해당 게시판으로 돌아감
-                                navController.navigateToMainTab(boardRoute)
-
-                                navController.navigate(
-                                    Route.PostDetail.create(
-                                        postId = target.postId.toString(),
-                                        postTypeName = target.postType
-                                    )
-                                ) {
-                                    launchSingleTop = true
                                 }
                             }
                         }
@@ -258,6 +280,7 @@ class MainActivity : ComponentActivity() {
                     containerColor = Color.White,
                     contentWindowInsets = WindowInsets.safeDrawing,
                     bottomBar = {
+                        // NavigationBar handles its own system bars and cutout insets.
                         if (currentRoute in mainRoutes && !isImeVisible) {
                             AppBottomBar(
                                 unreadChatCount = chatViewModel.unreadMessageTotal,
@@ -274,6 +297,8 @@ class MainActivity : ComponentActivity() {
                         navController = navController,
                         padding = innerPadding,
                         isFreshLaunch = savedInstanceState == null,
+                        restoredEdit = restoredEdit,
+                        onRestoredEditHandled = { restoredEdit = null },
                     )
                 }
                 }
@@ -285,8 +310,15 @@ class MainActivity : ComponentActivity() {
 
         setIntent(intent)
 
-        pendingNotificationTarget =
-            NotificationTarget.fromIntent(intent)
-        pendingNotificationOwner = com.ku.lostandfound.notification.notificationAccountKey(TokenManager.accessToken, TokenManager.sessionGeneration())
+        queueNotification(intent)
+    }
+
+    private fun queueNotification(intent: Intent?) {
+        synchronized(TokenManager) {
+            pendingNotification = PendingNotification.updatedFrom(
+                pendingNotification, intent, TokenManager.reminderSession(), consumedNotifications,
+                TokenManager.tokenUserId(TokenManager.accessToken),
+            )
+        }
     }
 }

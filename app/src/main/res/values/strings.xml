@@ -1,3 +1,10 @@
 <resources>
     <string name="app_name">찾을건대</string>
+    <string name="osm_attribution_description">OpenStreetMap 저작권 및 지도 출처</string>
+    <string name="cd_back">뒤로가기</string>
+    <string name="cd_chat_with_author">작성자와 채팅</string>
+    <string name="cd_more">더보기</string>
+    <string name="cd_my_page">마이페이지</string>
+    <string name="cd_inbox">알림함</string>
+    <string name="cd_search">검색</string>
 </resources>

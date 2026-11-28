@@ -1,6 +1,17 @@
 package com.ku.lostandfound.ui.admin.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -40,7 +51,15 @@ data class AdminReportUiModel(
     val createdAt: String,
     val isProcessed: Boolean,
     val processedAction: String? = null,
+    val postId: Long? = null,
+    val postKind: String? = null,
+    val detail: String? = null,
+    val processingNote: String? = null,
+    val processedAt: String? = null,
 )
+
+// iOS AdminReportStatus: null = 전체.
+internal val adminReportStatuses = listOf(null to "전체", "RECEIVED" to "미처리", "DISMISSED" to "반려", "ACTION_TAKEN" to "조치 완료")
 
 internal val sampleAdminReports = listOf(
     AdminReportUiModel(
@@ -82,6 +101,8 @@ fun AdminReportListScreen(
     errorMessage: String? = null,
     onBackClick: () -> Unit,
     onReportClick: (String) -> Unit,
+    status: String? = "RECEIVED",
+    onStatusChange: (String?) -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -118,11 +139,36 @@ fun AdminReportListScreen(
                     fontSize = 13.sp,
                     color = TextGray,
                 )
-                if (isLoading) Text("신고 목록을 불러오는 중입니다.", fontSize = 13.sp, color = TextGray)
-                if (errorMessage != null) {
-                    Text(errorMessage, fontSize = 13.sp, color = PendingRed)
-                    androidx.compose.material3.TextButton(onClick = onRetry, enabled = !isLoading) { Text("다시 시도") }
+            }
+            item {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).selectableGroup(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    adminReportStatuses.forEach { (value, label) ->
+                        val selected = status == value
+                        Box(
+                            Modifier.heightIn(min = 48.dp).clip(CircleShape)
+                                .selectable(selected = selected, role = Role.Tab) { if (!selected) onStatusChange(value) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Box(
+                                Modifier.height(32.dp).clip(CircleShape)
+                                    .background(if (selected) DeepGreen else Color.White)
+                                    .border(1.dp, if (selected) Color.Transparent else AdminColor.Line, CircleShape)
+                                    .padding(horizontal = 14.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(label, color = if (selected) Color.White else AdminColor.Ink, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                 }
+            }
+            when {
+                errorMessage != null && reports.isEmpty() -> item { AdminMessage(errorMessage, onRetry, AdminColor.Red) }
+                errorMessage != null -> item { Text(errorMessage, fontSize = 12.sp, color = PendingRed) }
+                !isLoading && reports.isEmpty() -> item { AdminMessage("표시할 신고가 없습니다.") }
             }
 
             items(
@@ -136,7 +182,7 @@ fun AdminReportListScreen(
                     }
                 )
             }
-            if (hasNext) item { androidx.compose.material3.TextButton(onClick = onMore, enabled = !isLoading) { Text("더 보기") } }
+            adminPaging(hasNext, isLoading, reports.size, errorMessage != null, onMore)
         }
     }
 }
@@ -149,7 +195,7 @@ private fun AdminReportCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .noRippleClickable(onClick),
+            .clickable(role = Role.Button, onClick = onClick),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = Color.White,
@@ -173,6 +219,8 @@ private fun AdminReportCard(
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF222222),
                     modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
 
                 Text(

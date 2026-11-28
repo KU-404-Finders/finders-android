@@ -1,6 +1,16 @@
 package com.ku.lostandfound.ui.board.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.outlined.Place
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -105,42 +115,37 @@ fun HomeScreen(
             ) {
                 if (showCampusMap && boundary != null) {
                     item {
+                        // iOS BoardView: the map sits in its own rounded card above the list section.
+                        val mapShape = RoundedCornerShape(18.dp)
                         CampusMapCanvas(
                             boundary = boundary,
                             buildings = buildings,
                             referencePaths = referencePaths,
                             selectedBuildingIds = selectedBuilding?.let { setOf(it.id) }.orEmpty(),
                             modifier = Modifier
+                                .padding(horizontal = 16.dp)
                                 .fillMaxWidth()
-                                .height(330.dp),
+                                .height(330.dp)
+                                .shadow(6.dp, mapShape, ambientColor = Color.Black.copy(alpha = 0.07f), spotColor = Color.Black.copy(alpha = 0.07f))
+                                .clip(mapShape)
+                                .border(1.dp, Color.Black.copy(alpha = 0.08f), mapShape),
                             showLabels = true,
                             showRoute = false,
                             onBuildingClick = onBuildingClick,
                         )
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(22.dp))
                         if (selectedBuilding != null) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 20.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
+                            ListHeading("${selectedBuilding.name} 습득물") {
                                 Text(
-                                    text = "📍 ${selectedBuilding.name} 게시물만 보는 중",
+                                    "전체보기",
                                     color = DeepGreen,
                                     fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.weight(1f),
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.clip(CircleShape).background(Color(0xFFE4F6E5))
+                                        .clickable(role = Role.Button, onClick = onClearBuildingFilter)
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
                                 )
-                                TextButton(onClick = onClearBuildingFilter) {
-                                    Text("전체보기", color = DeepGreen, fontSize = 13.sp)
-                                }
                             }
-                            HorizontalDivider(
-                                modifier = Modifier.padding(horizontal = 20.dp),
-                                thickness = 0.5.dp,
-                                color = Color(0xFFE0E0E0),
-                            )
                         } else {
                             ListHeading("전체 습득물", listHeaderAction)
                         }
@@ -186,7 +191,9 @@ fun HomeScreen(
                 onClick = onAddClick,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(16.dp),
+                    .padding(16.dp)
+                    .size(58.dp),
+                shape = CircleShape,
                 containerColor = DeepGreen,
                 contentColor = Color.White,
             ) {
@@ -227,18 +234,22 @@ private fun BoardList(
 
 @Composable
 private fun ListHeading(text: String, action: (@Composable () -> Unit)?) {
-    Column {
+    // iOS sectionHeader: green pin, 16 bold title, trailing control, 1dp rule.
+    Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 2.dp)) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 30.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(text = text, color = Color.Gray, fontSize = 13.sp, modifier = Modifier.weight(1f))
+            Icon(Icons.Outlined.Place, contentDescription = null, tint = DeepGreen, modifier = Modifier.size(16.dp))
+            Text(text = text, color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f).semantics { heading() }, maxLines = 1, overflow = TextOverflow.Ellipsis)
             action?.invoke()
         }
         HorizontalDivider(
-            modifier = Modifier.padding(horizontal = 20.dp),
-            thickness = 0.5.dp,
-            color = Color(0xFFE0E0E0),
+            modifier = Modifier.padding(top = 12.dp),
+            thickness = 1.dp,
+            color = Color.Black.copy(alpha = 0.08f),
         )
     }
 }
@@ -250,26 +261,23 @@ private fun BoardStateMessage(
     actionLabel: String? = null,
     onActionClick: (() -> Unit)? = null,
 ) {
+    // iOS FinderEmptyState (grey, centred) and ErrorNotice (red text with a 다시 시도 link).
+    val isError = actionLabel != null
     Column(
-        modifier = modifier.padding(horizontal = 32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = modifier.padding(horizontal = if (isError) 20.dp else 24.dp),
+        horizontalAlignment = if (isError) Alignment.Start else Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
             text = message,
-            color = Color(0xFF666666),
-            fontSize = 14.sp,
-            textAlign = TextAlign.Center,
+            color = if (isError) Color(0xFFB3261E) else Color.Gray,
+            fontSize = 13.sp,
+            textAlign = if (isError) TextAlign.Start else TextAlign.Center,
+            modifier = if (isError) Modifier else Modifier.fillMaxWidth(),
         )
         if (actionLabel != null && onActionClick != null) {
-            Button(
-                onClick = onActionClick,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = DeepGreen,
-                    contentColor = Color.White,
-                ),
-            ) {
-                Text(actionLabel, fontSize = 13.sp)
+            TextButton(onClick = onActionClick, contentPadding = PaddingValues(horizontal = 0.dp)) {
+                Text(actionLabel, fontSize = 13.sp, color = DeepGreen)
             }
         }
     }

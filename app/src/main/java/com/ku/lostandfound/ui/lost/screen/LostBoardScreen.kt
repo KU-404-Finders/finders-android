@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -76,29 +78,29 @@ fun LostBoardScreen(
         isLoading = isLoading,
         errorMessage = errorMessage,
         emptyMessage = if (selectedCategory == LostCategory.ALL) {
-            "표시할 분실물 게시글이 없습니다."
+            "분실물 게시글이 없습니다."
         } else {
-            "선택한 분류의 분실물 게시글이 없습니다."
+            "${selectedCategory.label} 분류의 분실물이 없습니다."
         },
         onRetryClick = onRetryClick,
         onRefresh = onRefresh,
         listState = listState,
         listHeaderAction = {
             Box {
+                // iOS categoryFilter: mint capsule for 전체, solid green once a category is chosen.
+                val filtered = selectedCategory != LostCategory.ALL
                 OutlinedButton(
                     onClick = { filterExpanded = true },
-                    shape = RoundedCornerShape(12.dp),
+                    shape = CircleShape,
                     colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = Color(0xFFE7F3E9),
-                        contentColor = Color(0xFF1B6425)
+                        containerColor = if (filtered) Color(0xFF1B6425) else Color(0xFFE4F6E5),
+                        contentColor = if (filtered) Color.White else Color(0xFF1B6425),
                     ),
-                    border = BorderStroke(
-                        1.dp,
-                        Color(0xFFB8D4BC)
-                    ),
+                    border = null,
+                    modifier = Modifier.heightIn(min = 30.dp),
                     contentPadding = PaddingValues(
                         horizontal = 12.dp,
-                        vertical = 6.dp
+                        vertical = 4.dp
                     )
                 ) {
                     Icon(
@@ -110,7 +112,7 @@ fun LostBoardScreen(
                     Spacer(Modifier.width(6.dp))
 
                     Text(
-                        text = selectedCategory.label,
+                        text = if (filtered) selectedCategory.label else "필터",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold
                     )

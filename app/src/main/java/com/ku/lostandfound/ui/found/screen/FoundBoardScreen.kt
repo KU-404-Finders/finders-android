@@ -71,7 +71,7 @@ fun FoundBoardScreen(
         notificationCount = notificationCount,
         isLoading = isLoading,
         errorMessage = errorMessage,
-        emptyMessage = "표시할 습득물 게시글이 없습니다.",
+        emptyMessage = selectedBuilding?.let { "${it.name}에 등록된 습득물 게시글이 없습니다." } ?: "습득물 게시글이 없습니다.",
         onRetryClick = onRetryClick,
         onRefresh = onRefresh,
         listState = listState,

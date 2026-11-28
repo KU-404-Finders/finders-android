@@ -60,13 +60,13 @@ class NotificationNavigationRegressionTest : StabilityFixture() {
                 Response.success(ApiResponse(allReadOk, "", MarkAllNotificationsReadData()))
         }
         val lostApi = object : LostItemApiService by mock(LostItemApiService::class.java) {
-            override suspend fun getLostItemDetail(id: Long): Response<LostItemCreateResponse> {
+            override suspend fun getLostItemDetail(id: Long, session: com.ku.lostandfound.network.RequestSession?): Response<LostItemCreateResponse> {
                 details += "LOST" to id
                 return lost()
             }
         }
         val foundApi = object : FoundItemApiService by mock(FoundItemApiService::class.java) {
-            override suspend fun getFoundItemDetail(id: Long): Response<FoundItemDetailResponse> {
+            override suspend fun getFoundItemDetail(id: Long, session: com.ku.lostandfound.network.RequestSession?): Response<FoundItemDetailResponse> {
                 details += "FOUND" to id
                 return found()
             }

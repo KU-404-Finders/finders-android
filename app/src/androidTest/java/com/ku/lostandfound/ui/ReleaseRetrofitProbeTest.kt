@@ -23,16 +23,25 @@ import java.util.concurrent.atomic.AtomicInteger
 @RunWith(AndroidJUnit4::class)
 class ReleaseRetrofitProbeTest {
     @Test fun releaseWireConversion() {
+        runProbe(writes = false)
+    }
+
+    @Test fun releasePostWritesAndBlockNames() {
+        runProbe(writes = true)
+    }
+
+    private fun runProbe(writes: Boolean) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val mode = InstrumentationRegistry.getArguments().getString("releaseProbe")
-        assumeTrue(mode == "before" || mode == "after")
+        assumeTrue(mode == "after" || (!writes && mode == "before"))
         val directory = File(instrumentation.targetContext.filesDir, "release-probe")
         val symbols = Properties().apply { File(directory, "symbols.properties").inputStream().use(::load) }
         val apk = File(directory, "release.apk")
         check(apk.setReadOnly() || !apk.canWrite())
         val loader = DexClassLoader(apk.path, instrumentation.targetContext.codeCacheDir.path, null,
             ClassLoader.getSystemClassLoader().parent)
-        Probe(loader, symbols, instrumentation.targetContext).run(mode == "before")
+        val probe = Probe(loader, symbols, instrumentation.targetContext)
+        if (writes) probe.runWrites() else probe.run(mode == "before")
     }
 
     private class Probe(val loader: ClassLoader, val symbols: Properties, val context: android.content.Context) {
@@ -81,7 +90,7 @@ class ReleaseRetrofitProbeTest {
                 .apply { isAccessible = true }.invoke(builder)!!
         }
 
-        private fun call(api: String, service: String, endpoint: String, vararg args: Any): Any {
+        private fun call(api: String, service: String, endpoint: String, vararg args: Any?, raw: Boolean = false): Any {
             val fullService = network + service
             val method = type(fullService).declaredMethods.single { it.name == methodName(fullService, endpoint) }
                 .apply { isAccessible = true }
@@ -95,7 +104,7 @@ class ReleaseRetrofitProbeTest {
                 }
             }
             val input = when {
-                args.isEmpty() || method.parameterTypes[0].isPrimitive -> args
+                raw || args.isEmpty() || method.parameterTypes[0].isPrimitive -> args
                 else -> arrayOf(method.parameterTypes[0].getDeclaredConstructor(*Array(args.size) { String::class.java })
                     .apply { isAccessible = true }.newInstance(*args))
             }
@@ -108,6 +117,109 @@ class ReleaseRetrofitProbeTest {
                 throw value("kotlin.Result\$Failure", "exception", result) as Throwable
             }
             return result!!
+        }
+
+        private fun fixtureBody(text: String): Any {
+            val bytes = text.toByteArray()
+            val constructors = type("okhttp3.RequestBody\$Companion\$toRequestBody\$2").declaredConstructors
+            val ctor = constructors.single { ByteArray::class.java in it.parameterTypes }.apply { isAccessible = true }
+            var intIndex = 0
+            return ctor.newInstance(*ctor.parameterTypes.map { parameter ->
+                when (parameter) {
+                    ByteArray::class.java -> bytes
+                    Int::class.javaPrimitiveType -> if (intIndex++ == 0) bytes.size else 0
+                    else -> null
+                }
+            }.toTypedArray())
+        }
+
+        fun runWrites() {
+            val wire = ArrayBlockingQueue<Pair<String, String>>(1)
+            val bodyType = type("okhttp3.RequestBody")
+            val interceptor = Proxy.newProxyInstance(loader, arrayOf(type("okhttp3.Interceptor"))) { _, _, args ->
+                try {
+                    val request = checkNotNull(value("okhttp3.internal.http.RealInterceptorChain", "request", args[0]))
+                    val requestBody = request.javaClass.declaredFields.asSequence()
+                        .filterNot { java.lang.reflect.Modifier.isStatic(it.modifiers) }
+                        .mapNotNull { it.apply { isAccessible = true }.get(request) }
+                        .firstOrNull(bodyType::isInstance)
+                    val serialized = if (requestBody == null) "" else {
+                        val bufferType = type("okio.Buffer")
+                        val buffer = allocate(bufferType)
+                        bodyType.getDeclaredMethod(methodName("okhttp3.RequestBody", "writeTo"), type("okio.BufferedSink"))
+                            .apply { isAccessible = true }.invoke(requestBody, buffer)
+                        bufferType.getDeclaredMethod(methodName("okio.Buffer", "readUtf8"))
+                            .apply { isAccessible = true }.invoke(buffer) as String
+                    }
+                    check(wire.offer(request.toString() to serialized))
+                    syntheticResponse(args[0])
+                } catch (failure: Exception) {
+                    throw java.io.IOException("Cannot capture synthetic request", failure)
+                }
+            }
+            val interceptors = field("okhttp3.OkHttpClient", "interceptors")
+            interceptors.set(value(clientOwner, "postMutationClient"), listOf(interceptor))
+            interceptors.set(value(clientOwner, "okHttpClient"), listOf(interceptor))
+            val session = type(network + "RequestSession").getDeclaredConstructor(Long::class.javaPrimitiveType)
+                .apply { isAccessible = true }.newInstance(420123L)
+            val body = fixtureBody("""{"title":"wire-probe"}""")
+            val headers = type("okhttp3.Headers").getDeclaredConstructor(Array<String>::class.java)
+                .apply { isAccessible = true }.newInstance(arrayOf("Content-Disposition", "form-data; name=\"image\"; filename=\"fixture.jpg\""))
+            val image = type("okhttp3.MultipartBody\$Part").getDeclaredConstructor(type("okhttp3.Headers"), bodyType)
+                .apply { isAccessible = true }.newInstance(headers, fixtureBody("image-probe"))
+            val authorization = "Bearer release-probe"
+            fun assertRequest(method: String, path: String): String {
+                val (request, serialized) = checkNotNull(wire.poll())
+                assertTrue(request, request.contains("method=$method") && request.contains("url=") && request.contains(path))
+                assertTrue(request, request.contains("RequestSession(generation=420123)"))
+                return serialized
+            }
+            fun data(response: Any): Any =
+                checkNotNull(dtoField(checkNotNull(value("retrofit2.Response", "body", response)), "data"))
+
+            for (kind in listOf("Found", "Lost")) {
+                val item = kind.lowercase()
+                val path = "/api/v1/$item-items"
+                val api = "${item}ItemApi"
+                val service = "${kind}ItemApiService"
+                val fields = if (kind == "Found") ""","locationType":"OUTDOOR","associatedBuildingNames":[]"""
+                    else ""","indoorSpots":[],"outdoorPoints":[]"""
+                val created = """{"success":true,"data":{"id":7,"userId":2,"title":"wire-probe","itemStatus":"SEARCHING"$fields}}"""
+                json = created
+                val post = data(call(api, service, "create${kind}Item", authorization, body,
+                    if (kind == "Found") image else null, session, raw = true))
+                val multipart = assertRequest("POST", "$path,")
+                assertTrue(multipart, multipart.contains("name=\"request\"") && multipart.contains("wire-probe"))
+                if (kind == "Found") assertTrue(multipart, multipart.contains("name=\"image\"") && multipart.contains("image-probe"))
+                assertEquals(7L, dtoField(post, "id"))
+                // Create-only responses keep `success` nullable in the R8 build: true, false and missing.
+                fun createSuccess(payload: String): Any? {
+                    json = payload
+                    val response = call(api, service, "create${kind}Item", authorization, body,
+                        if (kind == "Found") image else null, session, raw = true)
+                    assertRequest("POST", "$path,")
+                    return dtoField(checkNotNull(value("retrofit2.Response", "body", response)), "success")
+                }
+                assertEquals(true, createSuccess("""{"success":true,"data":{"id":8,"userId":2,"title":"wire-probe","itemStatus":"SEARCHING"$fields}}"""))
+                assertEquals(false, createSuccess("""{"success":false,"message":"rejected"}"""))
+                assertNull(createSuccess("""{"message":"no flag","data":null}"""))
+                json = created
+                val updated = data(call(api, service, "update${kind}Item", authorization, 7L, body, null, session, raw = true))
+                assertTrue(assertRequest("PATCH", "$path/7,").contains("name=\"request\""))
+                assertEquals("wire-probe", dtoField(updated, "title"))
+            }
+
+            val block = """{"blockedUserId":4,"createdAt":"2026-11-26T01:02:03Z","blockedUserName":"탈퇴한 사용자"}"""
+            json = """{"success":true,"data":$block}"""
+            val receipt = data(call("moderationApi", "ModerationApiService", "block", 4L, session, raw = true))
+            assertRequest("POST", "/api/v1/users/4/block,")
+            assertEquals("탈퇴한 사용자", dtoField(receipt, "blockedUserName"))
+            json = """{"success":true,"data":[$block,{"blockedUserId":5}]}"""
+            val rows = data(call("moderationApi", "ModerationApiService", "blockedUsers", 0, session, raw = true)) as List<*>
+            assertRequest("GET", "/api/v1/users/me/blocks?page=0,")
+            assertEquals("탈퇴한 사용자", dtoField(rows[0]!!, "blockedUserName"))
+            assertNull(dtoField(rows[1]!!, "blockedUserName"))
+            assertEquals(12, calls.get())
         }
 
         fun run(before: Boolean) {

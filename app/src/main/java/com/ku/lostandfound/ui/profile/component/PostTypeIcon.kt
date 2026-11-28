@@ -24,7 +24,7 @@ fun PostTypeIcon(
 ) {
     Box(
         modifier = modifier
-            .size(34.dp)
+            .size(28.dp)
             .border(
                 width = 2.dp,
                 color = color,
@@ -37,7 +37,7 @@ fun PostTypeIcon(
                 Text(
                     text = "i",
                     color = color,
-                    fontSize = 20.sp,
+                    fontSize = 17.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -47,7 +47,7 @@ fun PostTypeIcon(
                     imageVector = Icons.Default.Check,
                     contentDescription = null,
                     tint = color,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }

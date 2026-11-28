@@ -12,6 +12,7 @@ import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Part
 import retrofit2.http.Path
+import retrofit2.http.Tag
 import retrofit2.http.Query
 
 interface FoundItemApiService {
@@ -26,7 +27,8 @@ interface FoundItemApiService {
         @Header("Authorization") authorization: String,
         @Part("request") request: RequestBody,
         @Part image: MultipartBody.Part,
-    ): Response<FoundItemDetailResponse>
+        @Tag session: RequestSession? = null,
+    ): Response<FoundItemCreatedResponse>
 
     @Multipart
     @PATCH("api/v1/found-items/{id}")
@@ -35,6 +37,7 @@ interface FoundItemApiService {
         @Path("id") id: Long,
         @Part("request") request: RequestBody,
         @Part image: MultipartBody.Part? = null,
+        @Tag session: RequestSession? = null,
     ): Response<FoundItemDetailResponse>
 
     @DELETE("api/v1/found-items/{id}")
@@ -47,10 +50,14 @@ interface FoundItemApiService {
     suspend fun updateFoundItemStatus(
         @Header("Authorization") authorization: String,
         @Path("id") id: Long,
+        @Tag session: RequestSession? = null,
     ): Response<FoundItemDetailResponse>
 
     @GET("api/v1/found-items/{id}")
-    suspend fun getFoundItemDetail(@Path("id") id: Long): Response<FoundItemDetailResponse>
+    suspend fun getFoundItemDetail(
+        @Path("id") id: Long,
+        @Tag session: RequestSession? = null,
+    ): Response<FoundItemDetailResponse>
 
     @GET("api/v1/found-items/{id}/matches")
     suspend fun getFoundItemMatches(@Path("id") id: Long): Response<FoundItemMatchesResponse>

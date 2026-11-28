@@ -63,6 +63,37 @@ class BlockedUsersRegressionTest : StabilityFixture() {
         dispatch()
     }
 
+    @Test fun currentServerResponseDeserializesWithoutAName() {
+        val block = com.google.gson.Gson().fromJson(
+            """{"blockedUserId":42,"createdAt":"2026-11-26T01:02:03Z"}""", BlockResponse::class.java,
+        )
+        assertEquals(42L, block.blockedUserId)
+        assertEquals("2026-11-26T01:02:03Z", block.createdAt)
+        assertEquals("사용자 #42", names.displayName(1, block.blockedUserId))
+    }
+
+    @Test fun serverNamesWinIncludingDeletedUserAndBlankOrNullFallsBack() {
+        names.save(1, 42, "기기 이름")
+        names.save(1, 43, "예전 이름")
+        names.save(1, 44, "공백 대체")
+        val gson = com.google.gson.Gson()
+        val rows = listOf(
+            """{"blockedUserId":42,"blockedUserName":"서버 이름"}""",
+            """{"blockedUserId":43,"blockedUserName":"탈퇴한 사용자"}""",
+            """{"blockedUserId":44,"blockedUserName":"  "}""",
+            """{"blockedUserId":45,"blockedUserName":null}""",
+        ).map { gson.fromJson(it, BlockResponse::class.java) }
+        vm.attachAccount(1)
+        vm.load()
+        dispatch()
+        lists.last().complete(rows)
+        dispatch()
+        assertEquals(listOf("서버 이름", "탈퇴한 사용자", "공백 대체", "사용자 #45"), vm.users.map { it.name })
+        TokenManager.clear()
+        vm.attachAccount(null)
+        assertTrue(vm.users.isEmpty())
+    }
+
     @Test fun namesAreDeviceLocalAndAccountScopedWithIdFallback() {
         names.save(1, 42, "홍길동")
         names.save(2, 42, "다른 이름")
